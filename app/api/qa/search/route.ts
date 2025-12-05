@@ -1,48 +1,69 @@
 // app/api/qa/search/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
-import { QaEntry } from "@/lib/types";
-import { ObjectId } from "mongodb";
+import { QaEntry, QaDomain, OwnerGroup, QaStatus } from "@/lib/types";
 
-export async function GET(req: NextRequest) {
+export const runtime = "nodejs";
+
+export async function POST(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const query = searchParams.get("q") || "";
+    const body = (await req.json()) as {
+      query?: string;
+      status?: QaStatus | "all";
+      domain?: QaDomain | "all";
+      owner_group?: OwnerGroup | "all";
+      limit?: number;
+    };
 
-    if (!query.trim()) {
-      return NextResponse.json(
-        { error: "Query parameter 'q' is required" },
-        { status: 400 }
-      );
+    const { query = "", status = "all", domain = "all", owner_group = "all" } =
+      body;
+
+    const limit = Math.min(Math.max(body.limit ?? 100, 1), 500);
+
+    const filter: any = {};
+
+    if (query.trim()) {
+      const regex = new RegExp(query.trim(), "i");
+      filter.$or = [
+        { question_text: regex },
+        { question_text_en: regex },
+        { answer_text: regex },
+      ];
+    }
+
+    if (status !== "all") {
+      filter.status = status;
+    }
+
+    if (domain !== "all") {
+      filter.domain = domain;
+    }
+
+    if (owner_group !== "all") {
+      filter.owner_group = owner_group;
     }
 
     const db = await getDb();
-
-    // بحث بسيط باستخدام regex في السؤال والإجابة (عربي/إنجليزي)
-    const cursor = db
+    const docs = await db
       .collection("qa_entries")
-      .find({
-        $or: [
-          { question_text: { $regex: query, $options: "i" } },
-          { question_text_en: { $regex: query, $options: "i" } },
-          { answer_text: { $regex: query, $options: "i" } },
-        ],
-      })
+      .find(filter)
       .sort({ updated_at: -1 })
-      .limit(10);
+      .limit(limit)
+      .toArray();
 
-    const resultsRaw = await cursor.toArray();
-
-    const results: QaEntry[] = resultsRaw.map((doc: any) => ({
+    const matches: QaEntry[] = docs.map((doc: any) => ({
       _id: doc._id.toString(),
       question_text: doc.question_text,
       question_text_en: doc.question_text_en || undefined,
-      question_language: doc.question_language || "ar",
+      question_language: doc.question_language || "en",
       answer_text: doc.answer_text,
       answer_language: doc.answer_language || "en",
       status: doc.status || "unknown",
       domain: doc.domain || "application",
       category: doc.category || undefined,
+      owner_group: doc.owner_group || undefined,
+      security_area: doc.security_area || undefined,
+      client_category: doc.client_category || undefined,
       is_from_file: doc.is_from_file ?? undefined,
       source_file: doc.source_file || undefined,
       source_ref: doc.source_ref || undefined,
@@ -55,7 +76,13 @@ export async function GET(req: NextRequest) {
       updated_at: doc.updated_at || undefined,
     }));
 
-    return NextResponse.json({ results }, { status: 200 });
+    return NextResponse.json(
+      {
+        matches,
+        total: matches.length,
+      },
+      { status: 200 }
+    );
   } catch (err: any) {
     console.error("Error in /api/qa/search:", err);
     return NextResponse.json(

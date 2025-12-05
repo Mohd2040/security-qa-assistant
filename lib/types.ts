@@ -11,29 +11,53 @@ export type QaDomain =
   | "database"
   | "network"
   | "cloud"
-  | "process";
+  | "process"
+  | "strategy"
+  | "management"
+  | "operations"
+  | "governance"
+  | "other";
+
+export type OwnerGroup =
+  | "dev"
+  | "infra"
+  | "ops"
+  | "management"
+  | "security"
+  | "other";
 
 export interface QaEntry {
-  _id?: string; // سنحوّله من ObjectId إلى string في الـ API
-  question_text: string;        // السؤال (ممكن عربي)
-  question_text_en?: string;    // السؤال بالإنجليزي إذا متوفر
+  _id?: string;
+
+  // النصوص الأساسية
+  question_text: string;
+  question_text_en?: string;
   question_language: "ar" | "en" | "mixed";
 
-  answer_text: string;          // الإجابة المعتمدة (غالبًا إنجليزي)
+  answer_text: string;
   answer_language: "ar" | "en" | "mixed";
 
+  // حالة التطبيق والتصنيف العام
   status: QaStatus;
   domain: QaDomain;
-  category?: string;            // مثل: authentication, encryption, logging...
 
+  // تصنيفات إضافية
+  category?: string;          // لو حاب تستخدمها لشيء خاص
+  owner_group?: OwnerGroup;   // Dev / Infra / Ops / Management / Security / Other
+  security_area?: string;     // التصنيف الداخلي الموحد (Access Management, Cryptography, ...)
+  client_category?: string;   // التصنيف كما وصل من الكلينت
+
+  // معلومات المصدر
   is_from_file?: boolean;
   source_file?: string;
   source_ref?: string;
 
+  // أسئلة إضافية
   needs_dev_input?: boolean;
   needs_infra_input?: boolean;
 
-  explanation_ar?: string;      // الشرح المبسط بالعربي
+  // شرح وتعليم
+  explanation_ar?: string;
   dev_questions?: string[];
   infra_questions?: string[];
 

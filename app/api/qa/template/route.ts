@@ -5,13 +5,15 @@ import * as XLSX from "xlsx";
 export const runtime = "nodejs";
 
 export async function GET() {
-  // أسماء الأعمدة (Headers)
   const headers = [
     "question_text",
     "question_text_en",
     "answer_text",
     "status",
     "domain",
+    "owner_group",
+    "security_area",
+    "client_category",
     "explanation_ar",
     "needs_dev_input",
     "needs_infra_input",

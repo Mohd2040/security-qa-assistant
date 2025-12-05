@@ -28,7 +28,7 @@ export default function HomePage() {
         </header>
 
         {/* Quick actions */}
-        <section className="grid gap-4 md:grid-cols-3">
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Link
             href="/search"
             className="group rounded-2xl border border-sky-700/60 bg-sky-950/40 p-4 hover:border-sky-400 hover:bg-sky-900/40 transition-colors flex flex-col justify-between"
@@ -38,10 +38,10 @@ export default function HomePage() {
                 🔍
               </div>
               <div>
-                <h2 className="text-lg font-semibold">Search Q&A</h2>
+                <h2 className="text-lg font-semibold">Search Q&amp;A</h2>
                 <p className="text-sm text-slate-200">
-                  Ask a security question (Arabic or English) and find the
-                  closest approved answer.
+                  Ask a security question (Arabic or English) and find the closest
+                  approved answer.
                 </p>
               </div>
             </div>
@@ -60,10 +60,10 @@ export default function HomePage() {
                 ✍️
               </div>
               <div>
-                <h2 className="text-lg font-semibold">Add Single Q&A</h2>
+                <h2 className="text-lg font-semibold">Add Single Q&amp;A</h2>
                 <p className="text-sm text-slate-200">
-                  Manually add or update one question and answer with status,
-                  domain, and Arabic explanation.
+                  Manually add or update one question and answer with status, domain,
+                  and Arabic explanation.
                 </p>
               </div>
             </div>
@@ -84,8 +84,8 @@ export default function HomePage() {
               <div>
                 <h2 className="text-lg font-semibold">Bulk Import (Excel)</h2>
                 <p className="text-sm text-slate-200">
-                  Upload an Excel file with multiple questions and answers to
-                  populate your knowledge base in one go.
+                  Upload an Excel file with multiple questions and answers to populate
+                  your knowledge base in one go.
                 </p>
               </div>
             </div>
@@ -94,8 +94,30 @@ export default function HomePage() {
               <span>→</span>
             </div>
           </Link>
-        </section>
 
+          <Link
+            href="/admin/prepare"
+            className="group rounded-2xl border border-fuchsia-700/60 bg-fuchsia-950/40 p-4 hover:border-fuchsia-400 hover:bg-fuchsia-900/40 transition-colors flex flex-col justify-between"
+          >
+            <div className="space-y-3">
+              <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-fuchsia-500/20 border border-fuchsia-500/40 text-fuchsia-200 text-lg">
+                🧩
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Prepare Client Questions</h2>
+                <p className="text-sm text-slate-200">
+                  Upload a one-column Excel file from the client and get back a ready
+                  Q&amp;A import template with all meta fields prefilled (except
+                  answers).
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 text-xs text-fuchsia-200/80 group-hover:text-fuchsia-100 flex items-center gap-1">
+              <span>Prepare Excel</span>
+              <span>→</span>
+            </div>
+          </Link>
+        </section>
         {/* Info / tips */}
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3 text-sm text-slate-200">
           <h3 className="font-semibold text-slate-100 text-base">
