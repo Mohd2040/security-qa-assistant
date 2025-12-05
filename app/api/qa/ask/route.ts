@@ -42,34 +42,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const best = resultsRaw[0];
-    const qa: QaEntry = {
-      _id: best._id.toString(),
-      question_text: best.question_text,
-      question_text_en: best.question_text_en || undefined,
-      question_language: best.question_language || "ar",
-      answer_text: best.answer_text,
-      answer_language: best.answer_language || "en",
-      status: best.status || "unknown",
-      domain: best.domain || "application",
-      category: best.category || undefined,
-      is_from_file: best.is_from_file ?? undefined,
-      source_file: best.source_file || undefined,
-      source_ref: best.source_ref || undefined,
-      needs_dev_input: best.needs_dev_input ?? undefined,
-      needs_infra_input: best.needs_infra_input ?? undefined,
-      explanation_ar: best.explanation_ar || "",
-      dev_questions: best.dev_questions || [],
-      infra_questions: best.infra_questions || [],
-      created_at: best.created_at || undefined,
-      updated_at: best.updated_at || undefined,
-    };
+    const matches: QaEntry[] = resultsRaw.map((doc: any) => ({
+      _id: doc._id.toString(),
+      question_text: doc.question_text,
+      question_text_en: doc.question_text_en || undefined,
+      question_language: doc.question_language || "ar",
+      answer_text: doc.answer_text,
+      answer_language: doc.answer_language || "en",
+      status: doc.status || "unknown",
+      domain: doc.domain || "application",
+      category: doc.category || undefined,
+      is_from_file: doc.is_from_file ?? undefined,
+      source_file: doc.source_file || undefined,
+      source_ref: doc.source_ref || undefined,
+      needs_dev_input: doc.needs_dev_input ?? undefined,
+      needs_infra_input: doc.needs_infra_input ?? undefined,
+      explanation_ar: doc.explanation_ar || "",
+      dev_questions: doc.dev_questions || [],
+      infra_questions: doc.infra_questions || [],
+      created_at: doc.created_at || undefined,
+      updated_at: doc.updated_at || undefined,
+    }));
+
+    const best = matches[0];
 
     return NextResponse.json(
       {
         found: true,
-        best_match: qa,
-        matches_count: resultsRaw.length,
+        best_match: best,
+        matches,
+        matches_count: matches.length,
       },
       { status: 200 }
     );

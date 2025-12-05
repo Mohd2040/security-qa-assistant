@@ -1,256 +1,125 @@
 // app/page.tsx
-"use client";
-
-import { FormEvent, useState } from "react";
-import { QaEntry } from "@/lib/types";
-
-type UiLang = "en" | "ar";
-
-interface AskResponse {
-  found: boolean;
-  message?: string;
-  best_match?: QaEntry;
-  matches_count?: number;
-}
+import Link from "next/link";
 
 export default function HomePage() {
-  const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [response, setResponse] = useState<AskResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [uiLang, setUiLang] = useState<UiLang>("en"); // default English
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setResponse(null);
-
-    if (!query.trim()) {
-      setError(uiLang === "en" ? "Please type a question" : "اكتب سؤال أولاً");
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const res = await fetch("/api/qa/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
-      });
-
-      const data = (await res.json()) as AskResponse & { error?: string };
-
-      if (!res.ok) {
-        setError(
-          data.error ||
-            (uiLang === "en"
-              ? "An error occurred while processing the request"
-              : "حدث خطأ أثناء الطلب")
-        );
-      } else {
-        setResponse(data);
-      }
-    } catch (err: any) {
-      console.error(err);
-      setError(
-        uiLang === "en"
-          ? "Failed to connect to the server"
-          : "تعذر الاتصال بالسيرفر"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const isArabic = uiLang === "ar";
-
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-4 py-6">
-      <div className="w-full max-w-3xl">
-        {/* Header + language toggle */}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl md:text-3xl font-bold">
-            Security Q&A Assistant
-          </h1>
-
-          <button
-            type="button"
-            onClick={() => setUiLang(isArabic ? "en" : "ar")}
-            className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium hover:bg-slate-700 transition-colors"
-          >
-            <span>{isArabic ? "EN" : "AR"}</span>
-            <span className="opacity-70">
-              {isArabic ? "Switch to English" : "تبديل إلى العربية"}
+    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-4 py-12">
+      <div className="w-full max-w-4xl space-y-10">
+        {/* Header */}
+        <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold">
+              Security Q&A Assistant
+            </h1>
+            <p className="mt-2 text-slate-300 text-sm md:text-base">
+              A smart workspace to manage, search, and grow your security
+              questionnaire knowledge base.
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2 text-right">
+            <span className="text-xs uppercase tracking-wide text-slate-500">
+              Environment
             </span>
-          </button>
-        </div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-600/60 bg-emerald-900/30 px-3 py-1 text-xs font-medium text-emerald-100">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              Internal Tool – In Progress
+            </span>
+          </div>
+        </header>
 
-        <p className="text-slate-300 mb-6 text-sm md:text-base">
-          {isArabic
-            ? "اكتب سؤال سيكوريتي (بالعربي أو الإنجليزي)، والنظام يبحث في قاعدة الأسئلة والأجوبة الموجودة عندك ويجيبك بأقرب نتيجة."
-            : "Type a security-related question (Arabic or English). The system will search your stored Q&A database and return the closest matching answer."}
-        </p>
-
-        {/* Search form */}
-        <form
-          onSubmit={handleSubmit}
-          className="flex flex-col gap-3 mb-6 bg-slate-900/60 border border-slate-800 rounded-xl p-4"
-        >
-          <textarea
-            className={`w-full rounded-md bg-slate-900 border border-slate-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 ${
-              isArabic ? "text-right" : "text-left"
-            }`}
-            rows={3}
-            placeholder={
-              isArabic
-                ? "مثال: هل النظام يدعم قفل الحساب بعد عدد محاولات فاشلة؟"
-                : "Example: Does the system support account lockout after several failed login attempts?"
-            }
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="self-end inline-flex items-center justify-center px-4 py-2 rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-sm font-medium transition-colors"
+        {/* Quick actions */}
+        <section className="grid gap-4 md:grid-cols-3">
+          <Link
+            href="/search"
+            className="group rounded-2xl border border-sky-700/60 bg-sky-950/40 p-4 hover:border-sky-400 hover:bg-sky-900/40 transition-colors flex flex-col justify-between"
           >
-            {loading
-              ? isArabic
-                ? "جاري البحث..."
-                : "Searching..."
-              : isArabic
-              ? "ابحث عن إجابة"
-              : "Search for an answer"}
-          </button>
-        </form>
-
-        {/* Error message */}
-        {error && (
-          <div className="mb-4 rounded-md bg-red-900/50 border border-red-700 px-4 py-3 text-sm text-red-100">
-            {error}
-          </div>
-        )}
-
-        {/* Response */}
-        {response && (
-          <div className="space-y-4">
-            {!response.found && (
-              <div className="rounded-md bg-yellow-900/40 border border-yellow-700 px-4 py-3 text-sm text-yellow-100">
-                {response.message ||
-                  (isArabic
-                    ? "لا يوجد نتيجة مطابقة. تحتاج تسأل الديفلوبرز أو فريق الإنفرا وتضيف الإجابة الجديدة للنظام."
-                    : "No matching question was found. You need to ask the developers or infrastructure team, then add the new answer to the system.")}
+            <div className="space-y-3">
+              <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-sky-500/20 border border-sky-500/40 text-sky-200 text-lg">
+                🔍
               </div>
-            )}
-
-            {response.found && response.best_match && (
-              <div className="rounded-xl bg-slate-900/70 border border-slate-800 p-4 space-y-3">
-                <div className="flex flex-wrap items-center gap-2 justify-between">
-                  <h2 className="text-lg font-semibold">
-                    {isArabic ? "أقرب تطابق موجود" : "Closest matching entry"}
-                  </h2>
-                  <div className="flex flex-wrap gap-2 text-xs">
-                    <span className="px-2 py-1 rounded-full bg-sky-900/70 border border-sky-700">
-                      Domain: {response.best_match.domain}
-                    </span>
-                    <span className="px-2 py-1 rounded-full bg-emerald-900/70 border border-emerald-700">
-                      Status: {response.best_match.status}
-                    </span>
-                    {response.matches_count !== undefined && (
-                      <span className="px-2 py-1 rounded-full bg-slate-800/80 border border-slate-700">
-                        Matches: {response.matches_count}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2 text-sm">
-                  {/* Stored question */}
-                  <div className={isArabic ? "text-right" : "text-left"}>
-                    <p className="text-slate-400 text-xs mb-1">
-                      {isArabic ? "السؤال المخزَّن:" : "Stored question:"}
-                    </p>
-                    <p className="font-medium">
-                      {response.best_match.question_text}
-                    </p>
-                    {response.best_match.question_text_en && (
-                      <p className="text-slate-300 mt-1">
-                        EN: {response.best_match.question_text_en}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Answer */}
-                  <div className={isArabic ? "text-right" : "text-left"}>
-                    <p className="text-slate-400 text-xs mb-1">
-                      {isArabic
-                        ? "الإجابة (للاستبيان):"
-                        : "Answer (for the questionnaire):"}
-                    </p>
-                    <p className="whitespace-pre-wrap text-slate-100">
-                      {response.best_match.answer_text}
-                    </p>
-                  </div>
-
-                  {/* Arabic explanation (for learning) */}
-                  {response.best_match.explanation_ar && (
-                    <div className="text-right">
-                      <p className="text-slate-400 text-xs mb-1">
-                        {isArabic
-                          ? "شرح مبسّط بالعربي:"
-                          : "Simple explanation in Arabic:"}
-                      </p>
-                      <p className="whitespace-pre-wrap text-slate-200">
-                        {response.best_match.explanation_ar}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Suggested dev/infra questions */}
-                  {(response.best_match.dev_questions &&
-                    response.best_match.dev_questions.length > 0) ||
-                  (response.best_match.infra_questions &&
-                    response.best_match.infra_questions.length > 0) ? (
-                    <div className={isArabic ? "text-right" : "text-left"}>
-                      <p className="text-slate-400 text-xs mb-1">
-                        {isArabic
-                          ? "أسئلة مقترحة لتسألها:"
-                          : "Suggested follow-up questions:"}
-                      </p>
-                      <ul className="list-disc list-inside space-y-1 text-slate-200">
-                        {response.best_match.dev_questions?.map((q, i) => (
-                          <li key={`dev-${i}`}>
-                            {isArabic ? "[Dev] " : "[Dev] "}
-                            {q}
-                          </li>
-                        ))}
-                        {response.best_match.infra_questions?.map((q, i) => (
-                          <li key={`infra-${i}`}>
-                            {isArabic ? "[Infra] " : "[Infra] "}
-                            {q}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-
-                  {/* Source info */}
-                  {(response.best_match.source_file ||
-                    response.best_match.source_ref) && (
-                    <div className="text-xs text-slate-500 mt-2">
-                      {isArabic ? "مصدر المعلومة: " : "Source: "}
-                      {response.best_match.source_file &&
-                        `${response.best_match.source_file} `}
-                      {response.best_match.source_ref &&
-                        `(Ref: ${response.best_match.source_ref})`}
-                    </div>
-                  )}
-                </div>
+              <div>
+                <h2 className="text-lg font-semibold">Search Q&A</h2>
+                <p className="text-sm text-slate-200">
+                  Ask a security question (Arabic or English) and find the
+                  closest approved answer.
+                </p>
               </div>
-            )}
-          </div>
-        )}
+            </div>
+            <div className="mt-4 text-xs text-sky-200/80 group-hover:text-sky-100 flex items-center gap-1">
+              <span>Go to search</span>
+              <span>→</span>
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/qa"
+            className="group rounded-2xl border border-emerald-700/60 bg-emerald-950/40 p-4 hover:border-emerald-400 hover:bg-emerald-900/40 transition-colors flex flex-col justify-between"
+          >
+            <div className="space-y-3">
+              <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 text-lg">
+                ✍️
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Add Single Q&A</h2>
+                <p className="text-sm text-slate-200">
+                  Manually add or update one question and answer with status,
+                  domain, and Arabic explanation.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 text-xs text-emerald-200/80 group-hover:text-emerald-100 flex items-center gap-1">
+              <span>Open admin form</span>
+              <span>→</span>
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/import"
+            className="group rounded-2xl border border-amber-700/60 bg-amber-950/40 p-4 hover:border-amber-400 hover:bg-amber-900/40 transition-colors flex flex-col justify-between"
+          >
+            <div className="space-y-3">
+              <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-200 text-lg">
+                📂
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Bulk Import (Excel)</h2>
+                <p className="text-sm text-slate-200">
+                  Upload an Excel file with multiple questions and answers to
+                  populate your knowledge base in one go.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 text-xs text-amber-200/80 group-hover:text-amber-100 flex items-center gap-1">
+              <span>Import from Excel</span>
+              <span>→</span>
+            </div>
+          </Link>
+        </section>
+
+        {/* Info / tips */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3 text-sm text-slate-200">
+          <h3 className="font-semibold text-slate-100 text-base">
+            How to use this tool
+          </h3>
+          <ul className="list-disc list-inside space-y-1">
+            <li>
+              Start with <span className="font-semibold">Search Q&amp;A</span>{" "}
+              to reuse existing approved answers before writing something new.
+            </li>
+            <li>
+              Use <span className="font-semibold">Add Single Q&amp;A</span> when
+              you receive a new question and have a confirmed answer.
+            </li>
+            <li>
+              Use <span className="font-semibold">Bulk Import (Excel)</span> to
+              import legacy spreadsheets from your team or vendor.
+            </li>
+          </ul>
+          <p className="text-xs text-slate-400 mt-2">
+            لاحقًا ممكن نضيف تكامل مع الذكاء الاصطناعي (AI Agent) لتوليد
+            إجابات أولية واقتراح أسئلة للديفلوبرز والإنفرا بشكل أوتوماتيكي.
+          </p>
+        </section>
       </div>
     </main>
   );
