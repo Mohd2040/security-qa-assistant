@@ -5,58 +5,95 @@ import { QaEntry, QaDomain, OwnerGroup, QaStatus } from "@/lib/types";
 
 export const runtime = "nodejs";
 
+interface SearchBody {
+  query?: string;
+  status?: QaStatus | "all";
+  domain?: QaDomain | "all";
+  owner_group?: OwnerGroup | "all";
+  page?: number;
+  pageSize?: number;
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as {
-      query?: string;
-      status?: QaStatus | "all";
-      domain?: QaDomain | "all";
-      owner_group?: OwnerGroup | "all";
-      limit?: number;
-    };
+    const body = (await req.json()) as SearchBody;
 
-    const { query = "", status = "all", domain = "all", owner_group = "all" } =
-      body;
+    const {
+      query = "",
+      status = "all",
+      domain = "all",
+      owner_group = "all",
+    } = body;
 
-    const limit = Math.min(Math.max(body.limit ?? 100, 1), 500);
+    let { page = 1, pageSize = 50 } = body;
 
-    const filter: any = {};
+    page = Math.max(1, page);
+    pageSize = Math.min(Math.max(pageSize, 1), 200);
 
-    if (query.trim()) {
-      const regex = new RegExp(query.trim(), "i");
-      filter.$or = [
-        { question_text: regex },
-        { question_text_en: regex },
-        { answer_text: regex },
-      ];
-    }
+    const db = await getDb();
+    const collection = db.collection("qa_entries");
 
+    let filter: any = {};
+    let sort: any = { updated_at: -1 };
+    const trimmedQuery = query.trim();
+
+    // --- تطبيق الفلاتر (status/domain/owner) ---
     if (status !== "all") {
       filter.status = status;
     }
-
     if (domain !== "all") {
       filter.domain = domain;
     }
-
     if (owner_group !== "all") {
       filter.owner_group = owner_group;
     }
 
-    const db = await getDb();
-    const docs = await db
-      .collection("qa_entries")
+    // --- بحث أساسي باستخدام text index إن وجد ---
+    if (trimmedQuery) {
+      filter.$text = { $search: trimmedQuery };
+      sort = { score: { $meta: "textScore" }, updated_at: -1 } as any;
+    }
+
+    // نحسب النتائج مبدئياً
+    let total = await collection.countDocuments(filter);
+
+    // --- Fuzzy Search بسيط (fallback) لو ما فيه نتائج من text search ---
+    if (trimmedQuery && total === 0) {
+      // نرجع نستخدم RegExp case-insensitive على question/answer
+      const safe = trimmedQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(safe, "i");
+
+      filter = {
+        ...((status !== "all" || domain !== "all" || owner_group !== "all") && {
+          status: filter.status,
+          domain: filter.domain,
+          owner_group: filter.owner_group,
+        }),
+        $or: [
+          { question_text: regex },
+          { question_text_en: regex },
+          { answer_text: regex },
+        ],
+      };
+
+      sort = { updated_at: -1 };
+      total = await collection.countDocuments(filter);
+    }
+
+    const cursor = collection
       .find(filter)
-      .sort({ updated_at: -1 })
-      .limit(limit)
-      .toArray();
+      .sort(sort)
+      .skip((page - 1) * pageSize)
+      .limit(pageSize);
+
+    const docs = await cursor.toArray();
 
     const matches: QaEntry[] = docs.map((doc: any) => ({
       _id: doc._id.toString(),
       question_text: doc.question_text,
       question_text_en: doc.question_text_en || undefined,
       question_language: doc.question_language || "en",
-      answer_text: doc.answer_text,
+      answer_text: doc.answer_text || "",
       answer_language: doc.answer_language || "en",
       status: doc.status || "unknown",
       domain: doc.domain || "application",
@@ -79,7 +116,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         matches,
-        total: matches.length,
+        total,
+        page,
+        pageSize,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
       },
       { status: 200 }
     );
