@@ -3,6 +3,15 @@
 
 import { FormEvent, useState } from "react";
 import { QaDomain, QaStatus } from "@/lib/types";
+import { Navbar } from "@/app/components/layout/Navbar";
+import { Footer } from "@/app/components/layout/Footer";
+import { Container } from "@/app/components/layout/Container";
+import { PageHeader } from "@/app/components/layout/PageHeader";
+import { Card, CardContent } from "@/app/components/ui/Card";
+import { Button } from "@/app/components/ui/Button";
+import { Plus, CheckCircle, AlertCircle } from "lucide-react";
+import { motion } from "framer-motion";
+import { useLanguage } from "@/app/contexts/LanguageContext";
 
 const STATUS_OPTIONS: QaStatus[] = [
   "applied",
@@ -17,9 +26,15 @@ const DOMAIN_OPTIONS: QaDomain[] = [
   "network",
   "cloud",
   "process",
+  "strategy",
+  "management",
+  "operations",
+  "governance",
+  "other",
 ];
 
 export default function AdminQaPage() {
+  const { t } = useLanguage();
   const [questionText, setQuestionText] = useState("");
   const [questionTextEn, setQuestionTextEn] = useState("");
   const [answerText, setAnswerText] = useState("");
@@ -39,7 +54,7 @@ export default function AdminQaPage() {
     setErrorMsg(null);
 
     if (!questionText.trim() || !answerText.trim()) {
-      setErrorMsg("السؤال والإجابة مطلوبان");
+      setErrorMsg("Question and answer are required");
       return;
     }
 
@@ -66,10 +81,10 @@ export default function AdminQaPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setErrorMsg(data.error || "حدث خطأ أثناء الحفظ");
+        setErrorMsg(data.error || "An error occurred while saving");
       } else {
-        setSuccessMsg(`تم الحفظ بنجاح. ID: ${data.id}`);
-        // تفريغ الحقول بعد النجاح
+        setSuccessMsg(`Successfully saved! ID: ${data.id}`);
+        // Reset form
         setQuestionText("");
         setQuestionTextEn("");
         setAnswerText("");
@@ -81,156 +96,193 @@ export default function AdminQaPage() {
       }
     } catch (err: any) {
       console.error(err);
-      setErrorMsg("تعذر الاتصال بالسيرفر");
+      setErrorMsg("Failed to connect to server");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-4 py-10">
-      <div className="w-full max-w-3xl space-y-6">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold mb-2">
-            Admin – إضافة سؤال/إجابة سيكوريتي
-          </h1>
-          <p className="text-slate-300 text-sm">
-            من هنا تقدر تضيف أسئلة وأجوبة جديدة لقاعدة البيانات، عشان تظهر بعدين
-            في صفحة البحث الرئيسية.
-          </p>
-        </div>
+    <>
+      <Navbar />
+      <main className="min-h-screen bg-slate-950">
+        <Container className="py-8">
+          <PageHeader
+            title="Add Security Q&A"
+            titleEn="إضافة سؤال وجواب أمني"
+            description="From here you can add new questions and answers to the database, which will then appear in the main search page."
+            icon={<Plus className="w-6 h-6 text-indigo-400" />}
+          />
 
-        <form
-          onSubmit={handleSubmit}
-          className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-4"
-        >
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              السؤال (عربي) *
-            </label>
-            <textarea
-              className="w-full rounded-md bg-slate-900 border border-slate-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-              rows={2}
-              value={questionText}
-              onChange={(e) => setQuestionText(e.target.value)}
-              placeholder="مثال: هل النظام يدعم قفل الحساب بعد عدد محاولات فاشلة؟"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              السؤال (إنجليزي) – اختياري
-            </label>
-            <textarea
-              className="w-full rounded-md bg-slate-900 border border-slate-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-              rows={2}
-              value={questionTextEn}
-              onChange={(e) => setQuestionTextEn(e.target.value)}
-              placeholder="Does the system support account lockout after failed login attempts?"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              الإجابة (للإستبيان) – غالباً إنجليزي *
-            </label>
-            <textarea
-              className="w-full rounded-md bg-slate-900 border border-slate-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-              rows={4}
-              value={answerText}
-              onChange={(e) => setAnswerText(e.target.value)}
-              placeholder="Yes, the system enforces account lockout after 5 consecutive failed login attempts..."
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Status</label>
-              <select
-                className="w-full rounded-md bg-slate-900 border border-slate-800 px-3 py-2 text-sm"
-                value={status}
-                onChange={(e) => setStatus(e.target.value as QaStatus)}
-              >
-                {STATUS_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">Domain</label>
-              <select
-                className="w-full rounded-md bg-slate-900 border border-slate-800 px-3 py-2 text-sm"
-                value={domain}
-                onChange={(e) => setDomain(e.target.value as QaDomain)}
-              >
-                {DOMAIN_OPTIONS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              شرح مبسّط بالعربي (اختياري، للتعلّم)
-            </label>
-            <textarea
-              className="w-full rounded-md bg-slate-900 border border-slate-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-              rows={3}
-              value={explanationAr}
-              onChange={(e) => setExplanationAr(e.target.value)}
-              placeholder="هذه الخاصية تمنع محاولات التخمين على كلمة المرور عن طريق قفل الحساب بعد عدد معين من المحاولات الفاشلة..."
-            />
-          </div>
-
-          <div className="flex items-center gap-4 text-sm">
-            <label className="inline-flex items-center gap-2">
-              <input
-                type="checkbox"
-                className="rounded border-slate-700 bg-slate-900"
-                checked={needsDev}
-                onChange={(e) => setNeedsDev(e.target.checked)}
-              />
-              <span>يحتاج سؤال للديفلوبرز؟</span>
-            </label>
-
-            <label className="inline-flex items-center gap-2">
-              <input
-                type="checkbox"
-                className="rounded border-slate-700 bg-slate-900"
-                checked={needsInfra}
-                onChange={(e) => setNeedsInfra(e.target.checked)}
-              />
-              <span>يحتاج سؤال للإنفرا؟</span>
-            </label>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="inline-flex items-center justify-center px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-medium transition-colors"
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+            className="mt-8"
           >
-            {loading ? "جاري الحفظ..." : "حفظ السؤال والإجابة"}
-          </button>
-        </form>
+            <Card variant="glass" padding="lg">
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Question Arabic */}
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-slate-200">
+                    Question (Arabic) *
+                  </label>
+                  <textarea
+                    className="w-full rounded-lg bg-slate-900/50 border border-slate-700/50 px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    rows={3}
+                    value={questionText}
+                    onChange={(e) => setQuestionText(e.target.value)}
+                    placeholder="Example: هل النظام يدعم قفل الحساب بعد عدد محاولات فاشلة؟"
+                  />
+                </div>
 
-        {errorMsg && (
-          <div className="rounded-md bg-red-900/50 border border-red-700 px-4 py-3 text-sm text-red-100">
-            {errorMsg}
-          </div>
-        )}
+                {/* Question English */}
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-slate-200">
+                    Question (English) - Optional
+                  </label>
+                  <textarea
+                    className="w-full rounded-lg bg-slate-900/50 border border-slate-700/50 px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    rows={3}
+                    value={questionTextEn}
+                    onChange={(e) => setQuestionTextEn(e.target.value)}
+                    placeholder="Does the system support account lockout after failed login attempts?"
+                  />
+                </div>
 
-        {successMsg && (
-          <div className="rounded-md bg-emerald-900/50 border border-emerald-700 px-4 py-3 text-sm text-emerald-100">
-            {successMsg}
-          </div>
-        )}
-      </div>
-    </main>
+                {/* Answer */}
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-slate-200">
+                    Answer (usually English) *
+                  </label>
+                  <textarea
+                    className="w-full rounded-lg bg-slate-900/50 border border-slate-700/50 px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    rows={5}
+                    value={answerText}
+                    onChange={(e) => setAnswerText(e.target.value)}
+                    placeholder="Yes, the system enforces account lockout after 5 consecutive failed login attempts..."
+                  />
+                </div>
+
+                {/* Status & Domain */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium mb-2 text-slate-200">
+                      Status
+                    </label>
+                    <select
+                      className="w-full rounded-lg bg-slate-900/50 border border-slate-700/50 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                      value={status}
+                      onChange={(e) => setStatus(e.target.value as QaStatus)}
+                    >
+                      {STATUS_OPTIONS.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2 text-slate-200">
+                      Domain
+                    </label>
+                    <select
+                      className="w-full rounded-lg bg-slate-900/50 border border-slate-700/50 px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                      value={domain}
+                      onChange={(e) => setDomain(e.target.value as QaDomain)}
+                    >
+                      {DOMAIN_OPTIONS.map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Explanation */}
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-slate-200">
+                    Simple Explanation (Arabic) - Optional
+                  </label>
+                  <textarea
+                    className="w-full rounded-lg bg-slate-900/50 border border-slate-700/50 px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    rows={3}
+                    value={explanationAr}
+                    onChange={(e) => setExplanationAr(e.target.value)}
+                    placeholder="هذه الخاصية تمنع محاولات التخمين على كلمة المرور..."
+                  />
+                </div>
+
+                {/* Checkboxes */}
+                <div className="flex flex-wrap items-center gap-6">
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-2 focus:ring-indigo-500"
+                      checked={needsDev}
+                      onChange={(e) => setNeedsDev(e.target.checked)}
+                    />
+                    <span className="text-sm text-slate-300">
+                      Needs developer input?
+                    </span>
+                  </label>
+
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-2 focus:ring-indigo-500"
+                      checked={needsInfra}
+                      onChange={(e) => setNeedsInfra(e.target.checked)}
+                    />
+                    <span className="text-sm text-slate-300">
+                      Needs infrastructure input?
+                    </span>
+                  </label>
+                </div>
+
+                {/* Submit Button */}
+                <div className="pt-4">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    isLoading={loading}
+                    icon={<CheckCircle className="w-5 h-5" />}
+                  >
+                    {loading ? "Saving..." : "Save Q&A Entry"}
+                  </Button>
+                </div>
+              </form>
+
+              {/* Messages */}
+              {errorMsg && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-6 rounded-lg bg-red-500/10 border border-red-500/30 px-4 py-3 flex items-start gap-3"
+                >
+                  <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-200">{errorMsg}</p>
+                </motion.div>
+              )}
+
+              {successMsg && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-6 rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-4 py-3 flex items-start gap-3"
+                >
+                  <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-emerald-200">{successMsg}</p>
+                </motion.div>
+              )}
+            </Card>
+          </motion.div>
+        </Container>
+      </main>
+      <Footer />
+    </>
   );
 }

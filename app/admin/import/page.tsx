@@ -1,83 +1,157 @@
 // app/admin/import/page.tsx
+"use client";
+
+import { Navbar } from "@/app/components/layout/Navbar";
+import { Footer } from "@/app/components/layout/Footer";
+import { Container } from "@/app/components/layout/Container";
+import { PageHeader } from "@/app/components/layout/PageHeader";
+import { Card } from "@/app/components/ui/Card";
+import { Button } from "@/app/components/ui/Button";
+import { Upload, Download, FileSpreadsheet } from "lucide-react";
+import { motion } from "framer-motion";
+import { useLanguage } from "@/app/contexts/LanguageContext";
 
 export default function ImportQaPage() {
+  const { t } = useLanguage();
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center px-4 py-10">
-      <div className="w-full max-w-3xl space-y-6">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold mb-2">
-            Admin – استيراد أسئلة من ملف Excel
-          </h1>
-          <p className="text-slate-300 text-sm">
-            من هنا تقدر ترفع ملف Excel يحتوي على الأسئلة والأجوبة المعتمدة، وسيتم
-            استيرادها مرة واحدة إلى قاعدة البيانات. بعد الاستيراد، سيقوم
-            النظام بتحميل ملف Excel جديد فيه نتيجة الاستيراد (كل صف تم/فشل).
-          </p>
-        </div>
+    <>
+      <Navbar />
+      <main className="min-h-screen bg-slate-950">
+        <Container className="py-8">
+          <PageHeader
+            title="Bulk Import from Excel"
+            titleEn="استيراد جماعي من Excel"
+            description="Upload an Excel file containing approved questions and answers, and import them all at once into the database."
+            icon={<Upload className="w-6 h-6 text-amber-400" />}
+          />
 
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3 text-sm">
-          <p className="font-semibold mb-1">📌 شكل ملف Excel المطلوب:</p>
-          <p className="text-slate-300">
-            السطر الأول يجب أن يكون عناوين أعمدة (Headers) بالأسماء التالية
-            بالإنجليزي:
-          </p>
-          <ul className="list-disc list-inside space-y-1 text-slate-200 mt-2">
-            <li><code>question_text</code> – السؤال (عربي أو إنجليزي)</li>
-            <li><code>question_text_en</code> – السؤال بالإنجليزي (اختياري)</li>
-            <li><code>answer_text</code> – الإجابة المعتمدة (غالباً إنجليزي)</li>
-            <li><code>status</code> – واحدة من: applied / not_applied / not_applicable / unknown</li>
-            <li><code>domain</code> – واحدة من: application / database / network / cloud / process</li>
-            <li><code>explanation_ar</code> – شرح مبسّط بالعربي (اختياري)</li>
-            <li><code>needs_dev_input</code> – TRUE/FALSE أو 1/0 (اختياري)</li>
-            <li><code>needs_infra_input</code> – TRUE/FALSE أو 1/0 (اختياري)</li>
-            <li><code>source_file</code> – اسم الملف الأصلي (اختياري)</li>
-            <li><code>source_ref</code> – رقم البند/المرجع في الملف الأصلي (اختياري)</li>
-          </ul>
+          <div className="mt-8 space-y-6">
+            {/* Template Info Card */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+            >
+              <Card variant="glass" padding="lg">
+                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-amber-400" />
+                  Required Excel Format
+                </h3>
+                <p className="text-sm text-slate-300 mb-4">
+                  The first row must contain headers (in English) with the following names:
+                </p>
+                <ul className="space-y-2 text-sm text-slate-300">
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">•</span>
+                    <span>
+                      <code className="px-2 py-0.5 rounded bg-slate-800/50 text-amber-300">question_text</code> – Question (Arabic or English)
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">•</span>
+                    <span>
+                      <code className="px-2 py-0.5 rounded bg-slate-800/50 text-amber-300">question_text_en</code> – Question in English (optional)
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">•</span>
+                    <span>
+                      <code className="px-2 py-0.5 rounded bg-slate-800/50 text-amber-300">answer_text</code> – Approved answer (usually English)
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">•</span>
+                    <span>
+                      <code className="px-2 py-0.5 rounded bg-slate-800/50 text-amber-300">status</code> – One of: applied / not_applied / not_applicable / unknown
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">•</span>
+                    <span>
+                      <code className="px-2 py-0.5 rounded bg-slate-800/50 text-amber-300">domain</code> – One of: application / database / network / cloud / process
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">•</span>
+                    <span>
+                      <code className="px-2 py-0.5 rounded bg-slate-800/50 text-amber-300">explanation_ar</code> – Simple explanation in Arabic (optional)
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">•</span>
+                    <span>
+                      <code className="px-2 py-0.5 rounded bg-slate-800/50 text-amber-300">needs_dev_input</code> – TRUE/FALSE or 1/0 (optional)
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">•</span>
+                    <span>
+                      <code className="px-2 py-0.5 rounded bg-slate-800/50 text-amber-300">needs_infra_input</code> – TRUE/FALSE or 1/0 (optional)
+                    </span>
+                  </li>
+                </ul>
 
-          <p className="text-slate-300 mt-3">
-            تقدر تنزل قالب جاهز بهذي الأعمدة وتلصق فيه بياناتك:
-          </p>
-          <a
-            href="/api/qa/template"
-            className="inline-flex items-center px-3 py-2 rounded-md bg-sky-600 hover:bg-sky-500 text-xs font-medium transition-colors"
-          >
-            تحميل قالب Excel جاهز
-          </a>
-        </div>
+                <div className="mt-6 pt-6 border-t border-slate-700/50">
+                  <p className="text-sm text-slate-300 mb-3">
+                    You can download a ready template with these columns:
+                  </p>
+                  <a href="/api/qa/template">
+                    <Button variant="secondary" size="md" icon={<Download className="w-4 h-4" />}>
+                      Download Excel Template
+                    </Button>
+                  </a>
+                </div>
+              </Card>
+            </motion.div>
 
-        <form
-          action="/api/qa/import"
-          method="POST"
-          encType="multipart/form-data"
-          className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-4 text-sm"
-        >
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              اختر ملف Excel للاستيراد *
-            </label>
-            <input
-              type="file"
-              name="file"
-              accept=".xlsx,.xls"
-              required
-              className="w-full text-sm text-slate-100 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-sky-600 file:text-white hover:file:bg-sky-500"
-            />
+            {/* Upload Form */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.3 }}
+            >
+              <Card variant="glass" padding="lg">
+                <form
+                  action="/api/qa/import"
+                  method="POST"
+                  encType="multipart/form-data"
+                  className="space-y-6"
+                >
+                  <div>
+                    <label className="block text-sm font-medium mb-3 text-slate-200">
+                      Select Excel File to Import *
+                    </label>
+                    <input
+                      type="file"
+                      name="file"
+                      accept=".xlsx,.xls"
+                      required
+                      className="w-full text-sm text-slate-100 file:mr-4 file:py-3 file:px-5 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-amber-600 file:to-orange-600 file:text-white hover:file:from-amber-500 hover:file:to-orange-500 file:transition-all file:cursor-pointer cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="bg-slate-800/30 border border-slate-700/30 rounded-lg p-4">
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      <strong className="text-slate-300">Note:</strong> When you click the import button, the browser will send the file to the server.
+                      After processing, a new Excel file will be downloaded containing the import result for each row (success / error / error message).
+                    </p>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    icon={<Upload className="w-5 h-5" />}
+                  >
+                    Import File Now
+                  </Button>
+                </form>
+              </Card>
+            </motion.div>
           </div>
-
-          <p className="text-slate-400 text-xs">
-            عند الضغط على زر الاستيراد، سيقوم المتصفح بإرسال الملف إلى السيرفر.
-            بعد الانتهاء، سيتم تحميل ملف Excel جديد يحتوي على نتيجة الاستيراد
-            لكل صف (تم / خطأ / رسالة الخطأ).
-          </p>
-
-          <button
-            type="submit"
-            className="inline-flex items-center justify-center px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium transition-colors"
-          >
-            استيراد الملف الآن
-          </button>
-        </form>
-      </div>
-    </main>
+        </Container>
+      </main>
+      <Footer />
+    </>
   );
 }
