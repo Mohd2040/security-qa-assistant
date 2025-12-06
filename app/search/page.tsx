@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { QaEntry } from "@/lib/types";
 
 type UiLang = "en" | "ar";
+type ThemeMode = "dark" | "light";
 
 interface SearchResponse {
   matches: QaEntry[];
@@ -11,6 +12,12 @@ interface SearchResponse {
   page: number;
   pageSize: number;
   totalPages: number;
+}
+
+interface Suggestion {
+  id: string;
+  question_text: string;
+  question_text_en?: string;
 }
 
 const STATUS_OPTIONS = [
@@ -49,7 +56,40 @@ const OWNER_OPTIONS = [
   { value: "other", labelEn: "Other", labelAr: "أخرى" },
 ];
 
-type ThemeMode = "dark" | "light";
+function getStatusChipClasses(status: string, isDark: boolean): string {
+  const base = "px-2 py-1 rounded-full border text-[11px]";
+  switch (status) {
+    case "applied":
+      return (
+        base +
+        (isDark
+          ? " bg-emerald-900/70 border-emerald-500 text-emerald-200"
+          : " bg-emerald-50 border-emerald-500 text-emerald-700")
+      );
+    case "not_applied":
+      return (
+        base +
+        (isDark
+          ? " bg-red-900/70 border-red-500 text-red-200"
+          : " bg-red-50 border-red-500 text-red-700")
+      );
+    case "unknown":
+      return (
+        base +
+        (isDark
+          ? " bg-yellow-900/70 border-yellow-500 text-yellow-200"
+          : " bg-yellow-50 border-yellow-500 text-yellow-700")
+      );
+    case "not_applicable":
+    default:
+      return (
+        base +
+        (isDark
+          ? " bg-slate-800 border-slate-500 text-slate-200"
+          : " bg-slate-100 border-slate-400 text-slate-700")
+      );
+  }
+}
 
 export default function SearchPage() {
   const [query, setQuery] = useState("");
@@ -57,14 +97,19 @@ export default function SearchPage() {
   const [domain, setDomain] = useState<string>("all");
   const [ownerGroup, setOwnerGroup] = useState<string>("all");
 
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
+  const [sourceFile, setSourceFile] = useState<string>("");
+
   const [page, setPage] = useState<number>(1);
-  const [pageSize] = useState<number>(50);
+  const [pageSize, setPageSize] = useState<number>(50);
 
   const [loading, setLoading] = useState(false);
   const [matches, setMatches] = useState<QaEntry[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [error, setError] = useState<string | null>(null);
+
   const [uiLang, setUiLang] = useState<UiLang>("en");
   const [theme, setTheme] = useState<ThemeMode>("dark");
 
@@ -77,11 +122,18 @@ export default function SearchPage() {
   const [bulkStatus, setBulkStatus] = useState<string>("applied");
   const [bulkUpdating, setBulkUpdating] = useState(false);
 
-  // Toast بسيط
+  // Toast
   const [toast, setToast] = useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
+
+  // Suggestions
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Recent queries (local only)
+  const [recentQueries, setRecentQueries] = useState<string[]>([]);
 
   const isArabic = uiLang === "ar";
   const isDark = theme === "dark";
@@ -106,10 +158,47 @@ export default function SearchPage() {
     setToast({ type, message });
   }
 
-  async function performSearch(goToPage?: number) {
+  // -------------------- Suggestions ---------------------
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed || trimmed.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timeoutId = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/qa/suggest?q=${encodeURIComponent(trimmed)}`
+        );
+        const data = await res.json();
+        if (!cancelled && res.ok && Array.isArray(data.suggestions)) {
+          setSuggestions(data.suggestions);
+          setShowSuggestions(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setSuggestions([]);
+          setShowSuggestions(false);
+        }
+      }
+    }, 250); // debounce بسيط
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [query]);
+
+  async function performSearch(goToPage?: number, overridePageSize?: number) {
     setError(null);
     setStatusMessage(null);
     setSelectedIds([]);
+
+    const targetPage = goToPage ?? page;
+    const size = overridePageSize ?? pageSize;
 
     try {
       setLoading(true);
@@ -121,26 +210,35 @@ export default function SearchPage() {
           status,
           domain,
           owner_group: ownerGroup,
-          page: goToPage ?? page,
-          pageSize,
+          page: targetPage,
+          pageSize: size,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+          source_file: sourceFile || undefined,
         }),
       });
 
-      const data = (await res.json()) as SearchResponse & { error?: string };
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
 
       if (!res.ok) {
         const msg =
-          data.error ||
+          (data && data.error) ||
           (isArabic
             ? "حدث خطأ أثناء عملية البحث"
             : "An error occurred while searching");
         setError(msg);
         showToast("error", msg);
       } else {
-        setMatches(data.matches || []);
-        setTotal(data.total || 0);
-        setPage(data.page || 1);
-        setTotalPages(data.totalPages || 1);
+        const payload = data as SearchResponse;
+        setMatches(payload.matches || []);
+        setTotal(payload.total || 0);
+        setPage(payload.page || targetPage);
+        setTotalPages(payload.totalPages || 1);
       }
     } catch (err: any) {
       console.error(err);
@@ -151,11 +249,19 @@ export default function SearchPage() {
       showToast("error", msg);
     } finally {
       setLoading(false);
+      setShowSuggestions(false);
     }
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    const trimmed = query.trim();
+    if (trimmed) {
+      setRecentQueries((prev) => {
+        const newList = [trimmed, ...prev.filter((q) => q !== trimmed)];
+        return newList.slice(0, 5);
+      });
+    }
     setPage(1);
     await performSearch(1);
   }
@@ -209,13 +315,16 @@ export default function SearchPage() {
     if (status) params.set("status", status);
     if (domain) params.set("domain", domain);
     if (ownerGroup) params.set("owner_group", ownerGroup);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    if (sourceFile) params.set("source_file", sourceFile);
 
     const url = `/api/qa/search/export?${params.toString()}`;
     window.open(url, "_blank");
   }
 
   async function handleStatusUpdate() {
-    if (!bestMatch) return;
+    if (!bestMatch || !bestMatch._id) return;
     setStatusMessage(null);
     setUpdatingStatus(true);
 
@@ -229,12 +338,19 @@ export default function SearchPage() {
         }),
       });
 
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
 
       if (!res.ok) {
         const msg =
-          data.error ||
-          (isArabic ? "فشل تحديث الحالة" : "Failed to update status");
+          (data && data.error) ||
+          (isArabic
+            ? `فشل تحديث الحالة. كود الرد: ${res.status}`
+            : `Failed to update status. HTTP ${res.status}`);
         setStatusMessage(msg);
         showToast("error", msg);
       } else {
@@ -254,8 +370,8 @@ export default function SearchPage() {
     } catch (err: any) {
       console.error(err);
       const msg = isArabic
-        ? "تعذر الاتصال بالسيرفر"
-        : "Failed to connect to the server";
+        ? "تعذر الاتصال بالسيرفر (Network error)"
+        : "Failed to connect to the server (network error)";
       setStatusMessage(msg);
       showToast("error", msg);
     } finally {
@@ -271,40 +387,37 @@ export default function SearchPage() {
   }
 
   function goPrev() {
-    if (!canGoPrev()) return;
+    if (!canGoPrev() || loading) return;
     const newPage = page - 1;
     setPage(newPage);
     performSearch(newPage);
   }
 
   function goNext() {
-    if (!canGoNext()) return;
+    if (!canGoNext() || loading) return;
     const newPage = page + 1;
     setPage(newPage);
     performSearch(newPage);
   }
 
-  // Bulk selection helpers
   function toggleSelect(id?: string) {
-  if (!id) return; // لو undefined ما نعمل شيء
-  setSelectedIds((prev) =>
-    prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-  );
+    if (!id) return;
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   }
 
   function isSelected(id?: string) {
-  if (!id) return false;
-  return selectedIds.includes(id);
+    if (!id) return false;
+    return selectedIds.includes(id);
   }
 
   function selectAllOnPage() {
-  // نتأكد إننا نأخذ فقط الـ IDs الصحيحة (غير undefined)
-  const ids = matches
-    .map((m) => m._id)
-    .filter((id): id is string => Boolean(id));
-
-  setSelectedIds(ids);
-}
+    const ids = matches
+      .map((m) => m._id)
+      .filter((id): id is string => Boolean(id));
+    setSelectedIds(ids);
+  }
 
   function clearSelection() {
     setSelectedIds([]);
@@ -324,11 +437,19 @@ export default function SearchPage() {
         }),
       });
 
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
       if (!res.ok) {
         const msg =
-          data.error ||
-          (isArabic ? "فشل التحديث الجماعي" : "Bulk update failed");
+          (data && data.error) ||
+          (isArabic
+            ? `فشل التحديث الجماعي. كود الرد: ${res.status}`
+            : `Bulk update failed. HTTP ${res.status}`);
         showToast("error", msg);
       } else {
         const msg =
@@ -336,37 +457,47 @@ export default function SearchPage() {
             ? `تم تعديل ${data.modified || 0} عنصر/عناصر`
             : `Updated ${data.modified || 0} item(s)`) || "";
         showToast("success", msg);
-        // تحديث في الواجهة
         setMatches((prev) =>
-        prev.map((m) => {
-          const id = m._id ?? ""; // نتأكد إنها string مش undefined
-          return selectedIds.includes(id)
-            ? { ...m, status: bulkStatus as any }
-            : m;
-        })
-      );
+          prev.map((m) => {
+            const id = m._id ?? "";
+            return selectedIds.includes(id)
+              ? { ...m, status: bulkStatus as any }
+              : m;
+          })
+        );
         setSelectedIds([]);
       }
     } catch (err: any) {
       console.error(err);
       const msg = isArabic
-        ? "تعذر الاتصال بالسيرفر"
-        : "Failed to connect to the server";
+        ? "تعذر الاتصال بالسيرفر (Network error)"
+        : "Failed to connect to the server (network error)";
       showToast("error", msg);
     } finally {
       setBulkUpdating(false);
     }
   }
 
-  // Classes حسب الثيم
-  const mainBgClass = isDark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900";
-  const cardBgClass = isDark ? "bg-slate-900/70 border-slate-800" : "bg-white border-slate-200";
-  const subCardBgClass = isDark ? "bg-slate-900/50 border-slate-800" : "bg-white border-slate-200";
-  const inputBgClass = isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-300";
-  const textareaBgClass = isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-300";
+  const mainBgClass = isDark
+    ? "bg-slate-950 text-slate-100"
+    : "bg-slate-50 text-slate-900";
+  const cardBgClass = isDark
+    ? "bg-slate-900/70 border-slate-800"
+    : "bg-white border-slate-200";
+  const subCardBgClass = isDark
+    ? "bg-slate-900/50 border-slate-800"
+    : "bg-white border-slate-200";
+  const inputBgClass = isDark
+    ? "bg-slate-900 border-slate-800"
+    : "bg-white border-slate-300";
+  const textareaBgClass = isDark
+    ? "bg-slate-900 border-slate-800"
+    : "bg-white border-slate-300";
 
   const skeletonCard = (
-    <div className={`rounded-xl ${cardBgClass} p-4 space-y-3 animate-pulse`}>
+    <div
+      className={`rounded-xl ${cardBgClass} p-4 space-y-3 animate-pulse`}
+    >
       <div className="h-5 w-40 rounded bg-slate-700/60" />
       <div className="h-4 w-full rounded bg-slate-700/50" />
       <div className="h-4 w-3/4 rounded bg-slate-700/40" />
@@ -374,7 +505,9 @@ export default function SearchPage() {
   );
 
   return (
-    <main className={`min-h-screen ${mainBgClass} flex flex-col items-center px-4 py-8`}>
+    <main
+      className={`min-h-screen ${mainBgClass} flex flex-col items-center px-4 py-8`}
+    >
       <div className="w-full max-w-5xl space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
@@ -385,8 +518,23 @@ export default function SearchPage() {
             <p className="text-slate-300 mt-1 text-sm md:text-base">
               {isArabic
                 ? "اكتب سؤال سيكوريتي وحدد الفلاتر، ثم يمكنك تعديل الحالات (فرديًا أو جماعيًا) وتصدير النتائج إلى Excel."
-                : "Type a security-related question, apply filters, then update statuses (single or bulk) and export results to Excel."}
+                : "Type a security-related question, adjust filters, then update statuses (single or bulk) and export results to Excel."}
             </p>
+            {recentQueries.length > 0 && (
+              <p className="text-xs text-slate-400 mt-1">
+                {isArabic ? "آخر عمليات بحث: " : "Recent searches: "}
+                {recentQueries.map((q, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setQuery(q)}
+                    className="underline mr-2"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -425,9 +573,11 @@ export default function SearchPage() {
         {/* Search & filters */}
         <form
           onSubmit={handleSubmit}
-          className={`rounded-xl border ${isDark ? "border-slate-800 bg-slate-900/60" : "border-slate-200 bg-white"} p-4 space-y-4`}
+          className={`rounded-xl border ${
+            isDark ? "border-slate-800 bg-slate-900/60" : "border-slate-200 bg-white"
+          } p-4 space-y-4`}
         >
-          <div className="flex flex-col gap-3 md:flex-row">
+          <div className="relative">
             <textarea
               className={`w-full rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 ${
                 textareaBgClass
@@ -440,9 +590,43 @@ export default function SearchPage() {
               }
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => {
+                if (suggestions.length > 0) setShowSuggestions(true);
+              }}
             />
+
+            {/* Suggestions dropdown */}
+            {showSuggestions && suggestions.length > 0 && (
+              <div
+                className={`absolute z-20 mt-1 w-full rounded-md border ${
+                  isDark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-300"
+                } max-h-56 overflow-auto text-xs`}
+              >
+                {suggestions.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => {
+                      setQuery(s.question_text);
+                      setShowSuggestions(false);
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-slate-800/60"
+                  >
+                    <div className={isArabic ? "text-right" : "text-left"}>
+                      <div className="font-medium">{s.question_text}</div>
+                      {s.question_text_en && s.question_text_en !== s.question_text && (
+                        <div className="text-slate-400">
+                          EN: {s.question_text_en}
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
+          {/* Basic filters */}
           <div className="grid gap-3 md:grid-cols-3 text-xs md:text-sm">
             {/* Status filter */}
             <div>
@@ -493,6 +677,64 @@ export default function SearchPage() {
                 {OWNER_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {isArabic ? opt.labelAr : opt.labelEn}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Advanced filters */}
+          <div className="grid gap-3 md:grid-cols-4 text-xs md:text-sm">
+            <div>
+              <label className="block mb-1 text-slate-300">
+                {isArabic ? "من تاريخ" : "From date"}
+              </label>
+              <input
+                type="date"
+                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block mb-1 text-slate-300">
+                {isArabic ? "إلى تاريخ" : "To date"}
+              </label>
+              <input
+                type="date"
+                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block mb-1 text-slate-300">
+                {isArabic ? "اسم الملف (source_file)" : "Source file"}
+              </label>
+              <input
+                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                value={sourceFile}
+                onChange={(e) => setSourceFile(e.target.value)}
+                placeholder={isArabic ? "مثال: eec1.xlsx" : "e.g. eec1.xlsx"}
+              />
+            </div>
+            <div>
+              <label className="block mb-1 text-slate-300">
+                {isArabic ? "عدد النتائج في الصفحة" : "Page size"}
+              </label>
+              <select
+                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                value={pageSize}
+                onChange={(e) => {
+                  const newSize = Number(e.target.value);
+                  setPageSize(newSize);
+                  setPage(1);
+                  performSearch(1, newSize);
+                }}
+              >
+                {[25, 50, 100, 200].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
                   </option>
                 ))}
               </select>
@@ -634,7 +876,9 @@ export default function SearchPage() {
         {bestMatch && (
           <div className="space-y-4">
             {/* Main card */}
-            <div className={`rounded-xl border ${cardBgClass} p-4 space-y-4`}>
+            <div
+              className={`rounded-xl border ${cardBgClass} p-4 space-y-4`}
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <input
@@ -656,7 +900,12 @@ export default function SearchPage() {
                       Owner: {bestMatch.owner_group}
                     </span>
                   )}
-                  <span className="px-2 py-1 rounded-full bg-emerald-900/70 border border-emerald-700">
+                  <span
+                    className={getStatusChipClasses(
+                      bestMatch.status,
+                      isDark
+                    )}
+                  >
                     Status: {bestMatch.status}
                   </span>
                 </div>
@@ -674,11 +923,13 @@ export default function SearchPage() {
                   value={statusEditValue}
                   onChange={(e) => setStatusEditValue(e.target.value)}
                 >
-                  {STATUS_OPTIONS.filter((s) => s.value !== "all").map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {isArabic ? opt.labelAr : opt.labelEn}
-                    </option>
-                  ))}
+                  {STATUS_OPTIONS.filter((s) => s.value !== "all").map(
+                    (opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {isArabic ? opt.labelAr : opt.labelEn}
+                      </option>
+                    )
+                  )}
                 </select>
                 <button
                   type="button"
@@ -709,7 +960,8 @@ export default function SearchPage() {
                   </p>
                   <p className="font-medium">{bestMatch.question_text}</p>
                   {bestMatch.question_text_en &&
-                    bestMatch.question_text_en !== bestMatch.question_text && (
+                    bestMatch.question_text_en !==
+                      bestMatch.question_text && (
                       <p className="text-slate-300 mt-1">
                         EN: {bestMatch.question_text_en}
                       </p>
@@ -778,7 +1030,9 @@ export default function SearchPage() {
 
             {/* Other matches */}
             {otherMatches.length > 0 && (
-              <div className={`rounded-xl border ${subCardBgClass} p-4 space-y-2 text-sm`}>
+              <div
+                className={`rounded-xl border ${subCardBgClass} p-4 space-y-2 text-sm`}
+              >
                 <p className="text-slate-300 text-xs mb-2">
                   {isArabic ? "نتائج أخرى:" : "Other matching results:"}
                 </p>
@@ -814,7 +1068,9 @@ export default function SearchPage() {
                             Owner: {m.owner_group}
                           </span>
                         )}
-                        <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
+                        <span
+                          className={getStatusChipClasses(m.status, isDark)}
+                        >
                           Status: {m.status}
                         </span>
                       </div>
@@ -835,7 +1091,7 @@ export default function SearchPage() {
         )}
       </div>
 
-      {/* Toast بسيط */}
+      {/* Toast */}
       {toast && (
         <div
           className={`fixed bottom-4 right-4 max-w-sm px-4 py-2 rounded-md text-xs md:text-sm shadow-lg ${
