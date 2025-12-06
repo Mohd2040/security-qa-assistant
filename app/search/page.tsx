@@ -100,6 +100,7 @@ export default function SearchPage() {
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [sourceFile, setSourceFile] = useState<string>("");
+  const [clientName, setClientName] = useState<string>("");
 
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(50);
@@ -117,22 +118,18 @@ export default function SearchPage() {
   const [statusEditValue, setStatusEditValue] = useState<string>("unknown");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Bulk selection
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkStatus, setBulkStatus] = useState<string>("applied");
   const [bulkUpdating, setBulkUpdating] = useState(false);
 
-  // Toast
   const [toast, setToast] = useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
 
-  // Suggestions
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  // Recent queries (local only)
   const [recentQueries, setRecentQueries] = useState<string[]>([]);
 
   const isArabic = uiLang === "ar";
@@ -158,7 +155,7 @@ export default function SearchPage() {
     setToast({ type, message });
   }
 
-  // -------------------- Suggestions ---------------------
+  // Suggestions
   useEffect(() => {
     const trimmed = query.trim();
     if (!trimmed || trimmed.length < 2) {
@@ -184,7 +181,7 @@ export default function SearchPage() {
           setShowSuggestions(false);
         }
       }
-    }, 250); // debounce بسيط
+    }, 250);
 
     return () => {
       cancelled = true;
@@ -215,6 +212,7 @@ export default function SearchPage() {
           dateFrom: dateFrom || undefined,
           dateTo: dateTo || undefined,
           source_file: sourceFile || undefined,
+          client_name: clientName || undefined,
         }),
       });
 
@@ -318,6 +316,7 @@ export default function SearchPage() {
     if (dateFrom) params.set("dateFrom", dateFrom);
     if (dateTo) params.set("dateTo", dateTo);
     if (sourceFile) params.set("source_file", sourceFile);
+    if (clientName) params.set("client_name", clientName);
 
     const url = `/api/qa/search/export?${params.toString()}`;
     window.open(url, "_blank");
@@ -628,7 +627,6 @@ export default function SearchPage() {
 
           {/* Basic filters */}
           <div className="grid gap-3 md:grid-cols-3 text-xs md:text-sm">
-            {/* Status filter */}
             <div>
               <label className="block mb-1 text-slate-300">
                 {isArabic ? "الحالة" : "Status"}
@@ -646,7 +644,6 @@ export default function SearchPage() {
               </select>
             </div>
 
-            {/* Domain filter */}
             <div>
               <label className="block mb-1 text-slate-300">
                 {isArabic ? "التصنيف (Domain)" : "Domain"}
@@ -664,7 +661,6 @@ export default function SearchPage() {
               </select>
             </div>
 
-            {/* Owner group filter */}
             <div>
               <label className="block mb-1 text-slate-300">
                 {isArabic ? "الجهة المسؤولة" : "Owner group"}
@@ -720,6 +716,21 @@ export default function SearchPage() {
             </div>
             <div>
               <label className="block mb-1 text-slate-300">
+                {isArabic ? "اسم العميل (Client)" : "Client name"}
+              </label>
+              <input
+                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+                placeholder={isArabic ? "مثال: البنك الفلاني" : "e.g. Client XYZ"}
+              />
+            </div>
+          </div>
+
+          {/* Page size */}
+          <div className="grid gap-3 md:grid-cols-4 text-xs md:text-sm">
+            <div>
+              <label className="block mb-1 text-slate-300">
                 {isArabic ? "عدد النتائج في الصفحة" : "Page size"}
               </label>
               <select
@@ -771,7 +782,6 @@ export default function SearchPage() {
             </div>
           </div>
 
-          {/* Pagination controls */}
           {totalPages > 1 && (
             <div className="flex items-center justify-end gap-3 text-xs text-slate-300 mt-2">
               <button
@@ -799,14 +809,12 @@ export default function SearchPage() {
           )}
         </form>
 
-        {/* Error */}
         {error && (
           <div className="mb-4 rounded-md bg-red-900/50 border border-red-700 px-4 py-3 text-sm text-red-100">
             {error}
           </div>
         )}
 
-        {/* Loading skeleton */}
         {loading && matches.length === 0 && (
           <div className="space-y-3">
             {skeletonCard}
@@ -814,7 +822,6 @@ export default function SearchPage() {
           </div>
         )}
 
-        {/* Bulk controls */}
         {matches.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs md:text-sm">
             <div className="flex flex-wrap items-center gap-3">
@@ -872,10 +879,8 @@ export default function SearchPage() {
           </div>
         )}
 
-        {/* Results */}
         {bestMatch && (
           <div className="space-y-4">
-            {/* Main card */}
             <div
               className={`rounded-xl border ${cardBgClass} p-4 space-y-4`}
             >
@@ -900,6 +905,11 @@ export default function SearchPage() {
                       Owner: {bestMatch.owner_group}
                     </span>
                   )}
+                  {bestMatch.client_name && (
+                    <span className="px-2 py-1 rounded-full bg-slate-800/80 border border-slate-700">
+                      Client: {bestMatch.client_name}
+                    </span>
+                  )}
                   <span
                     className={getStatusChipClasses(
                       bestMatch.status,
@@ -911,7 +921,6 @@ export default function SearchPage() {
                 </div>
               </div>
 
-              {/* Inline status edit */}
               <div className="flex flex-wrap items-center gap-3 text-xs md:text-sm">
                 <span className="text-slate-300">
                   {isArabic
@@ -953,7 +962,6 @@ export default function SearchPage() {
               </div>
 
               <div className="space-y-3 text-sm">
-                {/* Stored question */}
                 <div className={isArabic ? "text-right" : "text-left"}>
                   <p className="text-slate-400 text-xs mb-1">
                     {isArabic ? "السؤال:" : "Question:"}
@@ -968,7 +976,6 @@ export default function SearchPage() {
                     )}
                 </div>
 
-                {/* Answer */}
                 <div className={isArabic ? "text-right" : "text-left"}>
                   <p className="text-slate-400 text-xs mb-1">
                     {isArabic
@@ -986,7 +993,6 @@ export default function SearchPage() {
                   </p>
                 </div>
 
-                {/* Arabic explanation */}
                 <div className="text-right">
                   <p className="text-slate-400 text-xs mb-1">
                     {isArabic
@@ -1002,7 +1008,6 @@ export default function SearchPage() {
                   </p>
                 </div>
 
-                {/* Recommendations */}
                 {recommendations.length > 0 && (
                   <div className={isArabic ? "text-right" : "text-left"}>
                     <p className="text-slate-400 text-xs mb-1">
@@ -1016,19 +1021,23 @@ export default function SearchPage() {
                   </div>
                 )}
 
-                {/* Source info */}
-                {(bestMatch.source_file || bestMatch.source_ref) && (
+                {(bestMatch.source_file ||
+                  bestMatch.source_ref ||
+                  bestMatch.client_name) && (
                   <div className="text-xs text-slate-500 mt-2">
                     {isArabic ? "مصدر المعلومة: " : "Source: "}
                     {bestMatch.source_file && `${bestMatch.source_file} `}
                     {bestMatch.source_ref &&
-                      `(Ref: ${bestMatch.source_ref})`}
+                      `(Ref: ${bestMatch.source_ref}) `}
+                    {bestMatch.client_name &&
+                      (isArabic
+                        ? ` | العميل: ${bestMatch.client_name}`
+                        : ` | Client: ${bestMatch.client_name}`)}
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Other matches */}
             {otherMatches.length > 0 && (
               <div
                 className={`rounded-xl border ${subCardBgClass} p-4 space-y-2 text-sm`}
@@ -1068,6 +1077,11 @@ export default function SearchPage() {
                             Owner: {m.owner_group}
                           </span>
                         )}
+                        {m.client_name && (
+                          <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
+                            Client: {m.client_name}
+                          </span>
+                        )}
                         <span
                           className={getStatusChipClasses(m.status, isDark)}
                         >
@@ -1091,7 +1105,6 @@ export default function SearchPage() {
         )}
       </div>
 
-      {/* Toast */}
       {toast && (
         <div
           className={`fixed bottom-4 right-4 max-w-sm px-4 py-2 rounded-md text-xs md:text-sm shadow-lg ${

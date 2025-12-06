@@ -18,6 +18,8 @@ interface SearchBody {
   dateFrom?: string; // ISO التاريخ من
   dateTo?: string; // ISO التاريخ إلى
   source_file?: string;
+
+  client_name?: string;
 }
 
 type InternalDoc = {
@@ -34,6 +36,7 @@ type InternalDoc = {
   created_at?: string;
   updated_at?: string;
   embedding?: number[];
+  client_name?: string;
 };
 
 export async function POST(req: NextRequest) {
@@ -48,6 +51,7 @@ export async function POST(req: NextRequest) {
       dateFrom,
       dateTo,
       source_file,
+      client_name,
     } = body;
 
     let { page = 1, pageSize = 50 } = body;
@@ -74,6 +78,9 @@ export async function POST(req: NextRequest) {
     if (owner_group !== "all") filter.owner_group = owner_group;
     if (source_file && source_file.trim()) {
       filter.source_file = source_file.trim();
+    }
+    if (client_name && client_name.trim()) {
+    filter.client_name = client_name.trim();
     }
 
     if (dateFrom || dateTo) {
@@ -314,6 +321,7 @@ function docToQaEntry(doc: InternalDoc): QaEntry {
     source_ref: doc.source_ref || undefined,
     created_at: doc.created_at,
     updated_at: doc.updated_at,
+    client_name: doc.client_name || undefined,
   };
 }
 

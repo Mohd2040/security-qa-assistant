@@ -63,4 +63,6 @@ export interface QaEntry {
 
   created_at?: string;
   updated_at?: string;
+
+  client_name?: string;
 }
