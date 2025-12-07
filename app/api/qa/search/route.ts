@@ -322,6 +322,7 @@ function docToQaEntry(doc: InternalDoc, score?: number): QaEntry {
     created_at: doc.created_at,
     updated_at: doc.updated_at,
     client_name: doc.client_name || undefined,
+    question_text_ar: doc.question_text_ar || undefined, // Map Arabic text
     score: score ? Math.round(score * 100) : undefined,
   };
 }

@@ -28,24 +28,26 @@ export async function POST(req: NextRequest) {
 
         let translatedText = "";
 
-        if (ollamaBaseUrl) {
-            // Use Ollama via OpenAI SDK (Ollama provides OpenAI-compatible endpoint at /v1)
-            // or we can use direct fetch if the SDK gives trouble. 
-            // Let's try the SDK with the compatible endpoint first.
+        const systemPrompt = `You are a specialized Cybersecurity Consultant and Translator. 
+    Your task is to translate the following compliance control or security question to ${targetLang === "ar" ? "Arabic" : "English"}.
+    
+    Guidelines:
+    1. Use professional, industry-standard cybersecurity terminology (e.g., terms from NIST, ISO 27001, SAMA).
+    2. Avoid literal word-for-word translation. Focus on the technical meaning and intent of the control.
+    3. For "roadmap", use "خطة عمل" or "خارطة طريق" depending on context, but ensure the sentence flows naturally.
+    4. For "executed", use "تطبيق" or "تنفيذ" in a way that implies active enforcement.
+    5. Output ONLY the translated text, without any introductory or concluding remarks.`;
 
+        if (ollamaBaseUrl) {
             const client = new OpenAI({
                 baseURL: `${ollamaBaseUrl}/v1`,
-                apiKey: "ollama", // required but unused
+                apiKey: "ollama",
             });
 
             const completion = await client.chat.completions.create({
                 model: ollamaModel,
                 messages: [
-                    {
-                        role: "system",
-                        content: `You are a professional translator for a Cyber Security system. Translate the following text to ${targetLang === "ar" ? "Arabic" : "English"
-                            }. Keep technical terms accurate. Return ONLY the translated text, no explanations.`,
-                    },
+                    { role: "system", content: systemPrompt },
                     { role: "user", content: text },
                 ],
                 temperature: 0.3,
@@ -54,7 +56,6 @@ export async function POST(req: NextRequest) {
             translatedText = completion.choices[0]?.message?.content?.trim() || "";
 
         } else if (process.env.OPENAI_API_KEY) {
-            // Fallback to OpenAI if Ollama not set but OpenAI key is
             const client = new OpenAI({
                 apiKey: process.env.OPENAI_API_KEY,
             });
@@ -62,11 +63,7 @@ export async function POST(req: NextRequest) {
             const completion = await client.chat.completions.create({
                 model: "gpt-4o-mini",
                 messages: [
-                    {
-                        role: "system",
-                        content: `You are a professional translator for a Cyber Security system. Translate the following text to ${targetLang === "ar" ? "Arabic" : "English"
-                            }. Keep technical terms accurate. Return ONLY the translated text.`,
-                    },
+                    { role: "system", content: systemPrompt },
                     { role: "user", content: text },
                 ],
             });
@@ -83,7 +80,7 @@ export async function POST(req: NextRequest) {
             throw new Error("Failed to generate translation");
         }
 
-        // Clean up any potential "Here is the translation:" prefixes that local models sometimes add
+        // Clean up
         translatedText = translatedText.replace(/^Here is the translation:[\s\n]*/i, "").replace(/^Translation:[\s\n]*/i, "").replace(/^"|"$/g, "");
 
         // If qaId is provided, update the database
@@ -91,7 +88,10 @@ export async function POST(req: NextRequest) {
             const db = await getDb();
             const collection = db.collection("qa_entries");
 
-            const updateField = targetLang === "en" ? "question_text_en" : "question_text";
+            const updateField = targetLang === "en" ? "question_text_en" : "question_text_ar";
+            // Note: If translating TO Arabic, we assume we are updating the primary question_text 
+            // OR we could update a new field if we wanted to preserve the original. 
+            // But based on user request "Question (Arabic)" field, updating question_text seems correct for the Arabic version.
 
             await collection.updateOne(
                 { _id: new ObjectId(qaId) },

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { Search, SlidersHorizontal, Check, AlertCircle, Loader2, FileText, Database, Server, Code, Info, ChevronDown, ChevronUp, Edit2, X, Save, Languages, ArrowRightLeft, Globe } from 'lucide-react';
+import { Search, SlidersHorizontal, Check, AlertCircle, Loader2, FileText, Database, Server, Code, Info, ChevronDown, ChevronUp, Edit2, X, Save, Languages, ArrowRightLeft, Globe, AlertTriangle } from 'lucide-react';
 import { QaEntry, QaStatus, QaDomain } from '@/lib/types';
 
 export default function SearchPage() {
@@ -26,9 +26,20 @@ export default function SearchPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Toast State
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
   // Filters
   const [statusFilter, setStatusFilter] = useState<QaStatus | 'all'>('all');
   const [domainFilter, setDomainFilter] = useState<string>('all');
+
+  // Clear toast after 3 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   // Search Function
   const handleSearch = useCallback(async (e?: React.FormEvent) => {
@@ -106,11 +117,14 @@ export default function SearchPage() {
       });
 
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Translation failed');
+
       if (data.translatedText) {
         setQuery(data.translatedText);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Translation failed", err);
+      setToast({ message: `Translation failed: ${err.message}`, type: 'error' });
     } finally {
       setTranslatingQuery(false);
     }
@@ -127,73 +141,95 @@ export default function SearchPage() {
       return;
     }
 
-    // Determine target language
-    // If question_text is Arabic, we want English.
-    // If question_text is English, we want Arabic.
-    const isArabic = /[\u0600-\u06FF]/.test(item.question_text);
-    const targetLang = isArabic ? 'en' : 'ar';
+    // We are about to SHOW translation.
+    // We need to check if we HAVE the translation we need.
+    // We prioritize English as Main.
+    // So if we have English, we show Arabic as Secondary.
+    // If we don't have English, we show Arabic as Main (and want English as Secondary? No, logic says English is always Main if available).
 
-    // Check if we already have the translation
-    let hasTranslation = false;
-    if (targetLang === 'en' && item.question_text_en) hasTranslation = true;
-    // Note: We don't have a dedicated 'question_text_ar' field in the type yet, 
-    // so if target is Arabic, we might need to fetch it unless we store it elsewhere.
-    // For now, let's assume we always fetch if it's not the 'en' field we have.
+    // Let's determine what we HAVE.
+    const originalIsArabic = /[\u0600-\u06FF]/.test(item.question_text);
 
-    if (hasTranslation) {
+    // English Text Source:
+    const englishText = item.question_text_en || (originalIsArabic ? undefined : item.question_text);
+
+    // Arabic Text Source:
+    const arabicText = item.question_text_ar || (originalIsArabic ? item.question_text : undefined);
+
+    // What do we need?
+    // If we have English, we want to show Arabic in secondary.
+    // If we have Arabic, we want to show English in main (which pushes Arabic to secondary).
+
+    let targetLang: 'ar' | 'en' | null = null;
+
+    if (englishText && !arabicText) {
+      // We have English, but missing Arabic. Fetch Arabic.
+      targetLang = 'ar';
+    } else if (arabicText && !englishText) {
+      // We have Arabic, but missing English. Fetch English.
+      targetLang = 'en';
+    }
+
+    // If we have both, or if we can't determine (shouldn't happen), we just show what we have.
+    if (!targetLang) {
       const newTranslated = new Set(translatedItems);
       newTranslated.add(id);
       setTranslatedItems(newTranslated);
-    } else {
-      setTranslatingIds(prev => new Set(prev).add(id));
-      try {
-        const res = await fetch('/api/qa/translate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: item.question_text,
-            targetLang,
-            qaId: id
-          }),
-        });
+      return;
+    }
 
-        const data = await res.json();
+    // Perform Fetch
+    console.log(`Translating item ${id} to ${targetLang}`);
+    setTranslatingIds(prev => new Set(prev).add(id));
 
-        if (data.translatedText) {
-          // Update local result
-          setResults(prev => prev.map(r => {
-            if (r._id === id) {
-              // If target was EN, update question_text_en
-              // If target was AR, we currently don't have a dedicated field in the frontend type to show it separately
-              // BUT, for the purpose of this "Dual View", we can store it in a temporary property or reuse explanation_ar if appropriate?
-              // Let's stick to updating question_text_en if it's English.
-              // If it's Arabic, we might need to handle it. For now, let's assume most source is Arabic -> English.
-              if (targetLang === 'en') {
-                return { ...r, question_text_en: data.translatedText };
-              } else {
-                // Temporary hack: if we translated TO Arabic, let's put it in explanation_ar for display if empty, 
-                // or just rely on the fact that we don't persist it in a visible field yet?
-                // Actually, let's just update the local state with a custom field 'translated_text' for display purposes
-                return { ...r, translated_text: data.translatedText } as QaEntry & { translated_text?: string };
-              }
+    try {
+      const res = await fetch('/api/qa/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: item.question_text, // Always translate from original? Or from what we have? 
+          // If original is AR, and we want EN -> translate original.
+          // If original is EN, and we want AR -> translate original.
+          // Correct.
+          targetLang,
+          qaId: id
+        }),
+      });
+
+      const data = await res.json();
+      console.log('Translation response:', data);
+
+      if (!res.ok) throw new Error(data.error || 'Translation failed');
+
+      if (data.translatedText) {
+        // Update local result
+        setResults(prev => prev.map(r => {
+          if (r._id === id) {
+            if (targetLang === 'en') {
+              return { ...r, question_text_en: data.translatedText };
+            } else {
+              return { ...r, question_text_ar: data.translatedText };
             }
-            return r;
-          }));
+          }
+          return r;
+        }));
 
-          const newTranslated = new Set(translatedItems);
-          newTranslated.add(id);
-          setTranslatedItems(newTranslated);
-        }
-      } catch (err) {
-        console.error("Result translation failed", err);
-        // Optional: Show toast error
-      } finally {
-        setTranslatingIds(prev => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
+        const newTranslated = new Set(translatedItems);
+        newTranslated.add(id);
+        setTranslatedItems(newTranslated);
+        setToast({ message: 'Translation complete', type: 'success' });
+      } else {
+        throw new Error('Empty translation received');
       }
+    } catch (err: any) {
+      console.error("Result translation failed", err);
+      setToast({ message: `Translation failed: ${err.message}`, type: 'error' });
+    } finally {
+      setTranslatingIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -218,9 +254,10 @@ export default function SearchPage() {
       setResults(prev => prev.map(item => item._id === editingItem._id ? editingItem : item));
       setIsEditModalOpen(false);
       setEditingItem(null);
+      setToast({ message: 'Changes saved successfully', type: 'success' });
     } catch (err) {
       console.error(err);
-      alert('Failed to save changes');
+      setToast({ message: 'Failed to save changes', type: 'error' });
     } finally {
       setSaving(false);
     }
@@ -230,6 +267,15 @@ export default function SearchPage() {
     <MainLayout>
       <div className="min-h-screen pt-24 pb-12 px-4 md:px-8">
         <div className="container-neo max-w-6xl mx-auto">
+
+          {/* Toast Notification */}
+          {toast && (
+            <div className={`fixed top-24 right-4 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-in-right ${toast.type === 'error' ? 'bg-red-500/90 text-white' : 'bg-emerald-500/90 text-white'
+              }`}>
+              {toast.type === 'error' ? <AlertTriangle className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+              <span className="font-medium">{toast.message}</span>
+            </div>
+          )}
 
           {/* Header Section */}
           <div className="flex flex-col md:flex-row items-end justify-between gap-6 mb-8">
@@ -361,14 +407,42 @@ export default function SearchPage() {
                 (result.score || 0) > 50 ? 'text-sky-400 border-sky-500/30 bg-sky-500/10' :
                   'text-slate-400 border-slate-500/30 bg-slate-500/10';
 
-              // Determine text to show
+              // Strict English-First Logic
               const originalText = result.question_text;
               const isOriginalArabic = /[\u0600-\u06FF]/.test(originalText);
 
-              // Translation text: prefer question_text_en if original is Arabic, or custom translated_text
-              const translatedText = isOriginalArabic
-                ? (result.question_text_en || (result as any).translated_text)
-                : ((result as any).translated_text || "Translation not available");
+              // Identify English and Arabic texts
+              // English: question_text_en OR (if original is EN, then original)
+              const englishText = result.question_text_en || (!isOriginalArabic ? originalText : '') || (result as any).translated_text;
+              // Note: (result as any).translated_text is a fallback for old behavior, but we should rely on question_text_en/ar now.
+
+              // Arabic: question_text_ar OR (if original is AR, then original)
+              const arabicText = result.question_text_ar || (isOriginalArabic ? originalText : '');
+
+              // Display Logic
+              // 1. Main Title: Always English if available, otherwise Arabic.
+              let mainText = englishText || arabicText;
+              let mainDir = (mainText === arabicText) ? 'rtl' : 'ltr';
+
+              // 2. Secondary Box: The OTHER language.
+              // Only show if 'showTranslation' is active.
+              let secondaryText = '';
+              let secondaryDir = 'ltr';
+              let secondaryLabel = '';
+
+              if (showTranslation) {
+                if (mainText === englishText) {
+                  // Show Arabic
+                  secondaryText = arabicText || "Translation not available";
+                  secondaryDir = 'rtl';
+                  secondaryLabel = 'Arabic Translation';
+                } else if (mainText === arabicText) {
+                  // Show English
+                  secondaryText = englishText || "Translation not available";
+                  secondaryDir = 'ltr';
+                  secondaryLabel = 'English Translation';
+                }
+              }
 
               return (
                 <div key={result._id} className="glass-card p-6 group hover:bg-white/[0.02] transition-all border-l-4 border-l-transparent hover:border-l-sky-500">
@@ -414,31 +488,33 @@ export default function SearchPage() {
                     )}
                   </div>
 
-                  {/* Original Question */}
+                  {/* Main Question */}
                   <h3
                     className="text-lg md:text-xl font-bold text-white mb-3 group-hover:text-sky-300 transition-colors leading-snug"
-                    dir={isOriginalArabic ? 'rtl' : 'ltr'}
+                    dir={mainDir}
                   >
-                    {originalText}
+                    {mainText}
                   </h3>
 
-                  {/* Translation Box (Dual View) */}
+                  {/* Secondary Question (Translation) */}
                   {showTranslation && (
                     <div className="mb-4 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 animate-fade-in">
                       <div className="flex items-center gap-2 mb-1 text-xs font-bold text-purple-400 uppercase tracking-wider">
                         <Globe className="w-3 h-3" />
-                        Translation ({isOriginalArabic ? 'English' : 'Arabic'})
+                        {secondaryLabel}
                       </div>
-                      <p className="text-purple-100 text-lg leading-snug" dir={!isOriginalArabic ? 'rtl' : 'ltr'}>
-                        {translatedText}
+                      <p className={`text-lg leading-snug ${secondaryText === "Translation not available" ? 'text-slate-500 italic text-sm' : 'text-purple-100'}`} dir={secondaryDir}>
+                        {secondaryText}
                       </p>
                     </div>
                   )}
 
                   {/* Answer Preview */}
-                  <div className={`text-slate-300 leading-relaxed border-l-2 border-white/10 pl-4 whitespace-pre-wrap transition-all duration-300 ${isExpanded ? '' : 'line-clamp-3'}`}>
-                    {result.answer_text || <span className="text-slate-500 italic">No answer provided yet.</span>}
-                  </div>
+                  {result.answer_text && (
+                    <div className={`text-slate-300 leading-relaxed border-l-2 border-white/10 pl-4 whitespace-pre-wrap transition-all duration-300 ${isExpanded ? '' : 'line-clamp-3'}`}>
+                      {result.answer_text}
+                    </div>
+                  )}
 
                   {/* Expanded Details */}
                   {isExpanded && (
@@ -540,25 +616,29 @@ export default function SearchPage() {
                 {/* Modal Body */}
                 <div className="p-6 space-y-6">
 
-                  {/* Question */}
+                  {/* Question (English) */}
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Question</label>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Question (English)</label>
+                    <textarea
+                      value={editingItem.question_text_en || ''}
+                      onChange={(e) => setEditingItem({ ...editingItem, question_text_en: e.target.value })}
+                      className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500/50 transition-all"
+                      rows={2}
+                      dir="ltr"
+                      placeholder="Enter question in English..."
+                    />
+                  </div>
+
+                  {/* Question (Arabic) */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Question (Arabic)</label>
                     <textarea
                       value={editingItem.question_text}
                       onChange={(e) => setEditingItem({ ...editingItem, question_text: e.target.value })}
                       className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500/50 transition-all"
                       rows={2}
-                    />
-                  </div>
-
-                  {/* Answer */}
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Answer</label>
-                    <textarea
-                      value={editingItem.answer_text}
-                      onChange={(e) => setEditingItem({ ...editingItem, answer_text: e.target.value })}
-                      className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500/50 transition-all"
-                      rows={5}
+                      dir="rtl"
+                      placeholder="أدخل السؤال بالعربية..."
                     />
                   </div>
 
