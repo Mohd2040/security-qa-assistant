@@ -65,4 +65,5 @@ export interface QaEntry {
   updated_at?: string;
 
   client_name?: string;
+  score?: number; // Search relevance score (0-100)
 }
