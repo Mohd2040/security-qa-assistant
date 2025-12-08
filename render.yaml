@@ -4,7 +4,7 @@ services:
     env: docker
     plan: free
     region: frankfurt
-    branch: master
+    branch: devops3
     # If using GHCR image (faster builds):
     # image: ghcr.io/YOUR_USERNAME/security-qa-assistant-new:latest
     # If building from source on Render (slower):
