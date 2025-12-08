@@ -2,8 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import * as XLSX from "xlsx";
-import { getEmbeddingVector, isAiEnabled } from "@/lib/ai";
-import { cosineSimilarity } from "@/lib/embeddings";
+// Use the shared embeddings logic (OpenAI) to match semantic-search behavior
+import { cosineSimilarity, getEmbedding } from "@/lib/embeddings";
 
 export const runtime = "nodejs";
 
@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
         const file = formData.get("file");
         const thresholdRaw = formData.get("threshold") || "0.7";
         const includeAiSuggestions = formData.get("includeAi") !== "false";
+        const mode = (formData.get("mode") || "download").toString(); // preview | download
 
         const threshold = parseFloat(thresholdRaw.toString());
 
@@ -102,7 +103,8 @@ export async function POST(req: NextRequest) {
             })
             .toArray();
 
-        const useAi = isAiEnabled();
+        console.log(`[Match Debug] Found ${existingEntries.length} entries in DB. Entries with embeddings: ${existingEntries.filter(e => e.embedding).length}`);
+
         const matches: MatchedAnswer[] = [];
         let highMatches = 0;
         let mediumMatches = 0;
@@ -114,41 +116,46 @@ export async function POST(req: NextRequest) {
             let bestMatch: any = null;
             let bestScore = 0;
 
-            // Generate embedding for this question
-            let questionEmbedding: number[] | null = null;
-            if (useAi) {
-                try {
-                    questionEmbedding = await getEmbeddingVector(question);
-                } catch (e) {
-                    console.error("Failed to generate embedding:", e);
+            // 1. Try Exact Match First (Case-insensitive)
+            const lowerQuestion = question.toLowerCase().trim();
+
+            for (const entry of existingEntries) {
+                const entryQuestion = (entry.question_text || "").toLowerCase().trim();
+                if (entryQuestion === lowerQuestion) {
+                    console.log(`[Match Debug] Exact match found for: "${question}"`);
+                    bestScore = 1.0;
+                    bestMatch = entry;
+                    break; // Found exact match, stop searching
                 }
             }
 
-            // Search for best match
-            if (questionEmbedding && existingEntries.length > 0) {
-                for (const entry of existingEntries) {
-                    if (!entry.embedding) continue;
-
-                    const score = cosineSimilarity(
-                        questionEmbedding,
-                        entry.embedding as number[]
-                    );
-
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestMatch = entry;
-                    }
+            // 2. If no exact match, try Semantic Search (using OpenAI embeddings)
+            if (!bestMatch) {
+                let questionEmbedding: number[] | null = null;
+                try {
+                    // Using lib/embeddings which uses OpenAI (same as semantic-search endpoint)
+                    questionEmbedding = await getEmbedding(question);
+                } catch (e) {
+                    console.error("Failed to generate embedding:", e);
                 }
-            } else {
-                // Fallback: Exact text matching (case-insensitive)
-                const lowerQuestion = question.toLowerCase();
-                for (const entry of existingEntries) {
-                    const entryQuestion = (entry.question_text || "").toLowerCase();
-                    if (entryQuestion === lowerQuestion) {
-                        bestScore = 1.0;
-                        bestMatch = entry;
-                        break;
+
+                if (questionEmbedding && existingEntries.length > 0) {
+                    console.log(`[Match Debug] No exact match, trying semantic search for: "${question}"`);
+
+                    for (const entry of existingEntries) {
+                        if (!entry.embedding) continue;
+
+                        const score = cosineSimilarity(
+                            questionEmbedding,
+                            entry.embedding as number[]
+                        );
+
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestMatch = entry;
+                        }
                     }
+                    console.log(`[Match Debug] Best semantic score for "${question}": ${bestScore}`);
                 }
             }
 
@@ -172,13 +179,12 @@ export async function POST(req: NextRequest) {
             let aiSuggestion = "";
             if (
                 includeAiSuggestions &&
-                useAi &&
                 bestScore < threshold &&
                 matchConfidence !== "high"
             ) {
-                // TODO: Add AI suggestion generation here
-                // For now, just placeholder
-                aiSuggestion = "[AI suggestion would go here]";
+                // TODO: Add AI suggestion generation here if needed.
+                // Currently keeping empty as requested, but logic is ready.
+                aiSuggestion = "";
             }
 
             // Build matched answer object
@@ -195,6 +201,19 @@ export async function POST(req: NextRequest) {
             };
 
             matches.push(matchedAnswer);
+        }
+
+        // IF MODE IS PREVIEW, RETURN JSON
+        if (mode === "preview") {
+            const result: MatchResult = {
+                totalQuestions: matches.length,
+                highMatches,
+                mediumMatches,
+                lowMatches,
+                noMatches,
+                matches,
+            };
+            return NextResponse.json({ ok: true, ...result }, { status: 200 });
         }
 
         // Generate Excel output
