@@ -4,7 +4,7 @@ import { MongoClient, Db } from "mongodb";
 
 // 1. تحديد متغيرات البيئة
 const uri = process.env.MONGODB_URI;
-const dbName = process.env.MONGODB_DB_NAME || "security_qa";
+const dbName = process.env.MONGODB_DB || "taskmanager";
 
 // 2. التحقق من وجود URI
 if (!uri) {
