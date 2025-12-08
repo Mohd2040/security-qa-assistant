@@ -1,4 +1,4 @@
-export type QaStatus = 'applied' | 'not_applied' | 'unknown';
+export type QaStatus = 'applied' | 'not_applied' | "not_applicable"| 'unknown';
 export type QaDomain = 'application' | 'network' | 'database' | 'cloud';
 
 export interface QaEntry {
