@@ -13,7 +13,8 @@ export function normalizeArabic(text: string): string {
     .replace(/[أإآٱ]/g, "ا") // توحيد الألف
     .replace(/ى/g, "ي")
     .replace(/ة/g, "ه")
-    .replace(/[^\p{Letter}\p{Number}\s]/gu, " ") // إزالة الرموز الغريبة
+    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

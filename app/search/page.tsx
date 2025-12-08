@@ -1,21 +1,43 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useLanguage } from '@/contexts/LanguageContext';
-import { MainLayout } from '@/components/layout/MainLayout';
-import { Search, SlidersHorizontal, Check, AlertCircle, Loader2, FileText, Database, Server, Code, Info, ChevronDown, ChevronUp, Edit2, X, Save, Languages, ArrowRightLeft, Globe, AlertTriangle } from 'lucide-react';
-import { QaEntry, QaStatus, QaDomain } from '@/lib/types';
+import React, { useState, useEffect, useCallback } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { MainLayout } from "@/components/layout/MainLayout";
+import {
+  Search,
+  SlidersHorizontal,
+  Check,
+  AlertCircle,
+  Loader2,
+  FileText,
+  Database,
+  Server,
+  Code,
+  Info,
+  ChevronDown,
+  ChevronUp,
+  Edit2,
+  X,
+  Save,
+  Languages,
+  ArrowRightLeft,
+  Globe,
+  AlertTriangle,
+} from "lucide-react";
+import { QaEntry, QaStatus, QaDomain } from "@/lib/types";
 
 export default function SearchPage() {
   const { t } = useLanguage();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [results, setResults] = useState<QaEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
-  const [translatedItems, setTranslatedItems] = useState<Set<string>>(new Set());
+  const [translatedItems, setTranslatedItems] = useState<Set<string>>(
+    new Set()
+  );
 
   // Translation State
   const [translatingQuery, setTranslatingQuery] = useState(false);
@@ -27,11 +49,14 @@ export default function SearchPage() {
   const [saving, setSaving] = useState(false);
 
   // Toast State
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error";
+  } | null>(null);
 
   // Filters
-  const [statusFilter, setStatusFilter] = useState<QaStatus | 'all'>('all');
-  const [domainFilter, setDomainFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<QaStatus | "all">("all");
+  const [domainFilter, setDomainFilter] = useState<string>("all");
 
   // Clear toast after 3 seconds
   useEffect(() => {
@@ -42,55 +67,59 @@ export default function SearchPage() {
   }, [toast]);
 
   // Search Function
-  const handleSearch = useCallback(async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const handleSearch = useCallback(
+    async (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
 
-    if (!query.trim() && statusFilter === 'all' && domainFilter === 'all') return;
+      if (!query.trim() && statusFilter === "all" && domainFilter === "all")
+        return;
 
-    setLoading(true);
-    setError(null);
-    setHasSearched(true);
-    setExpandedItems(new Set());
-    setTranslatedItems(new Set());
+      setLoading(true);
+      setError(null);
+      setHasSearched(true);
+      setExpandedItems(new Set());
+      setTranslatedItems(new Set());
 
-    try {
-      const res = await fetch('/api/qa/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query,
-          status: statusFilter,
-          domain: domainFilter,
-          page: 1,
-          pageSize: 50
-        }),
-      });
+      try {
+        const res = await fetch("/api/qa/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query,
+            status: statusFilter,
+            domain: domainFilter,
+            page: 1,
+            pageSize: 50,
+          }),
+        });
 
-      const data = await res.json();
+        const data = await res.json();
 
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to search');
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to search");
+        }
+
+        setResults(data.matches || []);
+      } catch (err: any) {
+        console.error(err);
+        setError("An error occurred while searching. Please try again.");
+        setResults([]);
+      } finally {
+        setLoading(false);
       }
-
-      setResults(data.matches || []);
-    } catch (err: any) {
-      console.error(err);
-      setError('An error occurred while searching. Please try again.');
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [query, statusFilter, domainFilter]);
+    },
+    [query, statusFilter, domainFilter]
+  );
 
   // Auto-search when filters change
   useEffect(() => {
-    if (hasSearched || statusFilter !== 'all' || domainFilter !== 'all') {
+    if (hasSearched || statusFilter !== "all" || domainFilter !== "all") {
       const timer = setTimeout(() => {
         handleSearch();
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [statusFilter, domainFilter, handleSearch]);
+  }, [statusFilter, domainFilter, handleSearch, hasSearched]);
 
   const toggleExpand = (id: string) => {
     const newExpanded = new Set(expandedItems);
@@ -108,30 +137,35 @@ export default function SearchPage() {
     try {
       // Detect if query is Arabic (simple check)
       const isArabic = /[\u0600-\u06FF]/.test(query);
-      const targetLang = isArabic ? 'en' : 'ar';
+      const targetLang = isArabic ? "en" : "ar";
 
-      const res = await fetch('/api/qa/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/qa/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: query, targetLang }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Translation failed');
+      if (!res.ok) throw new Error(data.error || "Translation failed");
 
       if (data.translatedText) {
         setQuery(data.translatedText);
       }
     } catch (err: any) {
       console.error("Translation failed", err);
-      setToast({ message: `Translation failed: ${err.message}`, type: 'error' });
+      setToast({
+        message: `Translation failed: ${err.message}`,
+        type: "error",
+      });
     } finally {
       setTranslatingQuery(false);
     }
   };
 
   const toggleTranslateResult = async (item: QaEntry) => {
-    const id = item._id!;
+    // حوّل _id دائماً إلى string للاستخدام في Sets
+    const id = String(item._id ?? "");
+    if (!id) return;
 
     // If already showing translation, hide it
     if (translatedItems.has(id)) {
@@ -141,36 +175,30 @@ export default function SearchPage() {
       return;
     }
 
-    // We are about to SHOW translation.
-    // We need to check if we HAVE the translation we need.
-    // We prioritize English as Main.
-    // So if we have English, we show Arabic as Secondary.
-    // If we don't have English, we show Arabic as Main (and want English as Secondary? No, logic says English is always Main if available).
-
-    // Let's determine what we HAVE.
+    // Determine original language
     const originalIsArabic = /[\u0600-\u06FF]/.test(item.question_text);
 
     // English Text Source:
-    const englishText = item.question_text_en || (originalIsArabic ? undefined : item.question_text);
+    const englishText =
+      item.question_text_en ||
+      (originalIsArabic ? undefined : item.question_text);
 
     // Arabic Text Source:
-    const arabicText = item.question_text_ar || (originalIsArabic ? item.question_text : undefined);
+    const arabicText =
+      (item as any).question_text_ar ||
+      (originalIsArabic ? item.question_text : undefined);
 
-    // What do we need?
-    // If we have English, we want to show Arabic in secondary.
-    // If we have Arabic, we want to show English in main (which pushes Arabic to secondary).
-
-    let targetLang: 'ar' | 'en' | null = null;
+    let targetLang: "ar" | "en" | null = null;
 
     if (englishText && !arabicText) {
       // We have English, but missing Arabic. Fetch Arabic.
-      targetLang = 'ar';
+      targetLang = "ar";
     } else if (arabicText && !englishText) {
       // We have Arabic, but missing English. Fetch English.
-      targetLang = 'en';
+      targetLang = "en";
     }
 
-    // If we have both, or if we can't determine (shouldn't happen), we just show what we have.
+    // If we have both, or can't determine, just mark as translated
     if (!targetLang) {
       const newTranslated = new Set(translatedItems);
       newTranslated.add(id);
@@ -180,52 +208,55 @@ export default function SearchPage() {
 
     // Perform Fetch
     console.log(`Translating item ${id} to ${targetLang}`);
-    setTranslatingIds(prev => new Set(prev).add(id));
+    setTranslatingIds((prev) => new Set(prev).add(id));
 
     try {
-      const res = await fetch('/api/qa/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/qa/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: item.question_text, // Always translate from original? Or from what we have? 
-          // If original is AR, and we want EN -> translate original.
-          // If original is EN, and we want AR -> translate original.
-          // Correct.
+          text: item.question_text,
           targetLang,
-          qaId: id
+          qaId: id,
         }),
       });
 
       const data = await res.json();
-      console.log('Translation response:', data);
+      console.log("Translation response:", data);
 
-      if (!res.ok) throw new Error(data.error || 'Translation failed');
+      if (!res.ok) throw new Error(data.error || "Translation failed");
 
       if (data.translatedText) {
         // Update local result
-        setResults(prev => prev.map(r => {
-          if (r._id === id) {
-            if (targetLang === 'en') {
-              return { ...r, question_text_en: data.translatedText };
-            } else {
-              return { ...r, question_text_ar: data.translatedText };
+        setResults((prev) =>
+          prev.map((r) => {
+            const rid = String(r._id ?? "");
+            if (rid === id) {
+              if (targetLang === "en") {
+                return { ...r, question_text_en: data.translatedText };
+              } else {
+                return { ...(r as any), question_text_ar: data.translatedText };
+              }
             }
-          }
-          return r;
-        }));
+            return r;
+          })
+        );
 
         const newTranslated = new Set(translatedItems);
         newTranslated.add(id);
         setTranslatedItems(newTranslated);
-        setToast({ message: 'Translation complete', type: 'success' });
+        setToast({ message: "Translation complete", type: "success" });
       } else {
-        throw new Error('Empty translation received');
+        throw new Error("Empty translation received");
       }
     } catch (err: any) {
       console.error("Result translation failed", err);
-      setToast({ message: `Translation failed: ${err.message}`, type: 'error' });
+      setToast({
+        message: `Translation failed: ${err.message}`,
+        type: "error",
+      });
     } finally {
-      setTranslatingIds(prev => {
+      setTranslatingIds((prev) => {
         const next = new Set(prev);
         next.delete(id);
         return next;
@@ -243,21 +274,27 @@ export default function SearchPage() {
 
     setSaving(true);
     try {
-      const res = await fetch('/api/qa/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/qa/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editingItem),
       });
 
-      if (!res.ok) throw new Error('Failed to update');
+      if (!res.ok) throw new Error("Failed to update");
 
-      setResults(prev => prev.map(item => item._id === editingItem._id ? editingItem : item));
+      setResults((prev) =>
+        prev.map((item) =>
+          String(item._id ?? "") === String(editingItem._id ?? "")
+            ? editingItem
+            : item
+        )
+      );
       setIsEditModalOpen(false);
       setEditingItem(null);
-      setToast({ message: 'Changes saved successfully', type: 'success' });
+      setToast({ message: "Changes saved successfully", type: "success" });
     } catch (err) {
       console.error(err);
-      setToast({ message: 'Failed to save changes', type: 'error' });
+      setToast({ message: "Failed to save changes", type: "error" });
     } finally {
       setSaving(false);
     }
@@ -267,12 +304,20 @@ export default function SearchPage() {
     <MainLayout>
       <div className="min-h-screen pt-24 pb-12 px-4 md:px-8">
         <div className="container-neo max-w-6xl mx-auto">
-
           {/* Toast Notification */}
           {toast && (
-            <div className={`fixed top-24 right-4 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-in-right ${toast.type === 'error' ? 'bg-red-500/90 text-white' : 'bg-emerald-500/90 text-white'
-              }`}>
-              {toast.type === 'error' ? <AlertTriangle className="w-5 h-5" /> : <Check className="w-5 h-5" />}
+            <div
+              className={`fixed top-24 right-4 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-in-right ${
+                toast.type === "error"
+                  ? "bg-red-500/90 text-white"
+                  : "bg-emerald-500/90 text-white"
+              }`}
+            >
+              {toast.type === "error" ? (
+                <AlertTriangle className="w-5 h-5" />
+              ) : (
+                <Check className="w-5 h-5" />
+              )}
               <span className="font-medium">{toast.message}</span>
             </div>
           )}
@@ -280,8 +325,12 @@ export default function SearchPage() {
           {/* Header Section */}
           <div className="flex flex-col md:flex-row items-end justify-between gap-6 mb-8">
             <div>
-              <h1 className="text-3xl font-bold text-white mb-2">Intelligence Search</h1>
-              <p className="text-slate-400">Advanced semantic search across security knowledge base.</p>
+              <h1 className="text-3xl font-bold text-white mb-2">
+                Intelligence Search
+              </h1>
+              <p className="text-slate-400">
+                Advanced semantic search across security knowledge base.
+              </p>
             </div>
             <div className="flex items-center gap-3">
               <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-medium flex items-center gap-2">
@@ -293,7 +342,10 @@ export default function SearchPage() {
 
           {/* Search Bar & Filters */}
           <div className="glass-panel p-4 rounded-2xl mb-8 sticky top-24 z-30 shadow-2xl shadow-sky-900/20">
-            <form onSubmit={handleSearch} className="flex flex-col md:flex-row gap-4">
+            <form
+              onSubmit={handleSearch}
+              className="flex flex-col md:flex-row gap-4"
+            >
               <div className="flex-1 relative group">
                 <div className="absolute inset-0 bg-gradient-to-r from-sky-500/20 to-purple-500/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 z-10" />
@@ -313,14 +365,22 @@ export default function SearchPage() {
                   className="absolute right-3 top-1/2 -translate-y-1/2 z-20 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
                   title="Translate Query"
                 >
-                  {translatingQuery ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRightLeft className="w-4 h-4" />}
+                  {translatingQuery ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ArrowRightLeft className="w-4 h-4" />
+                  )}
                 </button>
               </div>
 
               <button
                 type="button"
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className={`px-5 py-3.5 rounded-xl border flex items-center gap-2 transition-all font-medium ${isFilterOpen ? 'bg-sky-500 text-white border-sky-500' : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'}`}
+                className={`px-5 py-3.5 rounded-xl border flex items-center gap-2 transition-all font-medium ${
+                  isFilterOpen
+                    ? "bg-sky-500 text-white border-sky-500"
+                    : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
+                }`}
               >
                 <SlidersHorizontal className="w-5 h-5" />
                 Filters
@@ -331,7 +391,7 @@ export default function SearchPage() {
                 className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-bold shadow-lg shadow-sky-500/20 hover:shadow-sky-500/40 transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-                {loading ? 'Analyzing...' : 'Search'}
+                {loading ? "Analyzing..." : "Search"}
               </button>
             </form>
 
@@ -339,31 +399,55 @@ export default function SearchPage() {
             {isFilterOpen && (
               <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-1 md:grid-cols-4 gap-4 animate-fade-in">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-400 ml-1">Status</label>
+                  <label className="text-xs font-medium text-slate-400 ml-1">
+                    Status
+                  </label>
                   <select
                     value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value as any)}
+                    onChange={(e) =>
+                      setStatusFilter(e.target.value as QaStatus | "all")
+                    }
                     className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 focus:outline-none focus:border-sky-500/50 appearance-none"
                   >
-                    <option value="all" className="bg-slate-900">All Statuses</option>
-                    <option value="applied" className="bg-slate-900">Applied</option>
-                    <option value="not_applied" className="bg-slate-900">Not Applied</option>
-                    <option value="unknown" className="bg-slate-900">Unknown</option>
+                    <option value="all" className="bg-slate-900">
+                      All Statuses
+                    </option>
+                    <option value="applied" className="bg-slate-900">
+                      Applied
+                    </option>
+                    <option value="not_applied" className="bg-slate-900">
+                      Not Applied
+                    </option>
+                    <option value="unknown" className="bg-slate-900">
+                      Unknown
+                    </option>
                   </select>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-400 ml-1">Domain</label>
+                  <label className="text-xs font-medium text-slate-400 ml-1">
+                    Domain
+                  </label>
                   <select
                     value={domainFilter}
                     onChange={(e) => setDomainFilter(e.target.value)}
                     className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 focus:outline-none focus:border-sky-500/50 appearance-none"
                   >
-                    <option value="all" className="bg-slate-900">All Domains</option>
-                    <option value="application" className="bg-slate-900">Application</option>
-                    <option value="network" className="bg-slate-900">Network</option>
-                    <option value="database" className="bg-slate-900">Database</option>
-                    <option value="cloud" className="bg-slate-900">Cloud</option>
+                    <option value="all" className="bg-slate-900">
+                      All Domains
+                    </option>
+                    <option value="application" className="bg-slate-900">
+                      Application
+                    </option>
+                    <option value="network" className="bg-slate-900">
+                      Network
+                    </option>
+                    <option value="database" className="bg-slate-900">
+                      Database
+                    </option>
+                    <option value="cloud" className="bg-slate-900">
+                      Cloud
+                    </option>
                   </select>
                 </div>
               </div>
@@ -378,7 +462,9 @@ export default function SearchPage() {
                   <div className="absolute inset-0 border-4 border-sky-500/20 rounded-full"></div>
                   <div className="absolute inset-0 border-4 border-t-sky-500 rounded-full animate-spin"></div>
                 </div>
-                <p className="text-slate-400 animate-pulse">Processing semantic vectors...</p>
+                <p className="text-slate-400 animate-pulse">
+                  Processing semantic vectors...
+                </p>
               </div>
             )}
 
@@ -394,70 +480,87 @@ export default function SearchPage() {
                 <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
                   <Search className="w-10 h-10 text-slate-600" />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-2">No intelligence found</h3>
-                <p className="text-slate-400">Try adjusting your search terms or filters.</p>
+                <h3 className="text-xl font-bold text-white mb-2">
+                  No intelligence found
+                </h3>
+                <p className="text-slate-400">
+                  Try adjusting your search terms or filters.
+                </p>
               </div>
             )}
 
             {results.map((result) => {
-              const isExpanded = expandedItems.has(result._id || '');
-              const showTranslation = translatedItems.has(result._id || '');
-              const isTranslating = translatingIds.has(result._id || '');
-              const scoreColor = (result.score || 0) > 80 ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' :
-                (result.score || 0) > 50 ? 'text-sky-400 border-sky-500/30 bg-sky-500/10' :
-                  'text-slate-400 border-slate-500/30 bg-slate-500/10';
+              const id = String(result._id ?? "");
+              const isExpanded = expandedItems.has(id);
+              const showTranslation = translatedItems.has(id);
+              const isTranslating = translatingIds.has(id);
+
+              const scoreColor =
+                (result.score || 0) > 80
+                  ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"
+                  : (result.score || 0) > 50
+                  ? "text-sky-400 border-sky-500/30 bg-sky-500/10"
+                  : "text-slate-400 border-slate-500/30 bg-slate-500/10";
 
               // Strict English-First Logic
               const originalText = result.question_text;
-              const isOriginalArabic = /[\u0600-\u06FF]/.test(originalText);
+              const isOriginalArabic =
+                /[\u0600-\u06FF]/.test(originalText || "");
 
               // Identify English and Arabic texts
-              // English: question_text_en OR (if original is EN, then original)
-              const englishText = result.question_text_en || (!isOriginalArabic ? originalText : '') || (result as any).translated_text;
-              // Note: (result as any).translated_text is a fallback for old behavior, but we should rely on question_text_en/ar now.
+              const englishText =
+                result.question_text_en ||
+                (!isOriginalArabic ? originalText : "") ||
+                (result as any).translated_text;
 
-              // Arabic: question_text_ar OR (if original is AR, then original)
-              const arabicText = result.question_text_ar || (isOriginalArabic ? originalText : '');
+              const arabicText =
+                (result as any).question_text_ar ||
+                (isOriginalArabic ? originalText : "");
 
-              // Display Logic
-              // 1. Main Title: Always English if available, otherwise Arabic.
-              let mainText = englishText || arabicText;
-              let mainDir = (mainText === arabicText) ? 'rtl' : 'ltr';
+              // Main Title: Always English if available, otherwise Arabic.
+              let mainText = englishText || arabicText || "";
+              let mainDir = mainText === arabicText ? "rtl" : "ltr";
 
-              // 2. Secondary Box: The OTHER language.
-              // Only show if 'showTranslation' is active.
-              let secondaryText = '';
-              let secondaryDir = 'ltr';
-              let secondaryLabel = '';
+              // Secondary Box (Translation)
+              let secondaryText = "";
+              let secondaryDir: "rtl" | "ltr" = "ltr";
+              let secondaryLabel = "";
 
               if (showTranslation) {
                 if (mainText === englishText) {
-                  // Show Arabic
-                  secondaryText = arabicText || "Translation not available";
-                  secondaryDir = 'rtl';
-                  secondaryLabel = 'Arabic Translation';
+                  secondaryText =
+                    arabicText || "Translation not available" || "";
+                  secondaryDir = "rtl";
+                  secondaryLabel = "Arabic Translation";
                 } else if (mainText === arabicText) {
-                  // Show English
-                  secondaryText = englishText || "Translation not available";
-                  secondaryDir = 'ltr';
-                  secondaryLabel = 'English Translation';
+                  secondaryText =
+                    englishText || "Translation not available" || "";
+                  secondaryDir = "ltr";
+                  secondaryLabel = "English Translation";
                 }
               }
 
               return (
-                <div key={result._id} className="glass-card p-6 group hover:bg-white/[0.02] transition-all border-l-4 border-l-transparent hover:border-l-sky-500">
-
+                <div
+                  key={id}
+                  className="glass-card p-6 group hover:bg-white/[0.02] transition-all border-l-4 border-l-transparent hover:border-l-sky-500"
+                >
                   {/* Card Header: Badges & Score */}
                   <div className="flex items-start justify-between gap-4 mb-4">
                     <div className="flex flex-wrap items-center gap-2">
                       {/* Status Badge */}
-                      <span className={`px-2.5 py-1 rounded-md text-xs font-bold border uppercase tracking-wider ${result.status === 'applied'
-                          ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                          : result.status === 'not_applied'
-                            ? 'bg-red-500/10 border-red-500/20 text-red-400'
-                            : 'bg-slate-500/10 border-slate-500/20 text-slate-400'
-                        }`}>
-                        {result.status.replace('_', ' ')}
+                      <span
+                        className={`px-2.5 py-1 rounded-md text-xs font-bold border uppercase tracking-wider ${
+                          result.status === "applied"
+                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                            : result.status === "not_applied"
+                            ? "bg-red-500/10 border-red-500/20 text-red-400"
+                            : result.status === "not_applicable"
+                            ? "bg-amber-500/10 border-amber-500/20 text-amber-300"
+                            : "bg-slate-500/10 border-slate-500/20 text-slate-400"
+                        }`}
+                      >
+                        {result.status.replace("_", " ")}
                       </span>
 
                       {/* Domain Badge */}
@@ -468,12 +571,18 @@ export default function SearchPage() {
 
                       {/* Tech Badges */}
                       {result.needs_dev_input && (
-                        <span className="px-2 py-1 rounded-md text-[10px] font-medium bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 flex items-center gap-1" title="Requires Developer Input">
+                        <span
+                          className="px-2 py-1 rounded-md text-[10px] font-medium bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 flex items-center gap-1"
+                          title="Requires Developer Input"
+                        >
                           <Code className="w-3 h-3" /> Dev
                         </span>
                       )}
                       {result.needs_infra_input && (
-                        <span className="px-2 py-1 rounded-md text-[10px] font-medium bg-orange-500/10 border border-orange-500/20 text-orange-300 flex items-center gap-1" title="Requires Infra Input">
+                        <span
+                          className="px-2 py-1 rounded-md text-[10px] font-medium bg-orange-500/10 border border-orange-500/20 text-orange-300 flex items-center gap-1"
+                          title="Requires Infra Input"
+                        >
                           <Server className="w-3 h-3" /> Infra
                         </span>
                       )}
@@ -481,9 +590,15 @@ export default function SearchPage() {
 
                     {/* Relevance Score */}
                     {result.score !== undefined && (
-                      <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border ${scoreColor}`}>
-                        <span className="text-sm font-bold">{result.score}%</span>
-                        <span className="text-[10px] uppercase tracking-wider opacity-80">Relevance</span>
+                      <div
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-full border ${scoreColor}`}
+                      >
+                        <span className="text-sm font-bold">
+                          {result.score}%
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wider opacity-80">
+                          Relevance
+                        </span>
                       </div>
                     )}
                   </div>
@@ -503,7 +618,14 @@ export default function SearchPage() {
                         <Globe className="w-3 h-3" />
                         {secondaryLabel}
                       </div>
-                      <p className={`text-lg leading-snug ${secondaryText === "Translation not available" ? 'text-slate-500 italic text-sm' : 'text-purple-100'}`} dir={secondaryDir}>
+                      <p
+                        className={`text-lg leading-snug ${
+                          secondaryText === "Translation not available"
+                            ? "text-slate-500 italic text-sm"
+                            : "text-purple-100"
+                        }`}
+                        dir={secondaryDir}
+                      >
                         {secondaryText}
                       </p>
                     </div>
@@ -511,7 +633,11 @@ export default function SearchPage() {
 
                   {/* Answer Preview */}
                   {result.answer_text && (
-                    <div className={`text-slate-300 leading-relaxed border-l-2 border-white/10 pl-4 whitespace-pre-wrap transition-all duration-300 ${isExpanded ? '' : 'line-clamp-3'}`}>
+                    <div
+                      className={`text-slate-300 leading-relaxed border-l-2 border-white/10 pl-4 whitespace-pre-wrap transition-all duration-300 ${
+                        isExpanded ? "" : "line-clamp-3"
+                      }`}
+                    >
                       {result.answer_text}
                     </div>
                   )}
@@ -519,14 +645,16 @@ export default function SearchPage() {
                   {/* Expanded Details */}
                   {isExpanded && (
                     <div className="mt-6 pt-6 border-t border-white/5 animate-fade-in space-y-4">
-
                       {/* Arabic Explanation */}
                       {result.explanation_ar && (
                         <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
                           <h4 className="text-xs font-bold text-sky-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                             <Info className="w-3 h-3" /> Explanation (Arabic)
                           </h4>
-                          <p className="text-sm text-slate-300 leading-relaxed" dir="rtl">
+                          <p
+                            className="text-sm text-slate-300 leading-relaxed"
+                            dir="rtl"
+                          >
                             {result.explanation_ar}
                           </p>
                         </div>
@@ -536,19 +664,45 @@ export default function SearchPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-500">
                         <div className="flex items-center gap-2">
                           <FileText className="w-3 h-3" />
-                          <span>Source: <span className="text-slate-300">{result.source_file || 'Manual Entry'}</span></span>
+                          <span>
+                            Source:{" "}
+                            <span className="text-slate-300">
+                              {result.source_file || "Manual Entry"}
+                            </span>
+                          </span>
                         </div>
                         {result.client_name && (
                           <div className="flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-slate-700 flex items-center justify-center text-[8px]">C</span>
-                            <span>Client: <span className="text-slate-300">{result.client_name}</span></span>
+                            <span className="w-3 h-3 rounded-full bg-slate-700 flex items-center justify-center text-[8px]">
+                              C
+                            </span>
+                            <span>
+                              Client:{" "}
+                              <span className="text-slate-300">
+                                {result.client_name}
+                              </span>
+                            </span>
                           </div>
                         )}
                         <div>
-                          <span>ID: <span className="font-mono text-slate-400">{result._id}</span></span>
+                          <span>
+                            ID:{" "}
+                            <span className="font-mono text-slate-400">
+                              {id}
+                            </span>
+                          </span>
                         </div>
                         <div>
-                          <span>Updated: <span className="text-slate-400">{result.updated_at ? new Date(result.updated_at).toLocaleDateString() : 'N/A'}</span></span>
+                          <span>
+                            Updated:{" "}
+                            <span className="text-slate-400">
+                              {result.updated_at
+                                ? new Date(
+                                    result.updated_at
+                                  ).toLocaleDateString()
+                                : "N/A"}
+                            </span>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -556,16 +710,19 @@ export default function SearchPage() {
 
                   {/* Footer Actions */}
                   <div className="flex flex-wrap items-center gap-3 pt-4 mt-2 border-t border-white/5">
-
                     {/* View Details */}
                     <button
-                      onClick={() => toggleExpand(result._id || '')}
+                      onClick={() => toggleExpand(id)}
                       className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-slate-300 transition-all hover:text-white flex items-center gap-1.5"
                     >
                       {isExpanded ? (
-                        <>Show Less <ChevronUp className="w-3 h-3" /></>
+                        <>
+                          Show Less <ChevronUp className="w-3 h-3" />
+                        </>
                       ) : (
-                        <>View Details <ChevronDown className="w-3 h-3" /></>
+                        <>
+                          View Details <ChevronDown className="w-3 h-3" />
+                        </>
                       )}
                     </button>
 
@@ -581,18 +738,25 @@ export default function SearchPage() {
                     <button
                       onClick={() => toggleTranslateResult(result)}
                       disabled={isTranslating}
-                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${showTranslation
-                          ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
-                          : 'bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20 text-purple-400'
-                        }`}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${
+                        showTranslation
+                          ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
+                          : "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20 text-purple-400"
+                      }`}
                       title="Show Translation"
                     >
-                      {isTranslating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Languages className="w-3 h-3" />}
-                      {isTranslating ? 'Translating...' : showTranslation ? 'Hide Translation' : 'Translate'}
+                      {isTranslating ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Languages className="w-3 h-3" />
+                      )}
+                      {isTranslating
+                        ? "Translating..."
+                        : showTranslation
+                        ? "Hide Translation"
+                        : "Translate"}
                     </button>
-
                   </div>
-
                 </div>
               );
             })}
@@ -602,26 +766,34 @@ export default function SearchPage() {
           {isEditModalOpen && editingItem && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
               <div className="bg-[#0f172a] border border-white/10 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl animate-scale-up">
-
                 {/* Modal Header */}
                 <div className="sticky top-0 bg-[#0f172a]/95 backdrop-blur-xl border-b border-white/10 p-4 flex items-center justify-between z-10">
                   <h3 className="text-lg font-bold text-white flex items-center gap-2">
                     <Edit2 className="w-4 h-4 text-sky-400" /> Edit Entry
                   </h3>
-                  <button onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
+                  <button
+                    onClick={() => setIsEditModalOpen(false)}
+                    className="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors"
+                  >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
 
                 {/* Modal Body */}
                 <div className="p-6 space-y-6">
-
                   {/* Question (English) */}
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Question (English)</label>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                      Question (English)
+                    </label>
                     <textarea
-                      value={editingItem.question_text_en || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, question_text_en: e.target.value })}
+                      value={editingItem.question_text_en || ""}
+                      onChange={(e) =>
+                        setEditingItem({
+                          ...editingItem,
+                          question_text_en: e.target.value,
+                        })
+                      }
                       className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500/50 transition-all"
                       rows={2}
                       dir="ltr"
@@ -631,10 +803,17 @@ export default function SearchPage() {
 
                   {/* Question (Arabic) */}
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Question (Arabic)</label>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                      Question (Arabic)
+                    </label>
                     <textarea
                       value={editingItem.question_text}
-                      onChange={(e) => setEditingItem({ ...editingItem, question_text: e.target.value })}
+                      onChange={(e) =>
+                        setEditingItem({
+                          ...editingItem,
+                          question_text: e.target.value,
+                        })
+                      }
                       className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500/50 transition-all"
                       rows={2}
                       dir="rtl"
@@ -645,22 +824,37 @@ export default function SearchPage() {
                   {/* Status & Domain */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1.5">Status</label>
+                      <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                        Status
+                      </label>
                       <select
                         value={editingItem.status}
-                        onChange={(e) => setEditingItem({ ...editingItem, status: e.target.value as QaStatus })}
+                        onChange={(e) =>
+                          setEditingItem({
+                            ...editingItem,
+                            status: e.target.value as QaStatus,
+                          })
+                        }
                         className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-sky-500/50"
                       >
                         <option value="applied">Applied</option>
                         <option value="not_applied">Not Applied</option>
+                        <option value="not_applicable">Not Applicable</option>
                         <option value="unknown">Unknown</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1.5">Domain</label>
+                      <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                        Domain
+                      </label>
                       <select
                         value={editingItem.domain}
-                        onChange={(e) => setEditingItem({ ...editingItem, domain: e.target.value as QaDomain })}
+                        onChange={(e) =>
+                          setEditingItem({
+                            ...editingItem,
+                            domain: e.target.value as QaDomain,
+                          })
+                        }
                         className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-sky-500/50"
                       >
                         <option value="application">Application</option>
@@ -673,16 +867,22 @@ export default function SearchPage() {
 
                   {/* Explanation */}
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Explanation (Arabic)</label>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                      Explanation (Arabic)
+                    </label>
                     <textarea
-                      value={editingItem.explanation_ar || ''}
-                      onChange={(e) => setEditingItem({ ...editingItem, explanation_ar: e.target.value })}
+                      value={editingItem.explanation_ar || ""}
+                      onChange={(e) =>
+                        setEditingItem({
+                          ...editingItem,
+                          explanation_ar: e.target.value,
+                        })
+                      }
                       className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500/50 transition-all"
                       rows={2}
                       dir="rtl"
                     />
                   </div>
-
                 </div>
 
                 {/* Modal Footer */}
@@ -698,15 +898,17 @@ export default function SearchPage() {
                     disabled={saving}
                     className="px-6 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-white text-sm font-bold shadow-lg shadow-sky-500/20 flex items-center gap-2 disabled:opacity-50"
                   >
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {saving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
                     Save Changes
                   </button>
                 </div>
-
               </div>
             </div>
           )}
-
         </div>
       </div>
     </MainLayout>

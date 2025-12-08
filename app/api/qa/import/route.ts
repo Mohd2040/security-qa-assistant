@@ -153,10 +153,10 @@ export async function POST(req: NextRequest) {
         // لو الشرح العربي فاضي ونقدر نستخدم AI → حاول تولد شرح مختصر
         if (!explanation_ar && process.env.OPENAI_API_KEY) {
           try {
-            explanation_ar = await generateArabicExplanation(
-              question_text_en,
-              answer_text
-            );
+            explanation_ar = await generateArabicExplanation({
+                question: question_text_en,
+                answer: answer_text,
+              });
           } catch (e) {
             console.error("AI explanation error:", e);
             // لا نرمي خطأ، فقط نكمّل بدونه

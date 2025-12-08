@@ -18,14 +18,16 @@ interface SearchBody {
   dateFrom?: string; // ISO التاريخ من
   dateTo?: string; // ISO التاريخ إلى
   source_file?: string;
-
   client_name?: string;
 }
 
+// هذا النوع يمثل الـ Document اللي راجع من Mongo
+// أضفنا question_text_ar عشان نقدر نستخدمه في docToQaEntry
 type InternalDoc = {
   _id: any;
   question_text: string;
   question_text_en?: string;
+  question_text_ar?: string;
   answer_text?: string;
   status?: QaStatus;
   domain?: QaDomain;
@@ -136,7 +138,7 @@ export async function POST(req: NextRequest) {
         normalizedQuery,
         filters: { status, domain, owner_group, dateFrom, dateTo, source_file },
         total,
-      }).catch(() => { });
+      }).catch(() => {});
 
       return NextResponse.json(
         {
@@ -257,8 +259,7 @@ export async function POST(req: NextRequest) {
     };
 
     scoredDocs.sort((a, b) => {
-      if (b.finalScore !== a.finalScore)
-        return b.finalScore - a.finalScore;
+      if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
 
       const sa = statusPriority[a.doc.status || "unknown"] || 99;
       const sb = statusPriority[b.doc.status || "unknown"] || 99;
@@ -273,7 +274,9 @@ export async function POST(req: NextRequest) {
     const start = (page - 1) * pageSize;
     const pageSlice = scoredDocs.slice(start, start + pageSize);
 
-    const matches: QaEntry[] = pageSlice.map((s) => docToQaEntry(s.doc, s.finalScore));
+    const matches: QaEntry[] = pageSlice.map((s) =>
+      docToQaEntry(s.doc, s.finalScore)
+    );
 
     // -------------------------
     // 5) Search Analytics (Backend logging)
@@ -283,7 +286,7 @@ export async function POST(req: NextRequest) {
       normalizedQuery,
       filters: { status, domain, owner_group, dateFrom, dateTo, source_file },
       total,
-    }).catch(() => { });
+    }).catch(() => {});
 
     return NextResponse.json(
       {
@@ -307,7 +310,7 @@ export async function POST(req: NextRequest) {
 // تحويل Document إلى QaEntry
 function docToQaEntry(doc: InternalDoc, score?: number): QaEntry {
   return {
-    _id: doc._id.toString(),
+    _id: doc._id?.toString?.(),
     question_text: doc.question_text,
     question_text_en: doc.question_text_en || undefined,
     question_language: "en",
