@@ -2,8 +2,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import * as XLSX from "xlsx";
-// Use the shared embeddings logic (OpenAI) to match semantic-search behavior
+import Fuse from "fuse.js";
+import { normalizeArabic, looksArabic } from "@/lib/arabic";
 import { cosineSimilarity, getEmbedding } from "@/lib/embeddings";
+import { generateAnswer } from "@/lib/ai";
 
 export const runtime = "nodejs";
 
@@ -96,14 +98,29 @@ export async function POST(req: NextRequest) {
         const db = await getDb();
         const collection = db.collection("qa_entries");
 
-        // Get all existing Q&A entries with embeddings
-        const existingEntries = await collection
-            .find({
-                embedding: { $exists: true },
-            })
-            .toArray();
+        // Get all existing Q&A entries
+        const existingEntries = await collection.find({}).toArray();
 
-        console.log(`[Match Debug] Found ${existingEntries.length} entries in DB. Entries with embeddings: ${existingEntries.filter(e => e.embedding).length}`);
+        // Initialize Fuse.js for Fuzzy Search
+        const fuseOptions = {
+            includeScore: true,
+            threshold: 0.45,
+            keys: [
+                {
+                    name: "question_text",
+                    getFn: (doc: any) => normalizeArabic(doc.question_text || "")
+                },
+                {
+                    name: "question_text_en",
+                    getFn: (doc: any) => normalizeArabic(doc.question_text_en || "")
+                },
+                {
+                    name: "answer_text",
+                    getFn: (doc: any) => normalizeArabic(doc.answer_text || "")
+                }
+            ]
+        };
+        const fuse = new Fuse(existingEntries, fuseOptions);
 
         const matches: MatchedAnswer[] = [];
         let highMatches = 0;
@@ -116,46 +133,58 @@ export async function POST(req: NextRequest) {
             let bestMatch: any = null;
             let bestScore = 0;
 
-            // 1. Try Exact Match First (Case-insensitive)
-            const lowerQuestion = question.toLowerCase().trim();
+            const trimmedQuestion = question.trim();
+            const isArabic = looksArabic(trimmedQuestion);
+            const normalizedQuestion = isArabic ? normalizeArabic(trimmedQuestion) : trimmedQuestion;
 
-            for (const entry of existingEntries) {
-                const entryQuestion = (entry.question_text || "").toLowerCase().trim();
-                if (entryQuestion === lowerQuestion) {
-                    console.log(`[Match Debug] Exact match found for: "${question}"`);
-                    bestScore = 1.0;
-                    bestMatch = entry;
-                    break; // Found exact match, stop searching
-                }
-            }
+            // 1. Exact Match (Fastest)
+            const exactMatch = existingEntries.find(e =>
+                (e.question_text === trimmedQuestion) ||
+                (e.question_text_en === trimmedQuestion)
+            );
 
-            // 2. If no exact match, try Semantic Search (using OpenAI embeddings)
-            if (!bestMatch) {
+            if (exactMatch) {
+                bestMatch = exactMatch;
+                bestScore = 1.0;
+            } else {
+                // 2. Hybrid Search (Fuzzy + Semantic)
+
+                // A. Fuzzy Search Candidates
+                // We use normalized question for better Arabic matching
+                const fuseResults = fuse.search(normalizedQuestion);
+                const candidates = fuseResults.slice(0, 20); // Top 20 candidates
+
+                // B. Semantic Search (Reranking)
                 let questionEmbedding: number[] | null = null;
                 try {
-                    // Using lib/embeddings which uses OpenAI (same as semantic-search endpoint)
-                    questionEmbedding = await getEmbedding(question);
+                    questionEmbedding = await getEmbedding(trimmedQuestion);
                 } catch (e) {
-                    console.error("Failed to generate embedding:", e);
+                    // Ignore embedding errors
                 }
 
-                if (questionEmbedding && existingEntries.length > 0) {
-                    console.log(`[Match Debug] No exact match, trying semantic search for: "${question}"`);
+                for (const result of candidates) {
+                    const doc = result.item;
+                    const fuzzyScore = result.score != null ? (1 - result.score) : 0; // Convert distance to similarity
 
-                    for (const entry of existingEntries) {
-                        if (!entry.embedding) continue;
-
-                        const score = cosineSimilarity(
-                            questionEmbedding,
-                            entry.embedding as number[]
-                        );
-
-                        if (score > bestScore) {
-                            bestScore = score;
-                            bestMatch = entry;
-                        }
+                    let semanticScore = 0;
+                    if (questionEmbedding && doc.embedding && Array.isArray(doc.embedding)) {
+                        semanticScore = cosineSimilarity(questionEmbedding, doc.embedding);
+                        // Normalize to 0-1
+                        semanticScore = Math.max(0, Math.min(1, (semanticScore + 1) / 2));
                     }
-                    console.log(`[Match Debug] Best semantic score for "${question}": ${bestScore}`);
+
+                    // Hybrid Score Calculation
+                    // If we have semantic score, weight it higher (60%)
+                    // If not, rely on fuzzy score
+                    let finalScore = fuzzyScore;
+                    if (semanticScore > 0) {
+                        finalScore = (semanticScore * 0.6) + (fuzzyScore * 0.4);
+                    }
+
+                    if (finalScore > bestScore) {
+                        bestScore = finalScore;
+                        bestMatch = doc;
+                    }
                 }
             }
 
@@ -175,16 +204,17 @@ export async function POST(req: NextRequest) {
                 noMatches++;
             }
 
-            // Generate AI suggestion for low/no matches (optional)
+            // Generate AI suggestion for low/no matches
             let aiSuggestion = "";
             if (
                 includeAiSuggestions &&
-                bestScore < threshold &&
-                matchConfidence !== "high"
+                (matchConfidence === "low" || matchConfidence === "none")
             ) {
-                // TODO: Add AI suggestion generation here if needed.
-                // Currently keeping empty as requested, but logic is ready.
-                aiSuggestion = "";
+                try {
+                    aiSuggestion = await generateAnswer(question);
+                } catch (e) {
+                    console.error("Failed to generate AI answer", e);
+                }
             }
 
             // Build matched answer object

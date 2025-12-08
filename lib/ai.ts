@@ -99,3 +99,46 @@ export async function getEmbeddingVector(
 
   return data.embedding;
 }
+
+/**
+ * توليد إجابة مقترحة للسؤال باستخدام الذكاء الصناعي
+ */
+export async function generateAnswer(question: string): Promise<string> {
+  if (!isAiEnabled()) return "";
+
+  const prompt = `
+أنت خبير أمن معلومات ومستشار امتثال (GRC).
+مطلوب منك الإجابة على السؤال الأمني التالي بشكل مهني ومختصر (فقرة واحدة).
+استخدم المصطلحات الأمنية الصحيحة (NIST, ISO 27001).
+
+السؤال:
+${question}
+
+الإجابة المقترحة:
+`;
+
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: OLLAMA_MODEL_TEXT,
+        prompt,
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("Ollama generate answer error:", await response.text());
+      return "";
+    }
+
+    const data = (await response.json()) as { response?: string };
+    return (data.response || "").trim();
+  } catch (e) {
+    console.error("Ollama connection error:", e);
+    return "";
+  }
+}
