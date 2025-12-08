@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { QaEntry } from "@/lib/types";
+import { Navbar } from "@/app/components/layout/Navbar";
+import { Footer } from "@/app/components/layout/Footer";
 
 type UiLang = "en" | "ar";
 type ThemeMode = "dark" | "light";
@@ -504,618 +506,819 @@ export default function SearchPage() {
   );
 
   return (
-    <main
-      className={`min-h-screen ${mainBgClass} flex flex-col items-center px-4 py-8`}
-    >
-      <div className="w-full max-w-5xl space-y-6">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">
-              {isArabic ? "البحث في أسئلة السيكوريتي" : "Search Security Q&A"}
-            </h1>
-            <p className="text-slate-300 mt-1 text-sm md:text-base">
-              {isArabic
-                ? "اكتب سؤال سيكوريتي وحدد الفلاتر، ثم يمكنك تعديل الحالات (فرديًا أو جماعيًا) وتصدير النتائج إلى Excel."
-                : "Type a security-related question, adjust filters, then update statuses (single or bulk) and export results to Excel."}
-            </p>
-            {recentQueries.length > 0 && (
-              <p className="text-xs text-slate-400 mt-1">
-                {isArabic ? "آخر عمليات بحث: " : "Recent searches: "}
-                {recentQueries.map((q, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => setQuery(q)}
-                    className="underline mr-2"
-                  >
-                    {q}
-                  </button>
-                ))}
+    <>
+      <Navbar />
+      <main
+        className={`min-h-screen ${mainBgClass} flex flex-col items-center px-4 py-8`}
+      >
+        <div className="w-full max-w-5xl space-y-6">
+          {/* Header */}
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold">
+                {isArabic ? "البحث في أسئلة السيكوريتي" : "Search Security Q&A"}
+              </h1>
+              <p className="text-slate-300 mt-1 text-sm md:text-base">
+                {isArabic
+                  ? "اكتب سؤال سيكوريتي وحدد الفلاتر، ثم يمكنك تعديل الحالات (فرديًا أو جماعيًا) وتصدير النتائج إلى Excel."
+                  : "Type a security-related question, adjust filters, then update statuses (single or bulk) and export results to Excel."}
               </p>
-            )}
-          </div>
+              {recentQueries.length > 0 && (
+                <p className="text-xs text-slate-400 mt-1">
+                  {isArabic ? "آخر عمليات بحث: " : "Recent searches: "}
+                  {recentQueries.map((q, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setQuery(q)}
+                      className="underline mr-2"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </p>
+              )}
+            </div>
 
-          <div className="flex items-center gap-2">
-            {/* Theme toggle */}
-            <button
-              type="button"
-              onClick={() => setTheme(isDark ? "light" : "dark")}
-              className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium hover:bg-slate-700 transition-colors"
-            >
-              <span>{isDark ? "☀️" : "🌙"}</span>
-              <span className="opacity-80">
-                {isDark
-                  ? isArabic
-                    ? "وضع فاتح"
-                    : "Light mode"
-                  : isArabic
-                  ? "وضع داكن"
-                  : "Dark mode"}
-              </span>
-            </button>
-
-            {/* Lang toggle */}
-            <button
-              type="button"
-              onClick={() => setUiLang(isArabic ? "en" : "ar")}
-              className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium hover:bg-slate-700 transition-colors"
-            >
-              <span>{isArabic ? "EN" : "AR"}</span>
-              <span className="opacity-70">
-                {isArabic ? "Switch to English" : "تبديل إلى العربية"}
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Search & filters */}
-        <form
-          onSubmit={handleSubmit}
-          className={`rounded-xl border ${
-            isDark ? "border-slate-800 bg-slate-900/60" : "border-slate-200 bg-white"
-          } p-4 space-y-4`}
-        >
-          <div className="relative">
-            <textarea
-              className={`w-full rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 ${
-                textareaBgClass
-              } ${isArabic ? "text-right" : "text-left"}`}
-              rows={2}
-              placeholder={
-                isArabic
-                  ? "مثال: هل النظام يدعم قفل الحساب بعد عدد محاولات فاشلة؟"
-                  : "Example: Does the system support account lockout after several failed login attempts?"
-              }
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onFocus={() => {
-                if (suggestions.length > 0) setShowSuggestions(true);
-              }}
-            />
-
-            {/* Suggestions dropdown */}
-            {showSuggestions && suggestions.length > 0 && (
-              <div
-                className={`absolute z-20 mt-1 w-full rounded-md border ${
-                  isDark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-300"
-                } max-h-56 overflow-auto text-xs`}
+            <div className="flex items-center gap-2">
+              {/* Theme toggle */}
+              <button
+                type="button"
+                onClick={() => setTheme(isDark ? "light" : "dark")}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium hover:bg-slate-700 transition-colors"
               >
-                {suggestions.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => {
-                      setQuery(s.question_text);
-                      setShowSuggestions(false);
-                    }}
-                    className="w-full text-left px-3 py-2 hover:bg-slate-800/60"
-                  >
-                    <div className={isArabic ? "text-right" : "text-left"}>
-                      <div className="font-medium">{s.question_text}</div>
-                      {s.question_text_en && s.question_text_en !== s.question_text && (
-                        <div className="text-slate-400">
-                          EN: {s.question_text_en}
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                ))}
+                <span>{isDark ? "☀️" : "🌙"}</span>
+                <span className="opacity-80">
+                  {isDark
+                    ? isArabic
+                      ? "وضع فاتح"
+                      : "Light mode"
+                    : isArabic
+                      ? "وضع داكن"
+                      : "Dark mode"}
+                </span>
+              </button>
+
+              {/* Lang toggle */}
+              <button
+                type="button"
+                onClick={() => setUiLang(isArabic ? "en" : "ar")}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium hover:bg-slate-700 transition-colors"
+              >
+                <span>{isArabic ? "EN" : "AR"}</span>
+                <span className="opacity-70">
+                  {isArabic ? "Switch to English" : "تبديل إلى العربية"}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search & filters */}
+          <form
+            onSubmit={handleSubmit}
+            className={`rounded-xl border ${isDark ? "border-slate-800 bg-slate-900/60" : "border-slate-200 bg-white"
+              } p-4 space-y-4`}
+          >
+            <div className="relative">
+              <textarea
+                className={`w-full rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 ${textareaBgClass
+                  } ${isArabic ? "text-right" : "text-left"}`}
+                rows={2}
+                placeholder={
+                  isArabic
+                    ? "مثال: هل النظام يدعم قفل الحساب بعد عدد محاولات فاشلة؟"
+                    : "Example: Does the system support account lockout after several failed login attempts?"
+                }
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onFocus={() => {
+                  if (suggestions.length > 0) setShowSuggestions(true);
+                }}
+              />
+
+              {/* Suggestions dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div
+                  className={`absolute z-20 mt-1 w-full rounded-md border ${isDark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-300"
+                    } max-h-56 overflow-auto text-xs`}
+                >
+                  {suggestions.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        setQuery(s.question_text);
+                        setShowSuggestions(false);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-slate-800/60"
+                    >
+                      <div className={isArabic ? "text-right" : "text-left"}>
+                        <div className="font-medium">{s.question_text}</div>
+                        {s.question_text_en && s.question_text_en !== s.question_text && (
+                          <div className="text-slate-400">
+                            EN: {s.question_text_en}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Basic filters */}
+            <div className="grid gap-3 md:grid-cols-3 text-xs md:text-sm">
+              <div>
+                <label className="block mb-1 text-slate-300">
+                  {isArabic ? "الحالة" : "Status"}
+                </label>
+                <select
+                  className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                >
+                  {STATUS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {isArabic ? opt.labelAr : opt.labelEn}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block mb-1 text-slate-300">
+                  {isArabic ? "التصنيف (Domain)" : "Domain"}
+                </label>
+                <select
+                  className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                  value={domain}
+                  onChange={(e) => setDomain(e.target.value)}
+                >
+                  {DOMAIN_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {isArabic ? opt.labelAr : opt.labelEn}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block mb-1 text-slate-300">
+                  {isArabic ? "الجهة المسؤولة" : "Owner group"}
+                </label>
+                <select
+                  className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                  value={ownerGroup}
+                  onChange={(e) => setOwnerGroup(e.target.value)}
+                >
+                  {OWNER_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {isArabic ? opt.labelAr : opt.labelEn}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Advanced filters */}
+            <div className="grid gap-3 md:grid-cols-4 text-xs md:text-sm">
+              <div>
+                <label className="block mb-1 text-slate-300">
+                  {isArabic ? "من تاريخ" : "From date"}
+                </label>
+                <input
+                  type="date"
+                  className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-slate-300">
+                  {isArabic ? "إلى تاريخ" : "To date"}
+                </label>
+                <input
+                  type="date"
+                  className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-slate-300">
+                  {isArabic ? "اسم الملف (source_file)" : "Source file"}
+                </label>
+                <input
+                  className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                  value={sourceFile}
+                  onChange={(e) => setSourceFile(e.target.value)}
+                  placeholder={isArabic ? "مثال: eec1.xlsx" : "e.g. eec1.xlsx"}
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-slate-300">
+                  {isArabic ? "اسم العميل (Client)" : "Client name"}
+                </label>
+                <input
+                  className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder={isArabic ? "مثال: البنك الفلاني" : "e.g. Client XYZ"}
+                />
+              </div>
+            </div>
+
+            {/* Page size */}
+            <div className="grid gap-3 md:grid-cols-4 text-xs md:text-sm">
+              <div>
+                <label className="block mb-1 text-slate-300">
+                  {isArabic ? "عدد النتائج في الصفحة" : "Page size"}
+                </label>
+                <select
+                  className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
+                  value={pageSize}
+                  onChange={(e) => {
+                    const newSize = Number(e.target.value);
+                    setPageSize(newSize);
+                    setPage(1);
+                    performSearch(1, newSize);
+                  }}
+                >
+                  {[25, 50, 100, 200].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
+              <button
+                type="submit"
+                disabled={loading}
+                className="inline-flex items-center justify-center px-4 py-2 rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-sm font-medium transition-colors"
+              >
+                {loading
+                  ? isArabic
+                    ? "جارٍ البحث..."
+                    : "Searching..."
+                  : isArabic
+                    ? "ابحث"
+                    : "Search"}
+              </button>
+
+              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                <span>
+                  {isArabic ? `عدد النتائج: ${total}` : `Results: ${total}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleExport}
+                  disabled={total === 0}
+                  className="inline-flex items-center justify-center px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-xs font-medium transition-colors"
+                >
+                  {isArabic ? "تصدير إلى Excel" : "Export to Excel"}
+                </button>
+              </div>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-end gap-3 text-xs text-slate-300 mt-2">
+                <button
+                  type="button"
+                  onClick={goPrev}
+                  disabled={!canGoPrev() || loading}
+                  className="px-2 py-1 rounded-md bg-slate-800 disabled:opacity-50"
+                >
+                  {isArabic ? "السابق" : "Previous"}
+                </button>
+                <span>
+                  {isArabic
+                    ? `الصفحة ${page} من ${totalPages}`
+                    : `Page ${page} of ${totalPages}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={goNext}
+                  disabled={!canGoNext() || loading}
+                  className="px-2 py-1 rounded-md bg-slate-800 disabled:opacity-50"
+                >
+                  {isArabic ? "التالي" : "Next"}
+                </button>
               </div>
             )}
-          </div>
+          </form>
 
-          {/* Basic filters */}
-          <div className="grid gap-3 md:grid-cols-3 text-xs md:text-sm">
-            <div>
-              <label className="block mb-1 text-slate-300">
-                {isArabic ? "الحالة" : "Status"}
-              </label>
-              <select
-                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              >
-                {STATUS_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {isArabic ? opt.labelAr : opt.labelEn}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block mb-1 text-slate-300">
-                {isArabic ? "التصنيف (Domain)" : "Domain"}
-              </label>
-              <select
-                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-              >
-                {DOMAIN_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {isArabic ? opt.labelAr : opt.labelEn}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block mb-1 text-slate-300">
-                {isArabic ? "الجهة المسؤولة" : "Owner group"}
-              </label>
-              <select
-                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
-                value={ownerGroup}
-                onChange={(e) => setOwnerGroup(e.target.value)}
-              >
-                {OWNER_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {isArabic ? opt.labelAr : opt.labelEn}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Advanced filters */}
-          <div className="grid gap-3 md:grid-cols-4 text-xs md:text-sm">
-            <div>
-              <label className="block mb-1 text-slate-300">
-                {isArabic ? "من تاريخ" : "From date"}
-              </label>
-              <input
-                type="date"
-                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block mb-1 text-slate-300">
-                {isArabic ? "إلى تاريخ" : "To date"}
-              </label>
-              <input
-                type="date"
-                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block mb-1 text-slate-300">
-                {isArabic ? "اسم الملف (source_file)" : "Source file"}
-              </label>
-              <input
-                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
-                value={sourceFile}
-                onChange={(e) => setSourceFile(e.target.value)}
-                placeholder={isArabic ? "مثال: eec1.xlsx" : "e.g. eec1.xlsx"}
-              />
-            </div>
-            <div>
-              <label className="block mb-1 text-slate-300">
-                {isArabic ? "اسم العميل (Client)" : "Client name"}
-              </label>
-              <input
-                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                placeholder={isArabic ? "مثال: البنك الفلاني" : "e.g. Client XYZ"}
-              />
-            </div>
-          </div>
-
-          {/* Page size */}
-          <div className="grid gap-3 md:grid-cols-4 text-xs md:text-sm">
-            <div>
-              <label className="block mb-1 text-slate-300">
-                {isArabic ? "عدد النتائج في الصفحة" : "Page size"}
-              </label>
-              <select
-                className={`w-full rounded-md px-2 py-1.5 ${inputBgClass}`}
-                value={pageSize}
-                onChange={(e) => {
-                  const newSize = Number(e.target.value);
-                  setPageSize(newSize);
-                  setPage(1);
-                  performSearch(1, newSize);
-                }}
-              >
-                {[25, 50, 100, 200].map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
-            <button
-              type="submit"
-              disabled={loading}
-              className="inline-flex items-center justify-center px-4 py-2 rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-sm font-medium transition-colors"
-            >
-              {loading
-                ? isArabic
-                  ? "جارٍ البحث..."
-                  : "Searching..."
-                : isArabic
-                ? "ابحث"
-                : "Search"}
-            </button>
-
-            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-              <span>
-                {isArabic ? `عدد النتائج: ${total}` : `Results: ${total}`}
-              </span>
-              <button
-                type="button"
-                onClick={handleExport}
-                disabled={total === 0}
-                className="inline-flex items-center justify-center px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-xs font-medium transition-colors"
-              >
-                {isArabic ? "تصدير إلى Excel" : "Export to Excel"}
-              </button>
-            </div>
-          </div>
-
-          {totalPages > 1 && (
-            <div className="flex items-center justify-end gap-3 text-xs text-slate-300 mt-2">
-              <button
-                type="button"
-                onClick={goPrev}
-                disabled={!canGoPrev() || loading}
-                className="px-2 py-1 rounded-md bg-slate-800 disabled:opacity-50"
-              >
-                {isArabic ? "السابق" : "Previous"}
-              </button>
-              <span>
-                {isArabic
-                  ? `الصفحة ${page} من ${totalPages}`
-                  : `Page ${page} of ${totalPages}`}
-              </span>
-              <button
-                type="button"
-                onClick={goNext}
-                disabled={!canGoNext() || loading}
-                className="px-2 py-1 rounded-md bg-slate-800 disabled:opacity-50"
-              >
-                {isArabic ? "التالي" : "Next"}
-              </button>
+          {error && (
+            <div className="mb-4 rounded-md bg-red-900/50 border border-red-700 px-4 py-3 text-sm text-red-100">
+              {error}
             </div>
           )}
-        </form>
 
-        {error && (
-          <div className="mb-4 rounded-md bg-red-900/50 border border-red-700 px-4 py-3 text-sm text-red-100">
-            {error}
-          </div>
-        )}
-
-        {loading && matches.length === 0 && (
-          <div className="space-y-3">
-            {skeletonCard}
-            {skeletonCard}
-          </div>
-        )}
-
-        {matches.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 text-xs md:text-sm">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-slate-300">
-                {isArabic ? "تحديد جماعي:" : "Bulk selection:"}
-              </span>
-              <button
-                type="button"
-                onClick={selectAllOnPage}
-                className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700"
-              >
-                {isArabic ? "تحديد الكل في هذه الصفحة" : "Select all on page"}
-              </button>
-              <button
-                type="button"
-                onClick={clearSelection}
-                className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700"
-              >
-                {isArabic ? "إلغاء التحديد" : "Clear selection"}
-              </button>
-              <span className="text-slate-400">
-                {isArabic
-                  ? `المحدد: ${selectedIds.length}`
-                  : `Selected: ${selectedIds.length}`}
-              </span>
+          {loading && matches.length === 0 && (
+            <div className="space-y-3">
+              {skeletonCard}
+              {skeletonCard}
             </div>
+          )}
 
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                className={`rounded-md px-2 py-1 ${inputBgClass}`}
-                value={bulkStatus}
-                onChange={(e) => setBulkStatus(e.target.value)}
-              >
-                {STATUS_OPTIONS.filter((s) => s.value !== "all").map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {isArabic ? opt.labelAr : opt.labelEn}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                disabled={bulkUpdating || selectedIds.length === 0}
-                onClick={handleBulkUpdate}
-                className="inline-flex items-center justify-center px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-xs font-medium transition-colors"
-              >
-                {bulkUpdating
-                  ? isArabic
-                    ? "جارٍ التحديث..."
-                    : "Updating..."
-                  : isArabic
-                  ? "تطبيق على المحدد"
-                  : "Apply to selected"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {bestMatch && (
-          <div className="space-y-4">
-            <div
-              className={`rounded-xl border ${cardBgClass} p-4 space-y-4`}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={isSelected(bestMatch._id)}
-                    onChange={() => toggleSelect(bestMatch._id)}
-                    className="h-4 w-4 rounded border-slate-600"
-                  />
-                  <h2 className="text-lg font-semibold">
-                    {isArabic ? "أقرب نتيجة" : "Best match"}
-                  </h2>
-                </div>
-                <div className="flex flex-wrap gap-2 text-[11px]">
-                  <span className="px-2 py-1 rounded-full bg-sky-900/70 border border-sky-700">
-                    Domain: {bestMatch.domain}
-                  </span>
-                  {bestMatch.owner_group && (
-                    <span className="px-2 py-1 rounded-full bg-slate-800/80 border border-slate-700">
-                      Owner: {bestMatch.owner_group}
-                    </span>
-                  )}
-                  {bestMatch.client_name && (
-                    <span className="px-2 py-1 rounded-full bg-slate-800/80 border border-slate-700">
-                      Client: {bestMatch.client_name}
-                    </span>
-                  )}
-                  <span
-                    className={getStatusChipClasses(
-                      bestMatch.status,
-                      isDark
-                    )}
-                  >
-                    Status: {bestMatch.status}
-                  </span>
-                </div>
+          {matches.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs md:text-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-slate-300">
+                  {isArabic ? "تحديد جماعي:" : "Bulk selection:"}
+                </span>
+                <button
+                  type="button"
+                  onClick={selectAllOnPage}
+                  className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700"
+                >
+                  {isArabic ? "تحديد الكل في هذه الصفحة" : "Select all on page"}
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700"
+                >
+                  {isArabic ? "إلغاء التحديد" : "Clear selection"}
+                </button>
+                <span className="text-slate-400">
+                  {isArabic
+                    ? `المحدد: ${selectedIds.length}`
+                    : `Selected: ${selectedIds.length}`}
+                </span>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 text-xs md:text-sm">
-                <span className="text-slate-300">
-                  {isArabic
-                    ? "تعديل حالة هذا الضبط:"
-                    : "Update status for this control:"}
-                </span>
+              <div className="flex flex-wrap items-center gap-2">
                 <select
                   className={`rounded-md px-2 py-1 ${inputBgClass}`}
-                  value={statusEditValue}
-                  onChange={(e) => setStatusEditValue(e.target.value)}
+                  value={bulkStatus}
+                  onChange={(e) => setBulkStatus(e.target.value)}
                 >
-                  {STATUS_OPTIONS.filter((s) => s.value !== "all").map(
-                    (opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {isArabic ? opt.labelAr : opt.labelEn}
-                      </option>
-                    )
-                  )}
+                  {STATUS_OPTIONS.filter((s) => s.value !== "all").map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {isArabic ? opt.labelAr : opt.labelEn}
+                    </option>
+                  ))}
                 </select>
                 <button
                   type="button"
-                  onClick={handleStatusUpdate}
-                  disabled={updatingStatus}
-                  className="inline-flex items-center justify-center px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-xs font-medium transition-colors"
+                  disabled={bulkUpdating || selectedIds.length === 0}
+                  onClick={handleBulkUpdate}
+                  className="inline-flex items-center justify-center px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-xs font-medium transition-colors"
                 >
-                  {updatingStatus
+                  {bulkUpdating
                     ? isArabic
-                      ? "جارٍ الحفظ..."
-                      : "Saving..."
+                      ? "جارٍ التحديث..."
+                      : "Updating..."
                     : isArabic
-                    ? "حفظ الحالة"
-                    : "Save status"}
+                      ? "تطبيق على المحدد"
+                      : "Apply to selected"}
                 </button>
-                {statusMessage && (
-                  <span className="text-xs text-slate-300">
-                    {statusMessage}
-                  </span>
-                )}
-              </div>
-
-              <div className="space-y-3 text-sm">
-                <div className={isArabic ? "text-right" : "text-left"}>
-                  <p className="text-slate-400 text-xs mb-1">
-                    {isArabic ? "السؤال:" : "Question:"}
-                  </p>
-                  <p className="font-medium">{bestMatch.question_text}</p>
-                  {bestMatch.question_text_en &&
-                    bestMatch.question_text_en !==
-                      bestMatch.question_text && (
-                      <p className="text-slate-300 mt-1">
-                        EN: {bestMatch.question_text_en}
-                      </p>
-                    )}
-                </div>
-
-                <div className={isArabic ? "text-right" : "text-left"}>
-                  <p className="text-slate-400 text-xs mb-1">
-                    {isArabic
-                      ? "الإجابة (للاستبيان):"
-                      : "Answer (for the questionnaire):"}
-                  </p>
-                  <p className="whitespace-pre-wrap text-slate-100">
-                    {bestMatch.answer_text || (
-                      <span className="text-slate-500">
-                        {isArabic
-                          ? "لا توجد إجابة مخزّنة بعد."
-                          : "No answer stored yet."}
-                      </span>
-                    )}
-                  </p>
-                </div>
-
-                <div className="text-right">
-                  <p className="text-slate-400 text-xs mb-1">
-                    {isArabic
-                      ? "شرح مبسّط بالعربي:"
-                      : "Simple explanation in Arabic:"}
-                  </p>
-                  <p className="whitespace-pre-wrap text-slate-200">
-                    {bestMatch.explanation_ar?.trim()
-                      ? bestMatch.explanation_ar
-                      : isArabic
-                      ? "لا يوجد شرح عربي مخزَّن بعد. يمكنك إضافته من صفحة الإدارة أو عن طريق ملف Excel."
-                      : "No Arabic explanation stored yet. You can add it from the admin page or via Excel import."}
-                  </p>
-                </div>
-
-                {recommendations.length > 0 && (
-                  <div className={isArabic ? "text-right" : "text-left"}>
-                    <p className="text-slate-400 text-xs mb-1">
-                      {isArabic ? "توصيات:" : "Recommendations:"}
-                    </p>
-                    <ul className="list-disc list-inside space-y-1 text-slate-200">
-                      {recommendations.map((r, i) => (
-                        <li key={`rec-${i}`}>{r}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {(bestMatch.source_file ||
-                  bestMatch.source_ref ||
-                  bestMatch.client_name) && (
-                  <div className="text-xs text-slate-500 mt-2">
-                    {isArabic ? "مصدر المعلومة: " : "Source: "}
-                    {bestMatch.source_file && `${bestMatch.source_file} `}
-                    {bestMatch.source_ref &&
-                      `(Ref: ${bestMatch.source_ref}) `}
-                    {bestMatch.client_name &&
-                      (isArabic
-                        ? ` | العميل: ${bestMatch.client_name}`
-                        : ` | Client: ${bestMatch.client_name}`)}
-                  </div>
-                )}
               </div>
             </div>
+          )}
 
-            {otherMatches.length > 0 && (
+          {bestMatch && (
+            <div className="space-y-4">
               <div
-                className={`rounded-xl border ${subCardBgClass} p-4 space-y-2 text-sm`}
+                className={`rounded-xl border ${cardBgClass} p-4 space-y-4`}
               >
-                <p className="text-slate-300 text-xs mb-2">
-                  {isArabic ? "نتائج أخرى:" : "Other matching results:"}
-                </p>
-                <div className="space-y-2 max-h-[400px] overflow-auto pr-1">
-                  {otherMatches.map((m) => (
-                    <div
-                      key={m._id}
-                      className="rounded-md border border-slate-800 bg-slate-900/60 px-3 py-2 flex flex-col gap-1"
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={isSelected(bestMatch._id)}
+                      onChange={() => toggleSelect(bestMatch._id)}
+                      className="h-4 w-4 rounded border-slate-600"
+                    />
+                    <h2 className="text-lg font-semibold">
+                      {isArabic ? "أقرب نتيجة" : "Best match"}
+                    </h2>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-[11px]">
+                    <span className="px-2 py-1 rounded-full bg-sky-900/70 border border-sky-700">
+                      Domain: {bestMatch.domain}
+                    </span>
+                    {bestMatch.owner_group && (
+                      <span className="px-2 py-1 rounded-full bg-slate-800/80 border border-slate-700">
+                        Owner: {bestMatch.owner_group}
+                      </span>
+                    )}
+                    {bestMatch.client_name && (
+                      <span className="px-2 py-1 rounded-full bg-slate-800/80 border border-slate-700">
+                        Client: {bestMatch.client_name}
+                      </span>
+                    )}
+                    <span
+                      className={getStatusChipClasses(
+                        bestMatch.status,
+                        isDark
+                      )}
                     >
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={isSelected(m._id)}
-                          onChange={() => toggleSelect(m._id)}
-                          className="h-4 w-4 rounded border-slate-600"
-                        />
-                        <p className="font-medium text-slate-100">
-                          {m.question_text}
+                      Status: {bestMatch.status}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 text-xs md:text-sm">
+                  <span className="text-slate-300">
+                    {isArabic
+                      ? "تعديل حالة هذا الضبط:"
+                      : "Update status for this control:"}
+                  </span>
+                  <select
+                    className={`rounded-md px-2 py-1 ${inputBgClass}`}
+                    value={statusEditValue}
+                    onChange={(e) => setStatusEditValue(e.target.value)}
+                  >
+                    {STATUS_OPTIONS.filter((s) => s.value !== "all").map(
+                      (opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {isArabic ? opt.labelAr : opt.labelEn}
+                        </option>
+                      )
+                    )}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleStatusUpdate}
+                    disabled={updatingStatus}
+                    className="inline-flex items-center justify-center px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-xs font-medium transition-colors"
+                  >
+                    {updatingStatus
+                      ? isArabic
+                        ? "جارٍ الحفظ..."
+                        : "Saving..."
+                      : isArabic
+                        ? "حفظ الحالة"
+                        : "Save status"}
+                  </button>
+                  {statusMessage && (
+                    <span className="text-xs text-slate-300">
+                      {statusMessage}
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-3 text-sm">
+                  <div className={isArabic ? "text-right" : "text-left"}>
+                    <p className="text-slate-400 text-xs mb-1">
+                      {isArabic ? "السؤال:" : "Question:"}
+                    </p>
+                    <p className="font-medium">{bestMatch.question_text}</p>
+                    {bestMatch.question_text_en &&
+                      bestMatch.question_text_en !==
+                      bestMatch.question_text && (
+                        <p className="text-slate-300 mt-1">
+                          EN: {bestMatch.question_text_en}
                         </p>
-                      </div>
-                      {m.question_text_en &&
-                        m.question_text_en !== m.question_text && (
-                          <p className="text-xs text-slate-400 mt-1">
-                            EN: {m.question_text_en}
-                          </p>
-                        )}
-                      <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-400">
-                        <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
-                          Domain: {m.domain}
+                      )}
+                  </div>
+
+                  <div className={isArabic ? "text-right" : "text-left"}>
+                    <p className="text-slate-400 text-xs mb-1">
+                      {isArabic
+                        ? "الإجابة (للاستبيان):"
+                        : "Answer (for the questionnaire):"}
+                    </p>
+                    <p className="whitespace-pre-wrap text-slate-100">
+                      {bestMatch.answer_text || (
+                        <span className="text-slate-500">
+                          {isArabic
+                            ? "لا توجد إجابة مخزّنة بعد."
+                            : "No answer stored yet."}
                         </span>
-                        {m.owner_group && (
-                          <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
-                            Owner: {m.owner_group}
-                          </span>
-                        )}
-                        {m.client_name && (
-                          <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
-                            Client: {m.client_name}
-                          </span>
-                        )}
-                        <span
-                          className={getStatusChipClasses(m.status, isDark)}
-                        >
-                          Status: {m.status}
-                        </span>
-                      </div>
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-slate-400 text-xs mb-1">
+                      {isArabic
+                        ? "شرح مبسّط بالعربي:"
+                        : "Simple explanation in Arabic:"}
+                    </p>
+                    <p className="whitespace-pre-wrap text-slate-200">
+                      {bestMatch.explanation_ar?.trim()
+                        ? bestMatch.explanation_ar
+                        : isArabic
+                          ? "لا يوجد شرح عربي مخزَّن بعد. يمكنك إضافته من صفحة الإدارة أو عن طريق ملف Excel."
+                          : "No Arabic explanation stored yet. You can add it from the admin page or via Excel import."}
+                    </p>
+                  </div>
+
+                  {recommendations.length > 0 && (
+                    <div className={isArabic ? "text-right" : "text-left"}>
+                      <p className="text-slate-400 text-xs mb-1">
+                        {isArabic ? "توصيات:" : "Recommendations:"}
+                      </p>
+                      <ul className="list-disc list-inside space-y-1 text-slate-200">
+                        {recommendations.map((r, i) => (
+                          <li key={`rec-${i}`}>{r}</li>
+                        ))}
+                      </ul>
                     </div>
-                  ))}
+                  )}
+
+                  {(bestMatch.source_file ||
+                    bestMatch.source_ref ||
+                    bestMatch.client_name) && (
+                      <div className="text-xs text-slate-500 mt-2">
+                        {isArabic ? "مصدر المعلومة: " : "Source: "}
+                        {bestMatch.source_file && `${bestMatch.source_file} `}
+                        {bestMatch.source_ref &&
+                          `(Ref: ${bestMatch.source_ref}) `}
+                        {bestMatch.client_name &&
+                          (isArabic
+                            ? ` | العميل: ${bestMatch.client_name}`
+                            : ` | Client: ${bestMatch.client_name}`)}
+                      </div>
+                    )}
                 </div>
               </div>
-            )}
-          </div>
-        )}
 
-        {!bestMatch && !error && !loading && (
-          <p className="text-sm text-slate-400">
-            {isArabic
-              ? "لا توجد نتائج حالياً. جرّب تعديل كلمات البحث أو الفلاتر."
-              : "No results yet. Try adjusting your query or filters."}
-          </p>
-        )}
-      </div>
+              {otherMatches.length > 0 && (
+                <div
+                  className={`rounded-xl border ${subCardBgClass} p-4 space-y-2 text-sm`}
+                >
+                  <p className="text-slate-300 text-xs mb-2">
+                    {isArabic ? "نتائج أخرى:" : "Other matching results:"}
+                  </p>
+                  <div className="space-y-2 max-h-[400px] overflow-auto pr-1">
+                    {otherMatches.map((m) => (
+                      <div
+                        key={m._id}
+                        className="rounded-md border border-slate-800 bg-slate-900/60 px-3 py-2 flex flex-col gap-1"
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isSelected(m._id)}
+                            onChange={() => toggleSelect(m._id)}
+                            className="h-4 w-4 rounded border-slate-600"
+                          />
+                          <p className="font-medium text-slate-100">
+                            {m.question_text}
+                          </p>
+                        </div>
+                        {m.question_text_en &&
+                          m.question_text_en !== m.question_text && (
+                            <p className="text-xs text-slate-400 mt-1">
+                              EN: {m.question_text_en}
+                            </p>
+                          )}
+                        <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-400">
+                          <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
+                            Domain: {m.domain}
+                          </span>
+                          {m.owner_group && (
+                            <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
+                              Owner: {m.owner_group}
+                            </span>
+                          )}
+                          {m.client_name && (
+                            <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
+                              Client: {m.client_name}
+                            </span>
+                          )}
+                          <span
+                            className={getStatusChipClasses(m.status, isDark)}
+                          >
+                            Status: {m.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
-      {toast && (
-        <div
-          className={`fixed bottom-4 right-4 max-w-sm px-4 py-2 rounded-md text-xs md:text-sm shadow-lg ${
-            toast.type === "success"
-              ? "bg-emerald-600 text-white"
-              : "bg-red-600 text-white"
-          }`}
-        >
-          {toast.message}
+          {!bestMatch && !error && !loading && (
+            <p className="text-sm text-slate-400">
+              {isArabic
+                ? "لا توجد نتائج حالياً. جرّب تعديل كلمات البحث أو الفلاتر."
+                : "No results yet. Try adjusting your query or filters."}
+            </p>
+          )}
         </div>
-      )}
-    </main>
+
+        {toast && (
+          <div
+            className={`fixed bottom-4 right-4 max-w-sm px-4 py-2 rounded-md text-xs md:text-sm shadow-lg ${toast.type === "success"
+              ? "bg-emerald-600 text-white"
+                      )}
+                    >
+        Status: {bestMatch.status}
+      </span>
+    </div >
+                </div >
+
+                <div className="flex flex-wrap items-center gap-3 text-xs md:text-sm">
+                  <span className="text-slate-300">
+                    {isArabic
+                      ? "تعديل حالة هذا الضبط:"
+                      : "Update status for this control:"}
+                  </span>
+                  <select
+                    className={`rounded-md px-2 py-1 ${inputBgClass}`}
+                    value={statusEditValue}
+                    onChange={(e) => setStatusEditValue(e.target.value)}
+                  >
+                    {STATUS_OPTIONS.filter((s) => s.value !== "all").map(
+                      (opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {isArabic ? opt.labelAr : opt.labelEn}
+                        </option>
+                      )
+                    )}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleStatusUpdate}
+                    disabled={updatingStatus}
+                    className="inline-flex items-center justify-center px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-xs font-medium transition-colors"
+                  >
+                    {updatingStatus
+                      ? isArabic
+                        ? "جارٍ الحفظ..."
+                        : "Saving..."
+                      : isArabic
+                        ? "حفظ الحالة"
+                        : "Save status"}
+                  </button>
+                  {statusMessage && (
+                    <span className="text-xs text-slate-300">
+                      {statusMessage}
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-3 text-sm">
+                  <div className={isArabic ? "text-right" : "text-left"}>
+                    <p className="text-slate-400 text-xs mb-1">
+                      {isArabic ? "السؤال:" : "Question:"}
+                    </p>
+                    <p className="font-medium">{bestMatch.question_text}</p>
+                    {bestMatch.question_text_en &&
+                      bestMatch.question_text_en !==
+                      bestMatch.question_text && (
+                        <p className="text-slate-300 mt-1">
+                          EN: {bestMatch.question_text_en}
+                        </p>
+                      )}
+                  </div>
+
+                  <div className={isArabic ? "text-right" : "text-left"}>
+                    <p className="text-slate-400 text-xs mb-1">
+                      {isArabic
+                        ? "الإجابة (للاستبيان):"
+                        : "Answer (for the questionnaire):"}
+                    </p>
+                    <p className="whitespace-pre-wrap text-slate-100">
+                      {bestMatch.answer_text || (
+                        <span className="text-slate-500">
+                          {isArabic
+                            ? "لا توجد إجابة مخزّنة بعد."
+                            : "No answer stored yet."}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-slate-400 text-xs mb-1">
+                      {isArabic
+                        ? "شرح مبسّط بالعربي:"
+                        : "Simple explanation in Arabic:"}
+                    </p>
+                    <p className="whitespace-pre-wrap text-slate-200">
+                      {bestMatch.explanation_ar?.trim()
+                        ? bestMatch.explanation_ar
+                        : isArabic
+                          ? "لا يوجد شرح عربي مخزَّن بعد. يمكنك إضافته من صفحة الإدارة أو عن طريق ملف Excel."
+                          : "No Arabic explanation stored yet. You can add it from the admin page or via Excel import."}
+                    </p>
+                  </div>
+
+                  {recommendations.length > 0 && (
+                    <div className={isArabic ? "text-right" : "text-left"}>
+                      <p className="text-slate-400 text-xs mb-1">
+                        {isArabic ? "توصيات:" : "Recommendations:"}
+                      </p>
+                      <ul className="list-disc list-inside space-y-1 text-slate-200">
+                        {recommendations.map((r, i) => (
+                          <li key={`rec-${i}`}>{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {(bestMatch.source_file ||
+                    bestMatch.source_ref ||
+                    bestMatch.client_name) && (
+                      <div className="text-xs text-slate-500 mt-2">
+                        {isArabic ? "مصدر المعلومة: " : "Source: "}
+                        {bestMatch.source_file && `${bestMatch.source_file} `}
+                        {bestMatch.source_ref &&
+                          `(Ref: ${bestMatch.source_ref}) `}
+                        {bestMatch.client_name &&
+                          (isArabic
+                            ? ` | العميل: ${bestMatch.client_name}`
+                            : ` | Client: ${bestMatch.client_name}`)}
+                      </div>
+                    )}
+                </div>
+              </div >
+
+  {
+    otherMatches.length > 0 && (
+      <div
+        className={`rounded-xl border ${subCardBgClass} p-4 space-y-2 text-sm`}
+      >
+        <p className="text-slate-300 text-xs mb-2">
+          {isArabic ? "نتائج أخرى:" : "Other matching results:"}
+        </p>
+        <div className="space-y-2 max-h-[400px] overflow-auto pr-1">
+          {otherMatches.map((m) => (
+            <div
+              key={m._id}
+              className="rounded-md border border-slate-800 bg-slate-900/60 px-3 py-2 flex flex-col gap-1"
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={isSelected(m._id)}
+                  onChange={() => toggleSelect(m._id)}
+                  className="h-4 w-4 rounded border-slate-600"
+                />
+                <p className="font-medium text-slate-100">
+                  {m.question_text}
+                </p>
+              </div>
+              {m.question_text_en &&
+                m.question_text_en !== m.question_text && (
+                  <p className="text-xs text-slate-400 mt-1">
+                    EN: {m.question_text_en}
+                  </p>
+                )}
+              <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-400">
+                <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
+                  Domain: {m.domain}
+                </span>
+                {m.owner_group && (
+                  <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
+                    Owner: {m.owner_group}
+                  </span>
+                )}
+                {m.client_name && (
+                  <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
+                    Client: {m.client_name}
+                  </span>
+                )}
+                <span
+                  className={getStatusChipClasses(m.status, isDark)}
+                >
+                  Status: {m.status}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+            </div >
+          )
+}
+
+{
+  !bestMatch && !error && !loading && (
+    <p className="text-sm text-slate-400">
+      {isArabic
+        ? "لا توجد نتائج حالياً. جرّب تعديل كلمات البحث أو الفلاتر."
+        : "No results yet. Try adjusting your query or filters."}
+    </p>
+  )
+}
+        </div >
+
+  { toast && (
+    <div
+      className={`fixed bottom-4 right-4 max-w-sm px-4 py-2 rounded-md text-xs md:text-sm shadow-lg ${toast.type === "success"
+        ? "bg-emerald-600 text-white"
+        : "bg-red-600 text-white"
+        }`}
+    >
+      {toast.message}
+    </div>
+  )}
+      </div >
+    </main >
+  <Footer />
+    </>
   );
 }
