@@ -1,32 +1,32 @@
 // lib/mongodb.ts
 import { MongoClient, Db } from "mongodb";
 
-if (!process.env.MONGODB_URI) {
-  throw new Error("❌ MONGODB_URI is not set in .env.local");
-}
-
-const uri = process.env.MONGODB_URI;
-const dbName = process.env.MONGODB_DB || "security_qa";
-
 let client: MongoClient | null = null;
 let db: Db | null = null;
-let clientPromise: Promise<MongoClient> | null = null;
-
-export async function getMongoClient(): Promise<MongoClient> {
-  if (client) return client;
-
-  if (!clientPromise) {
-    clientPromise = MongoClient.connect(uri!);
-  }
-
-  client = await clientPromise;
-  return client;
-}
 
 export async function getDb(): Promise<Db> {
+  // لو الكاش موجود، رجّع مباشرة
   if (db) return db;
 
-  const client = await getMongoClient();
-  db = client.db(dbName);
+  const uri = process.env.MONGODB_URI;
+  const dbName = process.env.MONGODB_DB_NAME || "security_qa";
+
+  if (!uri) {
+    // هنا فقط نرمي Error عندما نحاول فعلاً الاتصال بالـ DB
+    // وليس عند مجرد import للملف
+    throw new Error(
+      "MONGODB_URI is not set in environment variables. Please configure it in .env.local (local) or service env (Render)."
+    );
+  }
+
+  if (!client) {
+    client = new MongoClient(uri);
+  }
+
+  if (!db) {
+    await client.connect();
+    db = client.db(dbName);
+  }
+
   return db;
 }
