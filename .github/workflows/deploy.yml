@@ -43,3 +43,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            MONGODB_URI=mongodb://dummy:dummy@localhost:27017/dummy_db_for_build
