@@ -76,18 +76,18 @@ export default function HomePage() {
                 color: 'from-emerald-400 to-teal-500'
               },
               {
+                title: 'Smart Match',
+                desc: 'Auto-fill answers',
+                icon: Sparkles,
+                href: '/admin/match-answers',
+                color: 'from-purple-400 to-pink-500'
+              },
+              {
                 title: 'Bulk Import',
                 desc: 'Process Excel files',
                 icon: Upload,
                 href: '/admin/import',
                 color: 'from-orange-400 to-amber-500'
-              },
-              {
-                title: 'Generate Reports',
-                desc: 'Automated responses',
-                icon: FileText,
-                href: '/admin/prepare',
-                color: 'from-purple-400 to-pink-500'
               }
             ].map((card, i) => (
               <Link key={i} href={card.href} className="block group">

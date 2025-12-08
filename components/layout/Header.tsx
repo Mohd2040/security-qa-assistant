@@ -45,6 +45,7 @@ export function Header() {
                         { href: '/', label: 'Overview' },
                         { href: '/search', label: 'Search' },
                         { href: '/admin/qa', label: 'Manage' },
+                        { href: '/admin/match-answers', label: 'Match' },
                         { href: '/admin/import', label: 'Import' },
                     ].map((link) => (
                         <Link
