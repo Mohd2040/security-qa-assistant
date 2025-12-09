@@ -25,6 +25,7 @@ interface ImportStats {
   imported: number;
   updated: number;
   skippedExisting: number;
+  skippedDuplicates?: number;
 }
 
 const VALID_STATUSES: QaStatus[] = [
@@ -36,7 +37,8 @@ const VALID_STATUSES: QaStatus[] = [
 
 // aliases for smart column mapping
 const columnAliases: Record<string, string[]> = {
-  question_text: ["question_text", "question", "Question", "السؤال", "Q"],
+  question_text: ["question_text", "Question (English)", "Question", "question", "Q"],
+  question_text_ar: ["question_text_ar", "Question (Arabic)", "question_ar", "السؤال بالعربي", "السؤال (عربي)", "Arabic Question"],
   answer_text: ["answer_text", "answer", "Answer", "الإجابة", "A"],
   status: ["status", "Status", "الحالة", "Result"],
   domain: ["domain", "Domain", "التصنيف", "تصنيف", "Category"],
@@ -101,19 +103,33 @@ function validateRow(
     return row[col];
   };
 
-  const question_text = (getVal("question_text") ?? "").toString().trim();
-  if (!question_text) {
-    errors.push("question_text is required");
-  } else if (question_text.length < 10) {
-    errors.push("question_text is too short (min 10 chars)");
+  const q_en_input = (getVal("question_text") ?? "").toString().trim();
+  const q_ar_input = (getVal("question_text_ar") ?? "").toString().trim();
+
+  if (!q_en_input) {
+    errors.push("Question (English) is required");
+  } else if (q_en_input.length < 3) {
+    errors.push("Question (English) is too short");
   }
 
+  // Map to DB fields:
+  // 1. question_text_en: Explicit English input
+  // 2. question_text_ar: Explicit Arabic input
+  // 3. question_text: Primary field. Prefer Arabic if available to align with UI expectations, else fallback to English.
+  const question_text_en = q_en_input;
+  const question_text_ar = q_ar_input;
+  const question_text = q_ar_input || q_en_input;
+
   let status = (getVal("status") ?? "").toString().trim().toLowerCase();
+
+  // Normalize: replace spaces with underscores (e.g. "not applied" -> "not_applied")
+  status = status.replace(/\s+/g, "_");
+
   if (!status) {
     status = "unknown";
   } else if (!VALID_STATUSES.includes(status as QaStatus)) {
     errors.push(
-      `Invalid status '${status}'. Must be one of: ${VALID_STATUSES.join(", ")}`
+      `Invalid status '${status}'. Must be one of: applied, not applied, not applicable, unknown`
     );
   }
 
@@ -144,6 +160,8 @@ function validateRow(
 
   const data: Record<string, any> = {
     question_text,
+    question_text_en,    // Added English Question
+    question_text_ar,    // Added Arabic Question
     answer_text,
     status,
     domain,
@@ -285,11 +303,61 @@ export async function POST(req: NextRequest) {
     // =========================
     // IMPORT MODE (مع Ollama)
     // =========================
-    const validRows = parsed.filter((p) => p.errors.length === 0);
-    const invalidRows = parsed.filter((p) => p.errors.length > 0);
 
+    // Re-run duplicate check (same logic as preview)
     const db = await getDb();
     const collection = db.collection("qa_entries");
+
+    // 1) مكرر داخل نفس الملف
+    const fileCountMap = new Map<string, number>();
+    for (const row of parsed) {
+      const key = (row.data.question_text || "").toString().trim();
+      if (!key) continue;
+      fileCountMap.set(key, (fileCountMap.get(key) || 0) + 1);
+    }
+    const duplicatedInFile = new Set(
+      Array.from(fileCountMap.entries())
+        .filter(([, count]) => count > 1)
+        .map(([key]) => key)
+    );
+
+    // 2) مكرر في الداتابيس
+    const uniqueQuestions = Array.from(
+      new Set(
+        parsed
+          .map((r) => (r.data.question_text || "").toString().trim())
+          .filter(Boolean)
+      )
+    );
+
+    const existingDocs = await collection
+      .find({ question_text: { $in: uniqueQuestions } })
+      .project({ question_text: 1 })
+      .toArray();
+
+    const existingSet = new Set(
+      existingDocs.map((d: any) => d.question_text as string)
+    );
+
+    // 3) Mark duplicate errors
+    for (const row of parsed) {
+      const q = (row.data.question_text || "").toString().trim();
+      if (!q) continue;
+
+      if (duplicatedInFile.has(q)) {
+        row.errors.push("Duplicate question in this file");
+      }
+      if (existingSet.has(q)) {
+        row.errors.push("Question already exists in database");
+      }
+    }
+
+    // 4) Separate rows: valid (no errors) vs invalid (has errors, including duplicates)
+    const validRows = parsed.filter((p) => p.errors.length === 0);
+    const invalidRows = parsed.filter((p) => p.errors.length > 0);
+    const skippedDuplicates = invalidRows.filter((r) =>
+      r.errors.some(e => e.includes("Duplicate") || e.includes("already exists"))
+    ).length;
 
     const stats: ImportStats = {
       totalRows: parsed.length,
@@ -298,6 +366,7 @@ export async function POST(req: NextRequest) {
       imported: 0,
       updated: 0,
       skippedExisting: 0,
+      skippedDuplicates: skippedDuplicates,
     };
 
     const nowIso = new Date().toISOString();
