@@ -274,10 +274,16 @@ export default function SearchPage() {
 
     setSaving(true);
     try {
+      // Ensure question_text is set: English first, then Arabic
+      const itemToSave = {
+        ...editingItem,
+        question_text: editingItem.question_text_en || (editingItem as any).question_text_ar || editingItem.question_text,
+      };
+
       const res = await fetch("/api/qa/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editingItem),
+        body: JSON.stringify(itemToSave),
       });
 
       if (!res.ok) throw new Error("Failed to update");
@@ -285,7 +291,7 @@ export default function SearchPage() {
       setResults((prev) =>
         prev.map((item) =>
           String(item._id ?? "") === String(editingItem._id ?? "")
-            ? editingItem
+            ? itemToSave
             : item
         )
       );
@@ -834,12 +840,12 @@ export default function SearchPage() {
                       Question (Arabic)
                     </label>
                     <textarea
-                      value={editingItem.question_text}
+                      value={(editingItem as any).question_text_ar || ""}
                       onChange={(e) =>
                         setEditingItem({
                           ...editingItem,
-                          question_text: e.target.value,
-                        })
+                          question_text_ar: e.target.value,
+                        } as any)
                       }
                       className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500/50 transition-all"
                       rows={2}
