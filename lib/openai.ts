@@ -8,5 +8,4 @@ if (!apiKey) {
 
 export const openai = new OpenAI({
     apiKey: apiKey || "dummy-key", // Prevent crash if key is missing, but calls will fail
-    dangerouslyAllowBrowser: true, // Note: We should ideally only use this server-side
 });

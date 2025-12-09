@@ -16,6 +16,7 @@ interface ParsedRow {
   rowNumber: number;
   data: Record<string, any>;
   errors: string[];
+  warnings?: string[];
 }
 
 interface ImportStats {
@@ -253,34 +254,45 @@ export async function POST(req: NextRequest) {
           .map(([key]) => key)
       );
 
-      // 2) مكرر في الداتابيس
+      // 2) مكرر في الداتابيس (نستخدم السؤال الإنجليزي للمقارنة)
       const uniqueQuestions = Array.from(
         new Set(
           parsed
-            .map((r) => (r.data.question_text || "").toString().trim())
+            .map((r) => (r.data.question_text_en || "").toString().trim())
             .filter(Boolean)
         )
       );
 
       const existingDocs = await collection
-        .find({ question_text: { $in: uniqueQuestions } })
-        .project({ question_text: 1 })
+        .find({ question_text_en: { $in: uniqueQuestions } })
+        .project({ question_text_en: 1 })
         .toArray();
 
       const existingSet = new Set(
-        existingDocs.map((d: any) => d.question_text as string)
+        existingDocs.map((d: any) => d.question_text_en as string)
       );
 
-      // 3) إضافة رسائل الأخطاء
+      // 3) إضافة رسائل الأخطاء أو warnings حسب الـ strategy
       for (const row of parsed) {
-        const q = (row.data.question_text || "").toString().trim();
+        const q = (row.data.question_text_en || "").toString().trim();
         if (!q) continue;
 
         if (duplicatedInFile.has(q)) {
           row.errors.push("Duplicate question in this file");
         }
         if (existingSet.has(q)) {
-          row.errors.push("Question already exists in database");
+          // حسب الـ strategy
+          if (strategy === "insertOnly") {
+            row.errors.push("Question already exists - will be skipped");
+          } else if (strategy === "upsert" || strategy === "replace_all") {
+            // ليست error، بل warning
+            if (!row.warnings) row.warnings = [];
+            row.warnings.push("Question exists - will be updated/replaced");
+          } else if (strategy === "updateExisting") {
+            // ليست error
+            if (!row.warnings) row.warnings = [];
+            row.warnings.push("Question exists - will be updated");
+          }
         }
       }
 
@@ -308,10 +320,10 @@ export async function POST(req: NextRequest) {
     const db = await getDb();
     const collection = db.collection("qa_entries");
 
-    // 1) مكرر داخل نفس الملف
+    // 1) مكرر داخل نفس الملف (نستخدم السؤال الإنجليزي)
     const fileCountMap = new Map<string, number>();
     for (const row of parsed) {
-      const key = (row.data.question_text || "").toString().trim();
+      const key = (row.data.question_text_en || "").toString().trim();
       if (!key) continue;
       fileCountMap.set(key, (fileCountMap.get(key) || 0) + 1);
     }
@@ -321,34 +333,38 @@ export async function POST(req: NextRequest) {
         .map(([key]) => key)
     );
 
-    // 2) مكرر في الداتابيس
+    // 2) مكرر في الداتابيس (نستخدم السؤال الإنجليزي)
     const uniqueQuestions = Array.from(
       new Set(
         parsed
-          .map((r) => (r.data.question_text || "").toString().trim())
+          .map((r) => (r.data.question_text_en || "").toString().trim())
           .filter(Boolean)
       )
     );
 
     const existingDocs = await collection
-      .find({ question_text: { $in: uniqueQuestions } })
-      .project({ question_text: 1 })
+      .find({ question_text_en: { $in: uniqueQuestions } })
+      .project({ question_text_en: 1 })
       .toArray();
 
     const existingSet = new Set(
-      existingDocs.map((d: any) => d.question_text as string)
+      existingDocs.map((d: any) => d.question_text_en as string)
     );
 
-    // 3) Mark duplicate errors
+    // 3) Mark duplicate errors/warnings حسب strategy
     for (const row of parsed) {
-      const q = (row.data.question_text || "").toString().trim();
+      const q = (row.data.question_text_en || "").toString().trim();
       if (!q) continue;
 
       if (duplicatedInFile.has(q)) {
         row.errors.push("Duplicate question in this file");
       }
       if (existingSet.has(q)) {
-        row.errors.push("Question already exists in database");
+        // حسب الـ strategy
+        if (strategy === "insertOnly") {
+          row.errors.push("Question already exists - will be skipped");
+        }
+        // للـ strategies الأخرى، لا نضيف error
       }
     }
 
@@ -374,8 +390,10 @@ export async function POST(req: NextRequest) {
 
     for (const row of validRows) {
       const d = row.data;
+
+      // المقارنة على السؤال الإنجليزي فقط
       const filter: any = {
-        question_text: d.question_text,
+        question_text_en: d.question_text_en,
       };
       if (d.client_name) {
         filter.client_name = d.client_name;
@@ -444,6 +462,29 @@ export async function POST(req: NextRequest) {
         };
         await collection.insertOne(docToInsert);
         stats.imported++;
+      } else if (strategy === "replace_all") {
+        // Replace strategy: حذف كل المكررات (ALL duplicates) وإضافة جديد
+        // نحذف كل الأسئلة بنفس question_text_en بغض النظر عن client_name
+        if (existing) {
+          const deleteFilter: any = {
+            question_text_en: d.question_text_en,
+          };
+          // لا نضيف client_name في filter الحذف - نريد حذف الكل!
+          await collection.deleteMany(deleteFilter);
+        }
+        const docToInsert = {
+          ...baseDoc,
+          question_language: "en",
+          answer_language: "en",
+          created_at: nowIso,
+          updated_at: nowIso,
+        };
+        await collection.insertOne(docToInsert);
+        if (existing) {
+          stats.updated++; // نحسبها update
+        } else {
+          stats.imported++;
+        }
       } else if (strategy === "updateExisting") {
         if (!existing) {
           stats.skippedExisting++;
