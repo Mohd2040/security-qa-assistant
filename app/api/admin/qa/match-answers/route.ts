@@ -19,6 +19,8 @@ interface MatchedAnswer {
     domain: string;
     ai_suggestion: string;
     match_confidence: "high" | "medium" | "low" | "none";
+    decision_required: boolean;
+    recommendation: string;
 }
 
 interface MatchResult {
@@ -217,10 +219,26 @@ export async function POST(req: NextRequest) {
                 }
             }
 
+            // Determine if decision is required (< 60% threshold)
+            const decisionRequired = bestScore < 0.6;
+
+            // Generate recommendation based on score
+            let recommendation = "";
+            if (bestScore >= 0.85) {
+                recommendation = "High confidence - Auto-apply recommended";
+            } else if (bestScore >= 0.6) {
+                recommendation = "Medium confidence - Review recommended";
+            } else {
+                recommendation = "Low match - Manual decision required";
+            }
+
             // Build matched answer object
             const matchedAnswer: MatchedAnswer = {
                 question_text: question,
-                status: bestMatch ? bestMatch.status || "unknown" : "unknown",
+                // Only assign status if similarity >= 60%
+                status: (bestScore >= 0.6 && bestMatch)
+                    ? bestMatch.status || "unknown"
+                    : "NEEDS_REVIEW",
                 answer_text: bestMatch ? bestMatch.answer_text || "" : "",
                 source_question: bestMatch ? bestMatch.question_text || "" : "",
                 source_id: bestMatch ? bestMatch._id.toString() : "",
@@ -228,6 +246,8 @@ export async function POST(req: NextRequest) {
                 domain: bestMatch ? bestMatch.domain || "application" : "application",
                 ai_suggestion: aiSuggestion,
                 match_confidence: matchConfidence,
+                decision_required: decisionRequired,
+                recommendation: recommendation,
             };
 
             matches.push(matchedAnswer);
@@ -246,13 +266,15 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: true, ...result }, { status: 200 });
         }
 
-        // Generate Excel output
+        // Generate Excel output with new fields
         const outputData = matches.map((m) => ({
             question_text: m.question_text,
             status: m.status,
+            decision_required: m.decision_required ? "YES - Manual Decision Required" : "NO",
+            recommendation: m.recommendation,
             answer_text: m.answer_text,
             source_question: m.source_question,
-            similarity_score: m.similarity_score.toFixed(2),
+            similarity_score: (m.similarity_score * 100).toFixed(0) + "%",
             match_confidence: m.match_confidence,
             domain: m.domain,
             ai_suggestion: m.ai_suggestion,
@@ -265,7 +287,9 @@ export async function POST(req: NextRequest) {
         // Set column widths for better readability
         outputSheet["!cols"] = [
             { wch: 50 }, // question_text
-            { wch: 15 }, // status
+            { wch: 18 }, // status
+            { wch: 30 }, // decision_required
+            { wch: 45 }, // recommendation
             { wch: 40 }, // answer_text
             { wch: 40 }, // source_question
             { wch: 12 }, // similarity_score
@@ -274,6 +298,44 @@ export async function POST(req: NextRequest) {
             { wch: 30 }, // ai_suggestion
             { wch: 25 }, // source_id
         ];
+
+        // Apply cell colors based on decision_required / match_confidence
+        // Cell colors: Red = NEEDS_REVIEW, Orange = low, Yellow = medium, Green = high
+        // XLSX format: cell address is like "A2", "B2", etc.
+        // Row 1 is header, data starts at row 2
+
+        const range = XLSX.utils.decode_range(outputSheet['!ref'] || 'A1');
+
+        for (let rowIdx = 0; rowIdx < matches.length; rowIdx++) {
+            const m = matches[rowIdx];
+            const excelRow = rowIdx + 2; // +2 because row 1 is header, and rowIdx is 0-based
+
+            // Determine color based on decision_required and match_confidence
+            let fillColor = "";
+            if (m.decision_required) {
+                fillColor = "FFFF0000"; // Red
+            } else if (m.match_confidence === "low") {
+                fillColor = "FFFF9900"; // Orange
+            } else if (m.match_confidence === "medium") {
+                fillColor = "FFFFFF00"; // Yellow
+            } else if (m.match_confidence === "high") {
+                fillColor = "FF00FF00"; // Green
+            }
+
+            // Apply color to all cells in this row
+            if (fillColor) {
+                for (let colIdx = range.s.c; colIdx <= range.e.c; colIdx++) {
+                    const cellAddress = XLSX.utils.encode_cell({ r: excelRow - 1, c: colIdx });
+                    if (!outputSheet[cellAddress]) continue;
+
+                    outputSheet[cellAddress].s = {
+                        fill: {
+                            fgColor: { rgb: fillColor }
+                        }
+                    };
+                }
+            }
+        }
 
         XLSX.utils.book_append_sheet(outputWorkbook, outputSheet, "Matched Answers");
 

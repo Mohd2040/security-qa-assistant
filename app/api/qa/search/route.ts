@@ -5,6 +5,7 @@ import { QaEntry, QaDomain, OwnerGroup, QaStatus } from "@/lib/types";
 import Fuse from "fuse.js";
 import { normalizeArabic, looksArabic } from "@/lib/arabic";
 import { getEmbedding, cosineSimilarity } from "@/lib/embeddings";
+import { expandQuery, isOpenAIEnabled } from "@/lib/ai";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,7 @@ interface SearchBody {
   dateTo?: string; // ISO التاريخ إلى
   source_file?: string;
   client_name?: string;
+  includeAi?: boolean; // تفعيل تحسينات AI (Query Expansion)
 }
 
 // هذا النوع يمثل الـ Document اللي راجع من Mongo
@@ -54,6 +56,7 @@ export async function POST(req: NextRequest) {
       dateTo,
       source_file,
       client_name,
+      includeAi = false,
     } = body;
 
     let { page = 1, pageSize = 50 } = body;
@@ -66,6 +69,20 @@ export async function POST(req: NextRequest) {
     const normalizedQuery = isArabicQuery
       ? normalizeArabic(trimmedQuery)
       : trimmedQuery;
+
+    // -------------------------
+    // AI Query Expansion (إذا مفعّل)
+    // -------------------------
+    let expandedTerms: string[] = [trimmedQuery];
+    if (includeAi && trimmedQuery && isOpenAIEnabled()) {
+      try {
+        expandedTerms = await expandQuery(trimmedQuery);
+        console.log("[AI] Query expanded:", expandedTerms);
+      } catch (e) {
+        console.warn("[AI] Query expansion failed, using original query", e);
+        expandedTerms = [trimmedQuery];
+      }
+    }
 
     const db = await getDb();
     const collection = db.collection("qa_entries");
@@ -138,7 +155,7 @@ export async function POST(req: NextRequest) {
         normalizedQuery,
         filters: { status, domain, owner_group, dateFrom, dateTo, source_file },
         total,
-      }).catch(() => {});
+      }).catch(() => { });
 
       return NextResponse.json(
         {
@@ -183,9 +200,33 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    const fuseResults = fuse.search(
-      isArabicQuery ? normalizedQuery : trimmedQuery
-    );
+    const fuseResults = (() => {
+      // إذا كان لدينا expanded terms متعددة، نبحث بكل منها وندمج النتائج
+      if (expandedTerms.length > 1) {
+        type FuseResultItem = { item: InternalDoc; score?: number; refIndex: number };
+        const allResults = new Map<string, FuseResultItem>();
+
+        for (const term of expandedTerms) {
+          const searchTerm = isArabicQuery ? normalizeArabic(term) : term;
+          const results = fuse.search(searchTerm);
+
+          for (const result of results) {
+            const id = result.item._id?.toString() || "";
+            const existing = allResults.get(id);
+            // نحتفظ بالنتيجة الأفضل (أقل score في Fuse = أفضل)
+            if (!existing || (result.score || 1) < (existing.score || 1)) {
+              allResults.set(id, result);
+            }
+          }
+        }
+
+        return Array.from(allResults.values());
+      }
+
+      // البحث العادي بدون AI
+      return fuse.search(isArabicQuery ? normalizedQuery : trimmedQuery);
+    })();
+
 
     type ScoredDoc = {
       doc: InternalDoc;
@@ -286,7 +327,7 @@ export async function POST(req: NextRequest) {
       normalizedQuery,
       filters: { status, domain, owner_group, dateFrom, dateTo, source_file },
       total,
-    }).catch(() => {});
+    }).catch(() => { });
 
     return NextResponse.json(
       {

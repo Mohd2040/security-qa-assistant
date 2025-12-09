@@ -23,6 +23,7 @@ import {
   ArrowRightLeft,
   Globe,
   AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import { QaEntry, QaStatus, QaDomain } from "@/lib/types";
 
@@ -58,6 +59,9 @@ export default function SearchPage() {
   const [statusFilter, setStatusFilter] = useState<QaStatus | "all">("all");
   const [domainFilter, setDomainFilter] = useState<string>("all");
 
+  // AI Enhancement Toggle (default OFF)
+  const [includeAi, setIncludeAi] = useState<boolean>(false);
+
   // Clear toast after 3 seconds
   useEffect(() => {
     if (toast) {
@@ -90,6 +94,7 @@ export default function SearchPage() {
             domain: domainFilter,
             page: 1,
             pageSize: 50,
+            includeAi,
           }),
         });
 
@@ -454,9 +459,29 @@ export default function SearchPage() {
                     </option>
                   </select>
                 </div>
+
+                {/* AI Enhancement Toggle */}
+                <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 h-fit self-end">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    <span className="text-sm font-medium text-white">
+                      AI Enhanced
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer ml-4">
+                    <input
+                      type="checkbox"
+                      checked={includeAi}
+                      onChange={(e) => setIncludeAi(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
               </div>
             )}
           </div>
+
 
           {/* Results Grid */}
           <div className="space-y-4">

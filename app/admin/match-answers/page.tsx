@@ -28,6 +28,8 @@ interface MatchedAnswer {
     similarity_score: number;
     match_confidence: "high" | "medium" | "low" | "none";
     domain: string;
+    decision_required: boolean;
+    recommendation: string;
 }
 
 interface MatchStats {
@@ -396,25 +398,51 @@ export default function MatchAnswersPage() {
                                                 </thead>
                                                 <tbody className="divide-y divide-white/5">
                                                     {matchData.matches.map((row, idx) => {
+                                                        // Determine colors based on decision_required and confidence
                                                         let scoreColor = "text-red-400";
                                                         let bgClass = "hover:bg-red-500/5";
-                                                        if (row.match_confidence === "high") {
+                                                        let borderClass = "border-l-4 border-l-red-500";
+
+                                                        if (row.decision_required) {
+                                                            // Red for NEEDS_REVIEW (< 60%)
+                                                            scoreColor = "text-red-400";
+                                                            bgClass = "hover:bg-red-500/5 bg-red-500/5";
+                                                            borderClass = "border-l-4 border-l-red-500";
+                                                        } else if (row.match_confidence === "high") {
                                                             scoreColor = "text-emerald-400";
                                                             bgClass = "hover:bg-emerald-500/5";
+                                                            borderClass = "border-l-4 border-l-emerald-500";
                                                         } else if (row.match_confidence === "medium") {
-                                                            scoreColor = "text-amber-400";
-                                                            bgClass = "hover:bg-amber-500/5";
+                                                            scoreColor = "text-yellow-400";
+                                                            bgClass = "hover:bg-yellow-500/5";
+                                                            borderClass = "border-l-4 border-l-yellow-500";
+                                                        } else if (row.match_confidence === "low") {
+                                                            scoreColor = "text-orange-400";
+                                                            bgClass = "hover:bg-orange-500/5";
+                                                            borderClass = "border-l-4 border-l-orange-500";
                                                         }
 
                                                         return (
-                                                            <tr key={idx} className={`transition-colors ${bgClass}`}>
+                                                            <tr key={idx} className={`transition-colors ${bgClass} ${borderClass}`}>
                                                                 <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
-                                                                <td className="px-4 py-3 text-white font-medium">
-                                                                    {row.question_text}
+                                                                <td className="px-4 py-3">
+                                                                    <div className="text-white font-medium">{row.question_text}</div>
                                                                     <div className="text-xs text-slate-500 mt-1">{row.domain}</div>
+
+                                                                    {/* Warning for decision required */}
+                                                                    {row.decision_required && (
+                                                                        <div className="flex items-center gap-1.5 mt-2 text-xs text-red-400">
+                                                                            <AlertTriangle className="w-3 h-3" />
+                                                                            <span>{row.recommendation}</span>
+                                                                        </div>
+                                                                    )}
                                                                 </td>
                                                                 <td className="px-4 py-3">
-                                                                    {row.status !== "unknown" ? (
+                                                                    {row.status === "NEEDS_REVIEW" ? (
+                                                                        <span className="px-2 py-1 rounded-full bg-red-500/20 text-xs font-bold text-red-300 border border-red-500/30">
+                                                                            NEEDS REVIEW
+                                                                        </span>
+                                                                    ) : row.status !== "unknown" ? (
                                                                         <span className="px-2 py-1 rounded-full bg-white/10 text-xs font-medium text-white border border-white/10">
                                                                             {row.status.replace(/_/g, " ")}
                                                                         </span>
