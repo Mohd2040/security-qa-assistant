@@ -416,7 +416,7 @@ export default function MatchAnswersPage() {
                                                                 <td className="px-4 py-3">
                                                                     {row.status !== "unknown" ? (
                                                                         <span className="px-2 py-1 rounded-full bg-white/10 text-xs font-medium text-white border border-white/10">
-                                                                            {row.status}
+                                                                            {row.status.replace(/_/g, " ")}
                                                                         </span>
                                                                     ) : (
                                                                         <span className="text-slate-500">-</span>

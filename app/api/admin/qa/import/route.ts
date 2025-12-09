@@ -115,10 +115,10 @@ function validateRow(
   // Map to DB fields:
   // 1. question_text_en: Explicit English input
   // 2. question_text_ar: Explicit Arabic input
-  // 3. question_text: Primary field. Prefer Arabic if available to align with UI expectations, else fallback to English.
+  // 3. question_text: Primary field. Prefer English if available, else fallback to Arabic.
   const question_text_en = q_en_input;
   const question_text_ar = q_ar_input;
-  const question_text = q_ar_input || q_en_input;
+  const question_text = q_en_input || q_ar_input;
 
   let status = (getVal("status") ?? "").toString().trim().toLowerCase();
 

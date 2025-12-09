@@ -307,11 +307,10 @@ export default function SearchPage() {
           {/* Toast Notification */}
           {toast && (
             <div
-              className={`fixed top-24 right-4 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-in-right ${
-                toast.type === "error"
-                  ? "bg-red-500/90 text-white"
-                  : "bg-emerald-500/90 text-white"
-              }`}
+              className={`fixed top-24 right-4 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-in-right ${toast.type === "error"
+                ? "bg-red-500/90 text-white"
+                : "bg-emerald-500/90 text-white"
+                }`}
             >
               {toast.type === "error" ? (
                 <AlertTriangle className="w-5 h-5" />
@@ -376,11 +375,10 @@ export default function SearchPage() {
               <button
                 type="button"
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className={`px-5 py-3.5 rounded-xl border flex items-center gap-2 transition-all font-medium ${
-                  isFilterOpen
-                    ? "bg-sky-500 text-white border-sky-500"
-                    : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
-                }`}
+                className={`px-5 py-3.5 rounded-xl border flex items-center gap-2 transition-all font-medium ${isFilterOpen
+                  ? "bg-sky-500 text-white border-sky-500"
+                  : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
+                  }`}
               >
                 <SlidersHorizontal className="w-5 h-5" />
                 Filters
@@ -495,12 +493,37 @@ export default function SearchPage() {
               const showTranslation = translatedItems.has(id);
               const isTranslating = translatingIds.has(id);
 
-              const scoreColor =
-                (result.score || 0) > 80
-                  ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"
-                  : (result.score || 0) > 50
-                  ? "text-sky-400 border-sky-500/30 bg-sky-500/10"
-                  : "text-slate-400 border-slate-500/30 bg-slate-500/10";
+              // Gradient color based on score (100=green, 0=red)
+              const score = result.score || 0;
+              let scoreColor = "";
+              let scoreBg = "";
+              let scoreWarning = false;
+
+              if (score >= 90) {
+                scoreColor = "text-emerald-400";
+                scoreBg = "border-emerald-500/30 bg-emerald-500/10";
+              } else if (score >= 80) {
+                scoreColor = "text-green-400";
+                scoreBg = "border-green-500/30 bg-green-500/10";
+              } else if (score >= 70) {
+                scoreColor = "text-lime-400";
+                scoreBg = "border-lime-500/30 bg-lime-500/10";
+              } else if (score >= 60) {
+                scoreColor = "text-yellow-400";
+                scoreBg = "border-yellow-500/30 bg-yellow-500/10";
+              } else if (score >= 50) {
+                scoreColor = "text-amber-400";
+                scoreBg = "border-amber-500/30 bg-amber-500/10";
+                scoreWarning = true;
+              } else if (score >= 40) {
+                scoreColor = "text-orange-400";
+                scoreBg = "border-orange-500/30 bg-orange-500/10";
+                scoreWarning = true;
+              } else {
+                scoreColor = "text-red-400";
+                scoreBg = "border-red-500/30 bg-red-500/10";
+                scoreWarning = true;
+              }
 
               // Strict English-First Logic
               const originalText = result.question_text;
@@ -550,17 +573,16 @@ export default function SearchPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       {/* Status Badge */}
                       <span
-                        className={`px-2.5 py-1 rounded-md text-xs font-bold border uppercase tracking-wider ${
-                          result.status === "applied"
-                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                            : result.status === "not_applied"
+                        className={`px-2.5 py-1 rounded-md text-xs font-bold border uppercase tracking-wider ${result.status === "applied"
+                          ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                          : result.status === "not_applied"
                             ? "bg-red-500/10 border-red-500/20 text-red-400"
                             : result.status === "not_applicable"
-                            ? "bg-amber-500/10 border-amber-500/20 text-amber-300"
-                            : "bg-slate-500/10 border-slate-500/20 text-slate-400"
-                        }`}
+                              ? "bg-amber-500/10 border-amber-500/20 text-amber-300"
+                              : "bg-slate-500/10 border-slate-500/20 text-slate-400"
+                          }`}
                       >
-                        {result.status.replace("_", " ")}
+                        {result.status.replace(/_/g, " ")}
                       </span>
 
                       {/* Domain Badge */}
@@ -588,17 +610,25 @@ export default function SearchPage() {
                       )}
                     </div>
 
-                    {/* Relevance Score */}
+                    {/* Relevance Score with Gradient */}
                     {result.score !== undefined && (
-                      <div
-                        className={`flex items-center gap-1.5 px-3 py-1 rounded-full border ${scoreColor}`}
-                      >
-                        <span className="text-sm font-bold">
-                          {result.score}%
-                        </span>
-                        <span className="text-[10px] uppercase tracking-wider opacity-80">
-                          Relevance
-                        </span>
+                      <div className="flex flex-col items-end gap-1">
+                        <div
+                          className={`flex items-center gap-1.5 px-3 py-1 rounded-full border ${scoreBg}`}
+                        >
+                          <span className={`text-sm font-bold ${scoreColor}`}>
+                            {result.score}%
+                          </span>
+                          <span className="text-[10px] uppercase tracking-wider opacity-80 text-slate-400">
+                            Relevance
+                          </span>
+                        </div>
+                        {scoreWarning && (
+                          <div className="flex items-center gap-1 text-[10px] text-red-400">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>Low match - verify answer</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -619,11 +649,10 @@ export default function SearchPage() {
                         {secondaryLabel}
                       </div>
                       <p
-                        className={`text-lg leading-snug ${
-                          secondaryText === "Translation not available"
-                            ? "text-slate-500 italic text-sm"
-                            : "text-purple-100"
-                        }`}
+                        className={`text-lg leading-snug ${secondaryText === "Translation not available"
+                          ? "text-slate-500 italic text-sm"
+                          : "text-purple-100"
+                          }`}
                         dir={secondaryDir}
                       >
                         {secondaryText}
@@ -634,9 +663,8 @@ export default function SearchPage() {
                   {/* Answer Preview */}
                   {result.answer_text && (
                     <div
-                      className={`text-slate-300 leading-relaxed border-l-2 border-white/10 pl-4 whitespace-pre-wrap transition-all duration-300 ${
-                        isExpanded ? "" : "line-clamp-3"
-                      }`}
+                      className={`text-slate-300 leading-relaxed border-l-2 border-white/10 pl-4 whitespace-pre-wrap transition-all duration-300 ${isExpanded ? "" : "line-clamp-3"
+                        }`}
                     >
                       {result.answer_text}
                     </div>
@@ -698,8 +726,8 @@ export default function SearchPage() {
                             <span className="text-slate-400">
                               {result.updated_at
                                 ? new Date(
-                                    result.updated_at
-                                  ).toLocaleDateString()
+                                  result.updated_at
+                                ).toLocaleDateString()
                                 : "N/A"}
                             </span>
                           </span>
@@ -738,11 +766,10 @@ export default function SearchPage() {
                     <button
                       onClick={() => toggleTranslateResult(result)}
                       disabled={isTranslating}
-                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${
-                        showTranslation
-                          ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
-                          : "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20 text-purple-400"
-                      }`}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${showTranslation
+                        ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
+                        : "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20 text-purple-400"
+                        }`}
                       title="Show Translation"
                     >
                       {isTranslating ? (
@@ -753,8 +780,8 @@ export default function SearchPage() {
                       {isTranslating
                         ? "Translating..."
                         : showTranslation
-                        ? "Hide Translation"
-                        : "Translate"}
+                          ? "Hide Translation"
+                          : "Translate"}
                     </button>
                   </div>
                 </div>
