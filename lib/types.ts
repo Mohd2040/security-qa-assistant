@@ -1,68 +1,89 @@
 // lib/types.ts
+import type { ObjectId } from "mongodb";
 
-export type QaStatus =
-  | "applied"
-  | "not_applied"
-  | "not_applicable"
-  | "unknown";
+// جميع الحالات المتاحة لحالة الضابط الأمني
+export const QA_STATUS_VALUES = [
+  "applied",
+  "not_applied",
+  "not_applicable",
+  "unknown",
+] as const;
+export type QaStatus = (typeof QA_STATUS_VALUES)[number];
 
-export type QaDomain =
-  | "application"
-  | "database"
-  | "network"
-  | "cloud"
-  | "process"
-  | "strategy"
-  | "management"
-  | "operations"
-  | "governance"
-  | "other";
+// جميع التصنيفات (Domains) اللي نستخدمها في النظام
+export const QA_DOMAIN_VALUES = [
+  "application",
+  "database",
+  "network",
+  "cloud",
+  "process",
+  "strategy",
+  "management",
+  "operations",
+  "governance",
+  "other",
+] as const;
+export type QaDomain = (typeof QA_DOMAIN_VALUES)[number];
 
-export type OwnerGroup =
-  | "dev"
-  | "infra"
-  | "ops"
-  | "management"
-  | "security"
-  | "other";
+// الجهة المسؤولة عن الضابط (Dev / Infra / Ops / Management / Security ...)
+export const OWNER_GROUP_VALUES = [
+  "dev",
+  "infra",
+  "ops",
+  "management",
+  "security",
+  "other",
+] as const;
+export type OwnerGroup = (typeof OWNER_GROUP_VALUES)[number];
 
+// الشكل الموحد للـ Q&A داخل النظام
 export interface QaEntry {
-  _id?: string;
+  _id?: ObjectId;
 
-  // النصوص الأساسية
+  // السؤال
   question_text: string;
   question_text_en?: string;
-  question_language: "ar" | "en" | "mixed";
+  question_language?: "ar" | "en";
 
+  // الجواب
   answer_text: string;
-  answer_language: "ar" | "en" | "mixed";
+  answer_language?: "ar" | "en";
 
-  // حالة التطبيق والتصنيف العام
+  // الحالة والتصنيف
   status: QaStatus;
   domain: QaDomain;
+  owner_group?: OwnerGroup;
 
-  // تصنيفات إضافية
-  category?: string;          // لو حاب تستخدمها لشيء خاص
-  owner_group?: OwnerGroup;   // Dev / Infra / Ops / Management / Security / Other
-  security_area?: string;     // التصنيف الداخلي الموحد (Access Management, Cryptography, ...)
-  client_category?: string;   // التصنيف كما وصل من الكلينت
+  // التصنيفات الإضافية
+  category?: string | null;
+  security_area?: string | null;
+  client_category?: string | null;
 
   // معلومات المصدر
   is_from_file?: boolean;
-  source_file?: string;
-  source_ref?: string;
+  source_file?: string | null;
+  source_ref?: string | null;
 
-  // أسئلة إضافية
+  // فلاغز إضافية
   needs_dev_input?: boolean;
   needs_infra_input?: boolean;
 
-  // شرح وتعليم
+  // شرح بالعربي
   explanation_ar?: string;
+
+  // أسئلة موجهة للديف والانفرا
   dev_questions?: string[];
   infra_questions?: string[];
 
+  // تواريخ
   created_at?: string;
   updated_at?: string;
 
-  client_name?: string;
+  // Embedding للبحث الدلالي (اختياري)
+  embedding?: number[];
+
+  question_text_ar?: string;
+  client_name?: string | null;
+  score?: number;
+
 }

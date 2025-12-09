@@ -1,5 +1,6 @@
 "use client";
 
+<<<<<<< HEAD
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { QaEntry } from "@/lib/types";
 import { Navbar } from "@/app/components/layout/Navbar";
@@ -92,420 +93,316 @@ function getStatusChipClasses(status: string, isDark: boolean): string {
       );
   }
 }
+=======
+import React, { useState, useEffect, useCallback } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { MainLayout } from "@/components/layout/MainLayout";
+import {
+  Search,
+  SlidersHorizontal,
+  Check,
+  AlertCircle,
+  Loader2,
+  FileText,
+  Database,
+  Server,
+  Code,
+  Info,
+  ChevronDown,
+  ChevronUp,
+  Edit2,
+  X,
+  Save,
+  Languages,
+  ArrowRightLeft,
+  Globe,
+  AlertTriangle,
+} from "lucide-react";
+import { QaEntry, QaStatus, QaDomain } from "@/lib/types";
+>>>>>>> devops3
 
 export default function SearchPage() {
+  const { t } = useLanguage();
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<string>("all");
-  const [domain, setDomain] = useState<string>("all");
-  const [ownerGroup, setOwnerGroup] = useState<string>("all");
-
-  const [dateFrom, setDateFrom] = useState<string>("");
-  const [dateTo, setDateTo] = useState<string>("");
-  const [sourceFile, setSourceFile] = useState<string>("");
-  const [clientName, setClientName] = useState<string>("");
-
-  const [page, setPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(50);
-
+  const [results, setResults] = useState<QaEntry[]>([]);
   const [loading, setLoading] = useState(false);
-  const [matches, setMatches] = useState<QaEntry[]>([]);
-  const [total, setTotal] = useState<number>(0);
-  const [totalPages, setTotalPages] = useState<number>(1);
   const [error, setError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [translatedItems, setTranslatedItems] = useState<Set<string>>(
+    new Set()
+  );
 
-  const [uiLang, setUiLang] = useState<UiLang>("en");
-  const [theme, setTheme] = useState<ThemeMode>("dark");
+  // Translation State
+  const [translatingQuery, setTranslatingQuery] = useState(false);
+  const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
 
-  const [updatingStatus, setUpdatingStatus] = useState(false);
-  const [statusEditValue, setStatusEditValue] = useState<string>("unknown");
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  // Edit State
+  const [editingItem, setEditingItem] = useState<QaEntry | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [bulkStatus, setBulkStatus] = useState<string>("applied");
-  const [bulkUpdating, setBulkUpdating] = useState(false);
-
+  // Toast State
   const [toast, setToast] = useState<{
-    type: "success" | "error";
     message: string;
+    type: "success" | "error";
   } | null>(null);
 
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  // Filters
+  const [statusFilter, setStatusFilter] = useState<QaStatus | "all">("all");
+  const [domainFilter, setDomainFilter] = useState<string>("all");
 
-  const [recentQueries, setRecentQueries] = useState<string[]>([]);
-
-  const isArabic = uiLang === "ar";
-  const isDark = theme === "dark";
-
-  const bestMatch = matches.length > 0 ? matches[0] : null;
-  const otherMatches = matches.length > 1 ? matches.slice(1) : [];
-
+  // Clear toast after 3 seconds
   useEffect(() => {
-    if (bestMatch) {
-      setStatusEditValue(bestMatch.status || "unknown");
-      setStatusMessage(null);
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
     }
-  }, [bestMatch?._id]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const id = setTimeout(() => setToast(null), 2500);
-    return () => clearTimeout(id);
   }, [toast]);
 
-  function showToast(type: "success" | "error", message: string) {
-    setToast({ type, message });
-  }
+  // Search Function
+  const handleSearch = useCallback(
+    async (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
 
-  // Suggestions
+      if (!query.trim() && statusFilter === "all" && domainFilter === "all")
+        return;
+
+      setLoading(true);
+      setError(null);
+      setHasSearched(true);
+      setExpandedItems(new Set());
+      setTranslatedItems(new Set());
+
+      try {
+        const res = await fetch("/api/qa/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query,
+            status: statusFilter,
+            domain: domainFilter,
+            page: 1,
+            pageSize: 50,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to search");
+        }
+
+        setResults(data.matches || []);
+      } catch (err: any) {
+        console.error(err);
+        setError("An error occurred while searching. Please try again.");
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [query, statusFilter, domainFilter]
+  );
+
+  // Auto-search when filters change
   useEffect(() => {
-    const trimmed = query.trim();
-    if (!trimmed || trimmed.length < 2) {
-      setSuggestions([]);
-      setShowSuggestions(false);
+    if (hasSearched || statusFilter !== "all" || domainFilter !== "all") {
+      const timer = setTimeout(() => {
+        handleSearch();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [statusFilter, domainFilter, handleSearch, hasSearched]);
+
+  const toggleExpand = (id: string) => {
+    const newExpanded = new Set(expandedItems);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+    }
+    setExpandedItems(newExpanded);
+  };
+
+  const handleTranslateQuery = async () => {
+    if (!query.trim()) return;
+    setTranslatingQuery(true);
+    try {
+      // Detect if query is Arabic (simple check)
+      const isArabic = /[\u0600-\u06FF]/.test(query);
+      const targetLang = isArabic ? "en" : "ar";
+
+      const res = await fetch("/api/qa/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: query, targetLang }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Translation failed");
+
+      if (data.translatedText) {
+        setQuery(data.translatedText);
+      }
+    } catch (err: any) {
+      console.error("Translation failed", err);
+      setToast({
+        message: `Translation failed: ${err.message}`,
+        type: "error",
+      });
+    } finally {
+      setTranslatingQuery(false);
+    }
+  };
+
+  const toggleTranslateResult = async (item: QaEntry) => {
+    // حوّل _id دائماً إلى string للاستخدام في Sets
+    const id = String(item._id ?? "");
+    if (!id) return;
+
+    // If already showing translation, hide it
+    if (translatedItems.has(id)) {
+      const newTranslated = new Set(translatedItems);
+      newTranslated.delete(id);
+      setTranslatedItems(newTranslated);
       return;
     }
 
-    let cancelled = false;
-    const timeoutId = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/qa/suggest?q=${encodeURIComponent(trimmed)}`
-        );
-        const data = await res.json();
-        if (!cancelled && res.ok && Array.isArray(data.suggestions)) {
-          setSuggestions(data.suggestions);
-          setShowSuggestions(true);
-        }
-      } catch {
-        if (!cancelled) {
-          setSuggestions([]);
-          setShowSuggestions(false);
-        }
-      }
-    }, 250);
+    // Determine original language
+    const originalIsArabic = /[\u0600-\u06FF]/.test(item.question_text);
 
-    return () => {
-      cancelled = true;
-      clearTimeout(timeoutId);
-    };
-  }, [query]);
+    // English Text Source:
+    const englishText =
+      item.question_text_en ||
+      (originalIsArabic ? undefined : item.question_text);
 
-  async function performSearch(goToPage?: number, overridePageSize?: number) {
-    setError(null);
-    setStatusMessage(null);
-    setSelectedIds([]);
+    // Arabic Text Source:
+    const arabicText =
+      (item as any).question_text_ar ||
+      (originalIsArabic ? item.question_text : undefined);
 
-    const targetPage = goToPage ?? page;
-    const size = overridePageSize ?? pageSize;
+    let targetLang: "ar" | "en" | null = null;
+
+    if (englishText && !arabicText) {
+      // We have English, but missing Arabic. Fetch Arabic.
+      targetLang = "ar";
+    } else if (arabicText && !englishText) {
+      // We have Arabic, but missing English. Fetch English.
+      targetLang = "en";
+    }
+
+    // If we have both, or can't determine, just mark as translated
+    if (!targetLang) {
+      const newTranslated = new Set(translatedItems);
+      newTranslated.add(id);
+      setTranslatedItems(newTranslated);
+      return;
+    }
+
+    // Perform Fetch
+    console.log(`Translating item ${id} to ${targetLang}`);
+    setTranslatingIds((prev) => new Set(prev).add(id));
 
     try {
-      setLoading(true);
-      const res = await fetch("/api/qa/search", {
+      const res = await fetch("/api/qa/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          query,
-          status,
-          domain,
-          owner_group: ownerGroup,
-          page: targetPage,
-          pageSize: size,
-          dateFrom: dateFrom || undefined,
-          dateTo: dateTo || undefined,
-          source_file: sourceFile || undefined,
-          client_name: clientName || undefined,
+          text: item.question_text,
+          targetLang,
+          qaId: id,
         }),
       });
 
-      let data: any = null;
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
+      const data = await res.json();
+      console.log("Translation response:", data);
 
-      if (!res.ok) {
-        const msg =
-          (data && data.error) ||
-          (isArabic
-            ? "حدث خطأ أثناء عملية البحث"
-            : "An error occurred while searching");
-        setError(msg);
-        showToast("error", msg);
-      } else {
-        const payload = data as SearchResponse;
-        setMatches(payload.matches || []);
-        setTotal(payload.total || 0);
-        setPage(payload.page || targetPage);
-        setTotalPages(payload.totalPages || 1);
-      }
-    } catch (err: any) {
-      console.error(err);
-      const msg = isArabic
-        ? "تعذر الاتصال بالسيرفر"
-        : "Failed to connect to the server";
-      setError(msg);
-      showToast("error", msg);
-    } finally {
-      setLoading(false);
-      setShowSuggestions(false);
-    }
-  }
+      if (!res.ok) throw new Error(data.error || "Translation failed");
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    const trimmed = query.trim();
-    if (trimmed) {
-      setRecentQueries((prev) => {
-        const newList = [trimmed, ...prev.filter((q) => q !== trimmed)];
-        return newList.slice(0, 5);
-      });
-    }
-    setPage(1);
-    await performSearch(1);
-  }
-
-  const recommendations = useMemo(() => {
-    if (!bestMatch) return [];
-    const recs: string[] = [];
-
-    if (bestMatch.status === "unknown") {
-      recs.push(
-        isArabic
-          ? "الحالة Unknown: يُفضل التأكد من الفريق المسؤول (Dev أو Infra) وتحديث الحالة إلى Applied / Not Applied."
-          : "Status is Unknown: confirm with the responsible team (Dev or Infra) and update to Applied / Not Applied."
-      );
-    }
-
-    if (bestMatch.needs_dev_input) {
-      recs.push(
-        isArabic
-          ? "هذا الضبط يعتمد على التطبيق نفسه: تواصل مع فريق التطوير لتأكيد آلية التنفيذ داخل الكود."
-          : "This control depends on the application logic: talk to the development team to confirm how it is implemented."
-      );
-    }
-
-    if (bestMatch.needs_infra_input) {
-      recs.push(
-        isArabic
-          ? "هذا الضبط مرتبط بالإنفرا/Google Cloud: راجع إعدادات البنية التحتية (شبكة، داتابيس، GCP)."
-          : "This control is related to infra/Google Cloud: review infrastructure settings (network, DB, GCP)."
-      );
-    }
-
-    if (
-      bestMatch.domain === "database" ||
-      bestMatch.domain === "cloud" ||
-      bestMatch.domain === "network"
-    ) {
-      recs.push(
-        isArabic
-          ? "تحقق من دعم Google Cloud أو البنية التحتية لهذا الضبط (مثل التشفير، النسخ الاحتياطي، الصلاحيات) وتأكد أنه مفعّل فعلياً."
-          : "Check whether Google Cloud or infra supports this control (encryption, backups, IAM) and ensure it is enabled."
-      );
-    }
-
-    return recs;
-  }, [bestMatch, isArabic]);
-
-  function handleExport() {
-    const params = new URLSearchParams();
-    if (query.trim()) params.set("query", query.trim());
-    if (status) params.set("status", status);
-    if (domain) params.set("domain", domain);
-    if (ownerGroup) params.set("owner_group", ownerGroup);
-    if (dateFrom) params.set("dateFrom", dateFrom);
-    if (dateTo) params.set("dateTo", dateTo);
-    if (sourceFile) params.set("source_file", sourceFile);
-    if (clientName) params.set("client_name", clientName);
-
-    const url = `/api/qa/search/export?${params.toString()}`;
-    window.open(url, "_blank");
-  }
-
-  async function handleStatusUpdate() {
-    if (!bestMatch || !bestMatch._id) return;
-    setStatusMessage(null);
-    setUpdatingStatus(true);
-
-    try {
-      const res = await fetch("/api/qa/update-status", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: bestMatch._id,
-          status: statusEditValue,
-        }),
-      });
-
-      let data: any = null;
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
-
-      if (!res.ok) {
-        const msg =
-          (data && data.error) ||
-          (isArabic
-            ? `فشل تحديث الحالة. كود الرد: ${res.status}`
-            : `Failed to update status. HTTP ${res.status}`);
-        setStatusMessage(msg);
-        showToast("error", msg);
-      } else {
-        const msg = isArabic
-          ? "تم تحديث الحالة بنجاح"
-          : "Status updated successfully";
-        setStatusMessage(msg);
-        showToast("success", msg);
-        setMatches((prev) =>
-          prev.map((m) =>
-            m._id === bestMatch._id
-              ? { ...m, status: statusEditValue as any }
-              : m
-          )
-        );
-      }
-    } catch (err: any) {
-      console.error(err);
-      const msg = isArabic
-        ? "تعذر الاتصال بالسيرفر (Network error)"
-        : "Failed to connect to the server (network error)";
-      setStatusMessage(msg);
-      showToast("error", msg);
-    } finally {
-      setUpdatingStatus(false);
-    }
-  }
-
-  function canGoPrev() {
-    return page > 1;
-  }
-  function canGoNext() {
-    return page < totalPages;
-  }
-
-  function goPrev() {
-    if (!canGoPrev() || loading) return;
-    const newPage = page - 1;
-    setPage(newPage);
-    performSearch(newPage);
-  }
-
-  function goNext() {
-    if (!canGoNext() || loading) return;
-    const newPage = page + 1;
-    setPage(newPage);
-    performSearch(newPage);
-  }
-
-  function toggleSelect(id?: string) {
-    if (!id) return;
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  }
-
-  function isSelected(id?: string) {
-    if (!id) return false;
-    return selectedIds.includes(id);
-  }
-
-  function selectAllOnPage() {
-    const ids = matches
-      .map((m) => m._id)
-      .filter((id): id is string => Boolean(id));
-    setSelectedIds(ids);
-  }
-
-  function clearSelection() {
-    setSelectedIds([]);
-  }
-
-  async function handleBulkUpdate() {
-    if (selectedIds.length === 0) return;
-
-    setBulkUpdating(true);
-    try {
-      const res = await fetch("/api/qa/bulk-update-status", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ids: selectedIds,
-          status: bulkStatus,
-        }),
-      });
-
-      let data: any = null;
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
-
-      if (!res.ok) {
-        const msg =
-          (data && data.error) ||
-          (isArabic
-            ? `فشل التحديث الجماعي. كود الرد: ${res.status}`
-            : `Bulk update failed. HTTP ${res.status}`);
-        showToast("error", msg);
-      } else {
-        const msg =
-          (isArabic
-            ? `تم تعديل ${data.modified || 0} عنصر/عناصر`
-            : `Updated ${data.modified || 0} item(s)`) || "";
-        showToast("success", msg);
-        setMatches((prev) =>
-          prev.map((m) => {
-            const id = m._id ?? "";
-            return selectedIds.includes(id)
-              ? { ...m, status: bulkStatus as any }
-              : m;
+      if (data.translatedText) {
+        // Update local result
+        setResults((prev) =>
+          prev.map((r) => {
+            const rid = String(r._id ?? "");
+            if (rid === id) {
+              if (targetLang === "en") {
+                return { ...r, question_text_en: data.translatedText };
+              } else {
+                return { ...(r as any), question_text_ar: data.translatedText };
+              }
+            }
+            return r;
           })
         );
-        setSelectedIds([]);
+
+        const newTranslated = new Set(translatedItems);
+        newTranslated.add(id);
+        setTranslatedItems(newTranslated);
+        setToast({ message: "Translation complete", type: "success" });
+      } else {
+        throw new Error("Empty translation received");
       }
     } catch (err: any) {
-      console.error(err);
-      const msg = isArabic
-        ? "تعذر الاتصال بالسيرفر (Network error)"
-        : "Failed to connect to the server (network error)";
-      showToast("error", msg);
+      console.error("Result translation failed", err);
+      setToast({
+        message: `Translation failed: ${err.message}`,
+        type: "error",
+      });
     } finally {
-      setBulkUpdating(false);
+      setTranslatingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
-  }
+  };
 
-  const mainBgClass = isDark
-    ? "bg-slate-950 text-slate-100"
-    : "bg-slate-50 text-slate-900";
-  const cardBgClass = isDark
-    ? "bg-slate-900/70 border-slate-800"
-    : "bg-white border-slate-200";
-  const subCardBgClass = isDark
-    ? "bg-slate-900/50 border-slate-800"
-    : "bg-white border-slate-200";
-  const inputBgClass = isDark
-    ? "bg-slate-900 border-slate-800"
-    : "bg-white border-slate-300";
-  const textareaBgClass = isDark
-    ? "bg-slate-900 border-slate-800"
-    : "bg-white border-slate-300";
+  const openEditModal = (item: QaEntry) => {
+    setEditingItem({ ...item });
+    setIsEditModalOpen(true);
+  };
 
-  const skeletonCard = (
-    <div
-      className={`rounded-xl ${cardBgClass} p-4 space-y-3 animate-pulse`}
-    >
-      <div className="h-5 w-40 rounded bg-slate-700/60" />
-      <div className="h-4 w-full rounded bg-slate-700/50" />
-      <div className="h-4 w-3/4 rounded bg-slate-700/40" />
-    </div>
-  );
+  const handleSaveEdit = async () => {
+    if (!editingItem) return;
+
+    setSaving(true);
+    try {
+      // Ensure question_text is set: English first, then Arabic
+      const itemToSave = {
+        ...editingItem,
+        question_text: editingItem.question_text_en || (editingItem as any).question_text_ar || editingItem.question_text,
+      };
+
+      const res = await fetch("/api/qa/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(itemToSave),
+      });
+
+      if (!res.ok) throw new Error("Failed to update");
+
+      setResults((prev) =>
+        prev.map((item) =>
+          String(item._id ?? "") === String(editingItem._id ?? "")
+            ? itemToSave
+            : item
+        )
+      );
+      setIsEditModalOpen(false);
+      setEditingItem(null);
+      setToast({ message: "Changes saved successfully", type: "success" });
+    } catch (err) {
+      console.error(err);
+      setToast({ message: "Failed to save changes", type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
+<<<<<<< HEAD
     <>
       <Navbar />
       <main
@@ -848,8 +745,47 @@ export default function SearchPage() {
                     ? `المحدد: ${selectedIds.length}`
                     : `Selected: ${selectedIds.length}`}
                 </span>
-              </div>
+=======
+    <MainLayout>
+      <div className="min-h-screen pt-24 pb-12 px-4 md:px-8">
+        <div className="container-neo max-w-6xl mx-auto">
+          {/* Toast Notification */}
+          {toast && (
+            <div
+              className={`fixed top-24 right-4 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-in-right ${toast.type === "error"
+                ? "bg-red-500/90 text-white"
+                : "bg-emerald-500/90 text-white"
+                }`}
+            >
+              {toast.type === "error" ? (
+                <AlertTriangle className="w-5 h-5" />
+              ) : (
+                <Check className="w-5 h-5" />
+              )}
+              <span className="font-medium">{toast.message}</span>
+            </div>
+          )}
 
+          {/* Header Section */}
+          <div className="flex flex-col md:flex-row items-end justify-between gap-6 mb-8">
+            <div>
+              <h1 className="text-3xl font-bold text-white mb-2">
+                Intelligence Search
+              </h1>
+              <p className="text-slate-400">
+                Advanced semantic search across security knowledge base.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-medium flex items-center gap-2">
+                <Check className="w-4 h-4" />
+                System Online
+>>>>>>> devops3
+              </div>
+            </div>
+          </div>
+
+<<<<<<< HEAD
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   className={`rounded-md px-2 py-1 ${inputBgClass}`}
@@ -1320,5 +1256,607 @@ export default function SearchPage() {
     </main >
   <Footer />
     </>
+=======
+          {/* Search Bar & Filters */}
+          <div className="glass-panel p-4 rounded-2xl mb-8 sticky top-24 z-30 shadow-2xl shadow-sky-900/20">
+            <form
+              onSubmit={handleSearch}
+              className="flex flex-col md:flex-row gap-4"
+            >
+              <div className="flex-1 relative group">
+                <div className="absolute inset-0 bg-gradient-to-r from-sky-500/20 to-purple-500/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 z-10" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Ask anything (e.g., 'How do we handle encryption keys?')"
+                  className="relative z-10 w-full bg-[#0f172a]/80 border border-white/10 rounded-xl pl-12 pr-12 py-3.5 text-white placeholder:text-slate-500 focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/50 transition-all shadow-inner"
+                />
+
+                {/* Query Translate Button */}
+                <button
+                  type="button"
+                  onClick={handleTranslateQuery}
+                  disabled={translatingQuery || !query.trim()}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 z-20 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+                  title="Translate Query"
+                >
+                  {translatingQuery ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ArrowRightLeft className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                className={`px-5 py-3.5 rounded-xl border flex items-center gap-2 transition-all font-medium ${isFilterOpen
+                  ? "bg-sky-500 text-white border-sky-500"
+                  : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
+                  }`}
+              >
+                <SlidersHorizontal className="w-5 h-5" />
+                Filters
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-bold shadow-lg shadow-sky-500/20 hover:shadow-sky-500/40 transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+                {loading ? "Analyzing..." : "Search"}
+              </button>
+            </form>
+
+            {/* Expandable Filters */}
+            {isFilterOpen && (
+              <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-1 md:grid-cols-4 gap-4 animate-fade-in">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-400 ml-1">
+                    Status
+                  </label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) =>
+                      setStatusFilter(e.target.value as QaStatus | "all")
+                    }
+                    className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 focus:outline-none focus:border-sky-500/50 appearance-none"
+                  >
+                    <option value="all" className="bg-slate-900">
+                      All Statuses
+                    </option>
+                    <option value="applied" className="bg-slate-900">
+                      Applied
+                    </option>
+                    <option value="not_applied" className="bg-slate-900">
+                      Not Applied
+                    </option>
+                    <option value="unknown" className="bg-slate-900">
+                      Unknown
+                    </option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-400 ml-1">
+                    Domain
+                  </label>
+                  <select
+                    value={domainFilter}
+                    onChange={(e) => setDomainFilter(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300 focus:outline-none focus:border-sky-500/50 appearance-none"
+                  >
+                    <option value="all" className="bg-slate-900">
+                      All Domains
+                    </option>
+                    <option value="application" className="bg-slate-900">
+                      Application
+                    </option>
+                    <option value="network" className="bg-slate-900">
+                      Network
+                    </option>
+                    <option value="database" className="bg-slate-900">
+                      Database
+                    </option>
+                    <option value="cloud" className="bg-slate-900">
+                      Cloud
+                    </option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Results Grid */}
+          <div className="space-y-4">
+            {loading && !results.length && (
+              <div className="text-center py-20">
+                <div className="relative w-16 h-16 mx-auto mb-6">
+                  <div className="absolute inset-0 border-4 border-sky-500/20 rounded-full"></div>
+                  <div className="absolute inset-0 border-4 border-t-sky-500 rounded-full animate-spin"></div>
+                </div>
+                <p className="text-slate-400 animate-pulse">
+                  Processing semantic vectors...
+                </p>
+              </div>
+            )}
+
+            {error && (
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-200 flex items-center gap-3">
+                <AlertCircle className="w-5 h-5" />
+                {error}
+              </div>
+            )}
+
+            {!loading && hasSearched && results.length === 0 && !error && (
+              <div className="text-center py-20 glass-panel rounded-2xl">
+                <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Search className="w-10 h-10 text-slate-600" />
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">
+                  No intelligence found
+                </h3>
+                <p className="text-slate-400">
+                  Try adjusting your search terms or filters.
+                </p>
+              </div>
+            )}
+
+            {results.map((result) => {
+              const id = String(result._id ?? "");
+              const isExpanded = expandedItems.has(id);
+              const showTranslation = translatedItems.has(id);
+              const isTranslating = translatingIds.has(id);
+
+              // Gradient color based on score (100=green, 0=red)
+              const score = result.score || 0;
+              let scoreColor = "";
+              let scoreBg = "";
+              let scoreWarning = false;
+
+              if (score >= 90) {
+                scoreColor = "text-emerald-400";
+                scoreBg = "border-emerald-500/30 bg-emerald-500/10";
+              } else if (score >= 80) {
+                scoreColor = "text-green-400";
+                scoreBg = "border-green-500/30 bg-green-500/10";
+              } else if (score >= 70) {
+                scoreColor = "text-lime-400";
+                scoreBg = "border-lime-500/30 bg-lime-500/10";
+              } else if (score >= 60) {
+                scoreColor = "text-yellow-400";
+                scoreBg = "border-yellow-500/30 bg-yellow-500/10";
+              } else if (score >= 50) {
+                scoreColor = "text-amber-400";
+                scoreBg = "border-amber-500/30 bg-amber-500/10";
+                scoreWarning = true;
+              } else if (score >= 40) {
+                scoreColor = "text-orange-400";
+                scoreBg = "border-orange-500/30 bg-orange-500/10";
+                scoreWarning = true;
+              } else {
+                scoreColor = "text-red-400";
+                scoreBg = "border-red-500/30 bg-red-500/10";
+                scoreWarning = true;
+              }
+
+              // Strict English-First Logic
+              const originalText = result.question_text;
+              const isOriginalArabic =
+                /[\u0600-\u06FF]/.test(originalText || "");
+
+              // Identify English and Arabic texts
+              const englishText =
+                result.question_text_en ||
+                (!isOriginalArabic ? originalText : "") ||
+                (result as any).translated_text;
+
+              const arabicText =
+                (result as any).question_text_ar ||
+                (isOriginalArabic ? originalText : "");
+
+              // Main Title: Always English if available, otherwise Arabic.
+              let mainText = englishText || arabicText || "";
+              let mainDir = mainText === arabicText ? "rtl" : "ltr";
+
+              // Secondary Box (Translation)
+              let secondaryText = "";
+              let secondaryDir: "rtl" | "ltr" = "ltr";
+              let secondaryLabel = "";
+
+              if (showTranslation) {
+                if (mainText === englishText) {
+                  secondaryText =
+                    arabicText || "Translation not available" || "";
+                  secondaryDir = "rtl";
+                  secondaryLabel = "Arabic Translation";
+                } else if (mainText === arabicText) {
+                  secondaryText =
+                    englishText || "Translation not available" || "";
+                  secondaryDir = "ltr";
+                  secondaryLabel = "English Translation";
+                }
+              }
+
+              return (
+                <div
+                  key={id}
+                  className="glass-card p-6 group hover:bg-white/[0.02] transition-all border-l-4 border-l-transparent hover:border-l-sky-500"
+                >
+                  {/* Card Header: Badges & Score */}
+                  <div className="flex items-start justify-between gap-4 mb-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Status Badge */}
+                      <span
+                        className={`px-2.5 py-1 rounded-md text-xs font-bold border uppercase tracking-wider ${result.status === "applied"
+                          ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                          : result.status === "not_applied"
+                            ? "bg-red-500/10 border-red-500/20 text-red-400"
+                            : result.status === "not_applicable"
+                              ? "bg-amber-500/10 border-amber-500/20 text-amber-300"
+                              : "bg-slate-500/10 border-slate-500/20 text-slate-400"
+                          }`}
+                      >
+                        {result.status.replace(/_/g, " ")}
+                      </span>
+
+                      {/* Domain Badge */}
+                      <span className="px-2.5 py-1 rounded-md text-xs font-medium bg-white/5 border border-white/10 text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Database className="w-3 h-3" />
+                        {result.domain}
+                      </span>
+
+                      {/* Tech Badges */}
+                      {result.needs_dev_input && (
+                        <span
+                          className="px-2 py-1 rounded-md text-[10px] font-medium bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 flex items-center gap-1"
+                          title="Requires Developer Input"
+                        >
+                          <Code className="w-3 h-3" /> Dev
+                        </span>
+                      )}
+                      {result.needs_infra_input && (
+                        <span
+                          className="px-2 py-1 rounded-md text-[10px] font-medium bg-orange-500/10 border border-orange-500/20 text-orange-300 flex items-center gap-1"
+                          title="Requires Infra Input"
+                        >
+                          <Server className="w-3 h-3" /> Infra
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Relevance Score with Gradient */}
+                    {result.score !== undefined && (
+                      <div className="flex flex-col items-end gap-1">
+                        <div
+                          className={`flex items-center gap-1.5 px-3 py-1 rounded-full border ${scoreBg}`}
+                        >
+                          <span className={`text-sm font-bold ${scoreColor}`}>
+                            {result.score}%
+                          </span>
+                          <span className="text-[10px] uppercase tracking-wider opacity-80 text-slate-400">
+                            Relevance
+                          </span>
+                        </div>
+                        {scoreWarning && (
+                          <div className="flex items-center gap-1 text-[10px] text-red-400">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>Low match - verify answer</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Main Question */}
+                  <h3
+                    className="text-lg md:text-xl font-bold text-white mb-3 group-hover:text-sky-300 transition-colors leading-snug"
+                    dir={mainDir}
+                  >
+                    {mainText}
+                  </h3>
+
+                  {/* Secondary Question (Translation) */}
+                  {showTranslation && (
+                    <div className="mb-4 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 animate-fade-in">
+                      <div className="flex items-center gap-2 mb-1 text-xs font-bold text-purple-400 uppercase tracking-wider">
+                        <Globe className="w-3 h-3" />
+                        {secondaryLabel}
+                      </div>
+                      <p
+                        className={`text-lg leading-snug ${secondaryText === "Translation not available"
+                          ? "text-slate-500 italic text-sm"
+                          : "text-purple-100"
+                          }`}
+                        dir={secondaryDir}
+                      >
+                        {secondaryText}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Answer Preview */}
+                  {result.answer_text && (
+                    <div
+                      className={`text-slate-300 leading-relaxed border-l-2 border-white/10 pl-4 whitespace-pre-wrap transition-all duration-300 ${isExpanded ? "" : "line-clamp-3"
+                        }`}
+                    >
+                      {result.answer_text}
+                    </div>
+                  )}
+
+                  {/* Expanded Details */}
+                  {isExpanded && (
+                    <div className="mt-6 pt-6 border-t border-white/5 animate-fade-in space-y-4">
+                      {/* Arabic Explanation */}
+                      {result.explanation_ar && (
+                        <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5">
+                          <h4 className="text-xs font-bold text-sky-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                            <Info className="w-3 h-3" /> Explanation (Arabic)
+                          </h4>
+                          <p
+                            className="text-sm text-slate-300 leading-relaxed"
+                            dir="rtl"
+                          >
+                            {result.explanation_ar}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Metadata Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-500">
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-3 h-3" />
+                          <span>
+                            Source:{" "}
+                            <span className="text-slate-300">
+                              {result.source_file || "Manual Entry"}
+                            </span>
+                          </span>
+                        </div>
+                        {result.client_name && (
+                          <div className="flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-slate-700 flex items-center justify-center text-[8px]">
+                              C
+                            </span>
+                            <span>
+                              Client:{" "}
+                              <span className="text-slate-300">
+                                {result.client_name}
+                              </span>
+                            </span>
+                          </div>
+                        )}
+                        <div>
+                          <span>
+                            ID:{" "}
+                            <span className="font-mono text-slate-400">
+                              {id}
+                            </span>
+                          </span>
+                        </div>
+                        <div>
+                          <span>
+                            Updated:{" "}
+                            <span className="text-slate-400">
+                              {result.updated_at
+                                ? new Date(
+                                  result.updated_at
+                                ).toLocaleDateString()
+                                : "N/A"}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Footer Actions */}
+                  <div className="flex flex-wrap items-center gap-3 pt-4 mt-2 border-t border-white/5">
+                    {/* View Details */}
+                    <button
+                      onClick={() => toggleExpand(id)}
+                      className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-slate-300 transition-all hover:text-white flex items-center gap-1.5"
+                    >
+                      {isExpanded ? (
+                        <>
+                          Show Less <ChevronUp className="w-3 h-3" />
+                        </>
+                      ) : (
+                        <>
+                          View Details <ChevronDown className="w-3 h-3" />
+                        </>
+                      )}
+                    </button>
+
+                    {/* Edit Button (Amber) */}
+                    <button
+                      onClick={() => openEditModal(result)}
+                      className="px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-xs font-medium text-amber-400 transition-all flex items-center gap-1.5"
+                    >
+                      <Edit2 className="w-3 h-3" /> Edit
+                    </button>
+
+                    {/* Translate Button (Purple) */}
+                    <button
+                      onClick={() => toggleTranslateResult(result)}
+                      disabled={isTranslating}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${showTranslation
+                        ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
+                        : "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20 text-purple-400"
+                        }`}
+                      title="Show Translation"
+                    >
+                      {isTranslating ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Languages className="w-3 h-3" />
+                      )}
+                      {isTranslating
+                        ? "Translating..."
+                        : showTranslation
+                          ? "Hide Translation"
+                          : "Translate"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Edit Modal */}
+          {isEditModalOpen && editingItem && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+              <div className="bg-[#0f172a] border border-white/10 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl animate-scale-up">
+                {/* Modal Header */}
+                <div className="sticky top-0 bg-[#0f172a]/95 backdrop-blur-xl border-b border-white/10 p-4 flex items-center justify-between z-10">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Edit2 className="w-4 h-4 text-sky-400" /> Edit Entry
+                  </h3>
+                  <button
+                    onClick={() => setIsEditModalOpen(false)}
+                    className="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Modal Body */}
+                <div className="p-6 space-y-6">
+                  {/* Question (English) */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                      Question (English)
+                    </label>
+                    <textarea
+                      value={editingItem.question_text_en || ""}
+                      onChange={(e) =>
+                        setEditingItem({
+                          ...editingItem,
+                          question_text_en: e.target.value,
+                        })
+                      }
+                      className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500/50 transition-all"
+                      rows={2}
+                      dir="ltr"
+                      placeholder="Enter question in English..."
+                    />
+                  </div>
+
+                  {/* Question (Arabic) */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                      Question (Arabic)
+                    </label>
+                    <textarea
+                      value={(editingItem as any).question_text_ar || ""}
+                      onChange={(e) =>
+                        setEditingItem({
+                          ...editingItem,
+                          question_text_ar: e.target.value,
+                        } as any)
+                      }
+                      className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500/50 transition-all"
+                      rows={2}
+                      dir="rtl"
+                      placeholder="أدخل السؤال بالعربية..."
+                    />
+                  </div>
+
+                  {/* Status & Domain */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                        Status
+                      </label>
+                      <select
+                        value={editingItem.status}
+                        onChange={(e) =>
+                          setEditingItem({
+                            ...editingItem,
+                            status: e.target.value as QaStatus,
+                          })
+                        }
+                        className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-sky-500/50"
+                      >
+                        <option value="applied">Applied</option>
+                        <option value="not_applied">Not Applied</option>
+                        <option value="not_applicable">Not Applicable</option>
+                        <option value="unknown">Unknown</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                        Domain
+                      </label>
+                      <select
+                        value={editingItem.domain}
+                        onChange={(e) =>
+                          setEditingItem({
+                            ...editingItem,
+                            domain: e.target.value as QaDomain,
+                          })
+                        }
+                        className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-sky-500/50"
+                      >
+                        <option value="application">Application</option>
+                        <option value="network">Network</option>
+                        <option value="database">Database</option>
+                        <option value="cloud">Cloud</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Explanation */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                      Explanation (Arabic)
+                    </label>
+                    <textarea
+                      value={editingItem.explanation_ar || ""}
+                      onChange={(e) =>
+                        setEditingItem({
+                          ...editingItem,
+                          explanation_ar: e.target.value,
+                        })
+                      }
+                      className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500/50 transition-all"
+                      rows={2}
+                      dir="rtl"
+                    />
+                  </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="sticky bottom-0 bg-[#0f172a]/95 backdrop-blur-xl border-t border-white/10 p-4 flex items-center justify-end gap-3 z-10">
+                  <button
+                    onClick={() => setIsEditModalOpen(false)}
+                    className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveEdit}
+                    disabled={saving}
+                    className="px-6 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-white text-sm font-bold shadow-lg shadow-sky-500/20 flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {saving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </MainLayout>
+>>>>>>> devops3
   );
 }

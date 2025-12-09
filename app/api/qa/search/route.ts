@@ -18,14 +18,16 @@ interface SearchBody {
   dateFrom?: string; // ISO التاريخ من
   dateTo?: string; // ISO التاريخ إلى
   source_file?: string;
-
   client_name?: string;
 }
 
+// هذا النوع يمثل الـ Document اللي راجع من Mongo
+// أضفنا question_text_ar عشان نقدر نستخدمه في docToQaEntry
 type InternalDoc = {
   _id: any;
   question_text: string;
   question_text_en?: string;
+  question_text_ar?: string;
   answer_text?: string;
   status?: QaStatus;
   domain?: QaDomain;
@@ -80,7 +82,7 @@ export async function POST(req: NextRequest) {
       filter.source_file = source_file.trim();
     }
     if (client_name && client_name.trim()) {
-    filter.client_name = client_name.trim();
+      filter.client_name = client_name.trim();
     }
 
     if (dateFrom || dateTo) {
@@ -257,8 +259,7 @@ export async function POST(req: NextRequest) {
     };
 
     scoredDocs.sort((a, b) => {
-      if (b.finalScore !== a.finalScore)
-        return b.finalScore - a.finalScore;
+      if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
 
       const sa = statusPriority[a.doc.status || "unknown"] || 99;
       const sb = statusPriority[b.doc.status || "unknown"] || 99;
@@ -273,7 +274,9 @@ export async function POST(req: NextRequest) {
     const start = (page - 1) * pageSize;
     const pageSlice = scoredDocs.slice(start, start + pageSize);
 
-    const matches: QaEntry[] = pageSlice.map((s) => docToQaEntry(s.doc));
+    const matches: QaEntry[] = pageSlice.map((s) =>
+      docToQaEntry(s.doc, s.finalScore)
+    );
 
     // -------------------------
     // 5) Search Analytics (Backend logging)
@@ -305,9 +308,9 @@ export async function POST(req: NextRequest) {
 }
 
 // تحويل Document إلى QaEntry
-function docToQaEntry(doc: InternalDoc): QaEntry {
+function docToQaEntry(doc: InternalDoc, score?: number): QaEntry {
   return {
-    _id: doc._id.toString(),
+    _id: doc._id?.toString?.(),
     question_text: doc.question_text,
     question_text_en: doc.question_text_en || undefined,
     question_language: "en",
@@ -322,6 +325,8 @@ function docToQaEntry(doc: InternalDoc): QaEntry {
     created_at: doc.created_at,
     updated_at: doc.updated_at,
     client_name: doc.client_name || undefined,
+    question_text_ar: doc.question_text_ar || undefined, // Map Arabic text
+    score: score ? Math.round(score * 100) : undefined,
   };
 }
 

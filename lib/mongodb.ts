@@ -1,32 +1,49 @@
 // lib/mongodb.ts
+
 import { MongoClient, Db } from "mongodb";
 
-if (!process.env.MONGODB_URI) {
-  throw new Error("❌ MONGODB_URI is not set in .env.local");
-}
-
+// 1. تحديد متغيرات البيئة
 const uri = process.env.MONGODB_URI;
-const dbName = process.env.MONGODB_DB || "security_qa";
+const dbName = process.env.MONGODB_DB || "taskmanager";
 
-let client: MongoClient | null = null;
-let db: Db | null = null;
-let clientPromise: Promise<MongoClient> | null = null;
-
-export async function getMongoClient(): Promise<MongoClient> {
-  if (client) return client;
-
-  if (!clientPromise) {
-    clientPromise = MongoClient.connect(uri!);
-  }
-
-  client = await clientPromise;
-  return client;
+// 2. التحقق من وجود URI
+if (!uri) {
+  // ⚠️ يفضل ترك هذا الفحص، لأنه يجبرك على تذكر وضع المتغيرات
+  throw new Error("❌ MONGODB_URI is not set. Check your .env.local file (local) or Render variables (production).");
 }
 
-export async function getDb(): Promise<Db> {
-  if (db) return db;
+// 3. تعريف Typescript Global Variable (مهم لـ Next.js Dev Mode)
+declare global {
+  // المتغير الذي سيخزن وعد الاتصال في الوضع المحلي
+  // هذا لمنع إعادة الاتصال المتكررة عند التحديث السريع
+  var _mongoClientPromise: Promise<MongoClient> | undefined; 
+}
 
-  const client = await getMongoClient();
-  db = client.db(dbName);
-  return db;
+let clientPromise: Promise<MongoClient>;
+let cachedDb: Db;
+
+// 4. تطبيق نمط Singleton
+if (process.env.NODE_ENV === "development") {
+  // في وضع التطوير (Local Development):
+  if (!global._mongoClientPromise) {
+    global._mongoClientPromise = MongoClient.connect(uri);
+  }
+  clientPromise = global._mongoClientPromise;
+} else {
+  // في وضع الإنتاج (Render):
+  clientPromise = MongoClient.connect(uri);
+}
+
+// 5. دالة الحصول على الاتصال بقاعدة البيانات
+export async function getDb(): Promise<Db> {
+  // لو الكاش موجود، رجّع مباشرة
+  if (cachedDb) return cachedDb;
+
+  // انتظار الاتصال الأوحد 
+  const client = await clientPromise;
+  
+  // حفظ قاعدة البيانات في الكاش
+  cachedDb = client.db(dbName);
+  
+  return cachedDb;
 }
