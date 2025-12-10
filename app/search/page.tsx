@@ -61,6 +61,8 @@ export default function SearchPage() {
 
   // AI Enhancement Toggle (default OFF)
   const [includeAi, setIncludeAi] = useState<boolean>(false);
+  // Atlas Search Toggle (default OFF)
+  const [useAtlasSearch, setUseAtlasSearch] = useState<boolean>(false);
 
   // Clear toast after 3 seconds
   useEffect(() => {
@@ -85,17 +87,15 @@ export default function SearchPage() {
       setTranslatedItems(new Set());
 
       try {
-        const res = await fetch("/api/qa/search", {
+        const endpoint = useAtlasSearch ? "/api/qa/atlas-search" : "/api/qa/search";
+        const body = useAtlasSearch
+          ? { query, status: statusFilter, domain: domainFilter, mode: includeAi ? 'hybrid' : 'text' }
+          : { query, status: statusFilter, domain: domainFilter, page: 1, pageSize: 50, includeAi };
+
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query,
-            status: statusFilter,
-            domain: domainFilter,
-            page: 1,
-            pageSize: 50,
-            includeAi,
-          }),
+          body: JSON.stringify(body),
         });
 
         const data = await res.json();
@@ -113,7 +113,7 @@ export default function SearchPage() {
         setLoading(false);
       }
     },
-    [query, statusFilter, domainFilter]
+    [query, statusFilter, domainFilter, includeAi, useAtlasSearch]
   );
 
   // Auto-search when filters change
@@ -476,6 +476,25 @@ export default function SearchPage() {
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+
+                {/* Atlas Search Toggle */}
+                <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 h-fit self-end">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-emerald-400" />
+                    <span className="text-sm font-medium text-white">
+                      Atlas Search
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer ml-4">
+                    <input
+                      type="checkbox"
+                      checked={useAtlasSearch}
+                      onChange={(e) => setUseAtlasSearch(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
                   </label>
                 </div>
               </div>

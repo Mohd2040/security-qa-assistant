@@ -4,8 +4,11 @@ import { getDb } from "@/lib/mongodb";
 import * as XLSX from "xlsx";
 import Fuse from "fuse.js";
 import { normalizeArabic, looksArabic } from "@/lib/arabic";
-import { cosineSimilarity, getEmbedding } from "@/lib/embeddings";
+import { cosineSimilarity, getEmbedding, logEmbeddingCacheStats } from "@/lib/embeddings";
 import { generateAnswer } from "@/lib/ai";
+import { expandQuery, shouldExpand } from "@/lib/query-expander";
+import { createBM25Ranker, BM25Ranker } from "@/lib/bm25-ranker";
+import { calculateHybridScore, normalizeBM25Score } from "@/lib/dynamic-scoring";
 
 export const runtime = "nodejs";
 
@@ -124,6 +127,9 @@ export async function POST(req: NextRequest) {
         };
         const fuse = new Fuse(existingEntries, fuseOptions);
 
+        // Initialize BM25 ranker for better keyword matching
+        const bm25Ranker = createBM25Ranker(existingEntries);
+
         const matches: MatchedAnswer[] = [];
         let highMatches = 0;
         let mediumMatches = 0;
@@ -139,6 +145,11 @@ export async function POST(req: NextRequest) {
             const isArabic = looksArabic(trimmedQuestion);
             const normalizedQuestion = isArabic ? normalizeArabic(trimmedQuestion) : trimmedQuestion;
 
+            // Expand query with synonyms if applicable
+            const queryVariations = shouldExpand(trimmedQuestion)
+                ? expandQuery(trimmedQuestion, 3).variations
+                : [trimmedQuestion];
+
             // 1. Exact Match (Fastest)
             const exactMatch = existingEntries.find(e =>
                 (e.question_text === trimmedQuestion) ||
@@ -151,10 +162,36 @@ export async function POST(req: NextRequest) {
             } else {
                 // 2. Hybrid Search (Fuzzy + Semantic)
 
-                // A. Fuzzy Search Candidates
-                // We use normalized question for better Arabic matching
-                const fuseResults = fuse.search(normalizedQuestion);
-                const candidates = fuseResults.slice(0, 20); // Top 20 candidates
+                // A. Fuzzy Search Candidates with Synonym Expansion
+                // Search for original query + synonym variations
+                let allFuseResults: any[] = [];
+
+                for (const variation of queryVariations) {
+                    const normalizedVariation = isArabic ? normalizeArabic(variation) : variation;
+                    const results = fuse.search(normalizedVariation);
+                    allFuseResults = allFuseResults.concat(results);
+                }
+
+                // Remove duplicates and sort by score
+                const uniqueResults = new Map();
+                for (const result of allFuseResults) {
+                    const id = result.item._id.toString();
+                    if (!uniqueResults.has(id) || result.score < uniqueResults.get(id).score) {
+                        uniqueResults.set(id, result);
+                    }
+                }
+
+                const fuseResults = Array.from(uniqueResults.values())
+                    .sort((a, b) => (a.score || 0) - (b.score || 0));
+
+                // Expanded to 50 candidates with smart filtering
+                // Only include candidates with reasonable fuzzy scores (>0.3 similarity)
+                const candidates = fuseResults
+                    .filter(r => {
+                        const fuzzyScore = r.score != null ? (1 - r.score) : 0;
+                        return fuzzyScore > 0.3; // Filter out very weak matches
+                    })
+                    .slice(0, 50); // Top 50 candidates for semantic re-ranking
 
                 // B. Semantic Search (Reranking)
                 let questionEmbedding: number[] | null = null;
@@ -164,28 +201,52 @@ export async function POST(req: NextRequest) {
                     // Ignore embedding errors
                 }
 
+                // Track max BM25 score for normalization
+                let maxBM25Score = 0;
+                const candidatesWithBM25: Array<{ result: any, bm25Score: number }> = [];
+
                 for (const result of candidates) {
                     const doc = result.item;
-                    const fuzzyScore = result.score != null ? (1 - result.score) : 0; // Convert distance to similarity
+                    const docIndex = existingEntries.findIndex(e => e._id.toString() === doc._id.toString());
+                    const bm25Score = docIndex >= 0 ? bm25Ranker.getScore(trimmedQuestion, docIndex) : 0;
+                    maxBM25Score = Math.max(maxBM25Score, bm25Score);
+                    candidatesWithBM25.push({ result, bm25Score });
+                }
+
+                for (const { result, bm25Score } of candidatesWithBM25) {
+                    const doc = result.item;
+                    const fuzzyScore = result.score != null ? (1 - result.score) : 0;
 
                     let semanticScore = 0;
                     if (questionEmbedding && doc.embedding && Array.isArray(doc.embedding)) {
                         semanticScore = cosineSimilarity(questionEmbedding, doc.embedding);
-                        // Normalize to 0-1
                         semanticScore = Math.max(0, Math.min(1, (semanticScore + 1) / 2));
                     }
 
-                    // Hybrid Score Calculation
-                    // If we have semantic score, weight it higher (60%)
-                    // If not, rely on fuzzy score
+                    // Normalize BM25 score to 0-1 range
+                    const normalizedBM25 = normalizeBM25Score(bm25Score, maxBM25Score);
+
+                    // Dynamic Hybrid Score Calculation
                     let finalScore = fuzzyScore;
-                    if (semanticScore > 0) {
-                        finalScore = (semanticScore * 0.6) + (fuzzyScore * 0.4);
+                    if (semanticScore > 0 || normalizedBM25 > 0) {
+                        // Use dynamic weights based on query characteristics
+                        finalScore = calculateHybridScore(
+                            semanticScore,
+                            fuzzyScore,
+                            normalizedBM25,
+                            trimmedQuestion
+                        );
                     }
 
                     if (finalScore > bestScore) {
                         bestScore = finalScore;
                         bestMatch = doc;
+
+                        // Early stopping: if we found an excellent match, stop searching
+                        if (bestScore >= 0.95) {
+                            console.log('[Early Stop] Excellent match found (score >= 0.95)');
+                            break;
+                        }
                     }
                 }
             }
@@ -252,6 +313,9 @@ export async function POST(req: NextRequest) {
 
             matches.push(matchedAnswer);
         }
+
+        // Log cache statistics for monitoring
+        logEmbeddingCacheStats();
 
         // IF MODE IS PREVIEW, RETURN JSON
         if (mode === "preview") {

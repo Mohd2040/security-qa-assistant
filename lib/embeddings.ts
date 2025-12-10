@@ -1,5 +1,6 @@
 // lib/embeddings.ts
 import OpenAI from "openai";
+import { getEmbeddingCache, logCacheStats } from "./embedding-cache";
 
 const apiKey = process.env.OPENAI_API_KEY;
 
@@ -18,12 +19,33 @@ export async function getEmbedding(text: string): Promise<number[] | null> {
   const cleaned = text.trim();
   if (!cleaned) return null;
 
+  // Try to get from cache first
+  const cache = getEmbeddingCache();
+  const cachedEmbedding = cache.get(cleaned);
+
+  if (cachedEmbedding) {
+    return cachedEmbedding;
+  }
+
+  // If not in cache, call API
   const res = await client.embeddings.create({
     model: "text-embedding-3-small",
     input: cleaned,
   });
 
-  return res.data[0].embedding as unknown as number[];
+  const embedding = res.data[0].embedding as unknown as number[];
+
+  // Save to cache for future use
+  cache.set(cleaned, embedding);
+
+  return embedding;
+}
+
+/**
+ * Log cache statistics (useful for debugging/monitoring)
+ */
+export function logEmbeddingCacheStats(): void {
+  logCacheStats();
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {
