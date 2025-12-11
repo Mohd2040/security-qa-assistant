@@ -9,6 +9,7 @@ import { generateAnswer } from "@/lib/ai";
 import { expandQuery, shouldExpand } from "@/lib/query-expander";
 import { createBM25Ranker, BM25Ranker } from "@/lib/bm25-ranker";
 import { calculateHybridScore, normalizeBM25Score } from "@/lib/dynamic-scoring";
+import { checkRateLimit, getClientIdentifier, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limiter";
 
 export const runtime = "nodejs";
 
@@ -42,6 +43,21 @@ interface MatchResult {
  */
 export async function POST(req: NextRequest) {
     try {
+        // ✅ SECURITY: Check Rate Limit (5 requests/hour)
+        const clientId = getClientIdentifier(req);
+        const rateLimit = checkRateLimit(clientId, RATE_LIMITS.match);
+
+        if (!rateLimit.allowed) {
+            return rateLimitResponse(rateLimit.resetTime);
+        }
+
+        // Log rate limit info in response headers
+        const headers = {
+            'X-RateLimit-Limit': RATE_LIMITS.match.maxRequests.toString(),
+            'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+            'X-RateLimit-Reset': new Date(rateLimit.resetTime).toISOString()
+        };
+
         const formData = await req.formData();
         const file = formData.get("file");
         const thresholdRaw = formData.get("threshold") || "0.7";
@@ -103,8 +119,36 @@ export async function POST(req: NextRequest) {
         const db = await getDb();
         const collection = db.collection("qa_entries");
 
-        // Get all existing Q&A entries
-        const existingEntries = await collection.find({}).toArray();
+        // ✅ CRITICAL FIX: Don't load entire database!
+        // For 300-question files, we need smart data fetching
+        // Strategy: Load most recent + most relevant entries only
+
+        const MAX_ENTRIES = 2000; // Enough for matching, but won't crash with large DBs
+
+        // Get existing Q&A entries with optimization:
+        // 1. Only fetch fields we need (projection)
+        // 2. Limit to recent entries that are more likely to match
+        // 3. Sort by updated_at to get latest content first
+        const existingEntries = await collection
+            .find({}, {
+                projection: {
+                    _id: 1,
+                    question_text: 1,
+                    question_text_en: 1,
+                    answer_text: 1,
+                    status: 1,
+                    domain: 1,
+                    embedding: 1,
+                    updated_at: 1,
+                    created_at: 1
+                }
+            })
+            .sort({ updated_at: -1 }) // Most recent first
+            .limit(MAX_ENTRIES)
+            .toArray();
+
+        console.log(`[Match API] Loaded ${existingEntries.length} entries for matching (limit: ${MAX_ENTRIES})`);
+
 
         // Initialize Fuse.js for Fuzzy Search
         const fuseOptions = {
@@ -193,13 +237,20 @@ export async function POST(req: NextRequest) {
                     })
                     .slice(0, 50); // Top 50 candidates for semantic re-ranking
 
-                // B. Semantic Search (Reranking)
+                // B. Semantic Search (Reranking) - OPTIMIZED WITH BATCH PROCESSING
                 let questionEmbedding: number[] | null = null;
                 try {
                     questionEmbedding = await getEmbedding(trimmedQuestion);
                 } catch (e) {
                     // Ignore embedding errors
                 }
+
+                // ✅ OPTIMIZATION: Pre-filter candidates that have embeddings
+                const candidatesWithEmbeddings = candidates.filter(r =>
+                    r.item.embedding && Array.isArray(r.item.embedding)
+                );
+
+                console.log(`[Match] Question: "${trimmedQuestion.substring(0, 50)}..." | Candidates: ${candidates.length} | With embeddings: ${candidatesWithEmbeddings.length}`);
 
                 // Track max BM25 score for normalization
                 let maxBM25Score = 0;

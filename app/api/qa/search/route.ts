@@ -6,6 +6,7 @@ import Fuse from "fuse.js";
 import { normalizeArabic, looksArabic } from "@/lib/arabic";
 import { getEmbedding, cosineSimilarity } from "@/lib/embeddings";
 import { expandQuery, isOpenAIEnabled } from "@/lib/ai";
+import { checkRateLimit, getClientIdentifier, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limiter";
 
 export const runtime = "nodejs";
 
@@ -45,6 +46,14 @@ type InternalDoc = {
 
 export async function POST(req: NextRequest) {
   try {
+    // ✅ SECURITY: Check Rate Limit (200 requests/minute for search)
+    const clientId = getClientIdentifier(req);
+    const rateLimit = checkRateLimit(clientId, RATE_LIMITS.search);
+
+    if (!rateLimit.allowed) {
+      return rateLimitResponse(rateLimit.resetTime);
+    }
+
     const body = (await req.json()) as SearchBody;
 
     const {

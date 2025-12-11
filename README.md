@@ -30,11 +30,25 @@
 
 ## ✨ Features
 
-### 🔍 Semantic Search
-- AI-powered deep search across your security knowledge base
-- Filter by status (Applied, Not Applied, Not Applicable, Unknown)
-- Filter by domain (Application, Network, Database, Cloud)
-- Instant translation toggle for bilingual search results
+### 🔍 Revolutionary Hybrid Search Engine
+Our search system combines **three powerful technologies** to deliver unmatched accuracy:
+
+#### 🎯 Triple-Layer Search Architecture:
+1. **Fuzzy Search (Fuse.js)** - Handles typos and variations (40% weight)
+2. **Semantic Search (OpenAI Embeddings)** - Understands meaning and context (60% weight)
+3. **BM25 Ranking** - Advanced keyword matching for precise results
+
+#### ✨ Key Capabilities:
+- **AI Query Expansion** - Automatically finds synonyms and related terms using GPT-4
+- **Bilingual Intelligence** - Seamless Arabic/English search with normalization
+- **Advanced Filters** - Status, Domain, Date Range, Source File, Client
+- **Real-time Translation** - Instant query and result translation
+- **Atlas Search Toggle** - Switch to MongoDB Atlas Search for optimized performance
+
+#### 🚀 Search Modes:
+- **Standard Mode**: Hybrid scoring (Fuzzy + Semantic + BM25)
+- **AI Enhanced Mode**: Query expansion with GPT-4 for broader results
+- **Atlas Search Mode**: MongoDB native vector search for speed
 
 ### 📥 Bulk Import
 - Download a pre-formatted Excel template
@@ -43,11 +57,27 @@
 - Duplicate detection (in-file and in-database)
 - Supports bilingual questions (English & Arabic)
 
-### 🤖 Smart Answer Matching
-- Upload new questions and auto-match to existing answers
-- Configurable similarity threshold
-- Preview matches before downloading results
-- Confidence levels: High, Medium, Low, None
+### 🤖 Intelligent Answer Matching System
+Upload Excel files with questions and get AI-powered matches using our **4-stage matching pipeline**:
+
+#### 🔄 Matching Algorithm:
+1. **Exact Match** - Instant detection of identical questions (100% accuracy)
+2. **Fuzzy Search** - Finds similar questions with synonym expansion (Top 50 candidates)
+3. **Semantic Reranking** - OpenAI embeddings for deep understanding
+4. **Hybrid Scoring** - Dynamic weights (Semantic 60% + Fuzzy 30% + BM25 10%)
+
+#### 📊 Match Confidence Levels:
+- **🟢 High (≥85%)**: Auto-apply recommended - Excellent match
+- **🟡 Medium (≥70%)**: Review recommended - Good match
+- **🟠 Low (≥50%)**: Manual decision required - Weak match  
+- **🔴 Needs Review (<60%)**: No reliable match + AI suggestion provided
+
+#### ⚡ Performance Features:
+- **Early Stopping**: Stops at 95% similarity to save time
+- **Batch Processing**: Optimized for files up to 300 questions
+- **Preview Mode**: Review matches before downloading
+- **AI Suggestions**: GPT-4 generates answers for low/no matches
+- **Color-Coded Excel**: Visual feedback (Green/Yellow/Orange/Red)
 
 ### ✏️ Inline Editing
 - Edit questions directly from search results
@@ -127,15 +157,38 @@ AI-powered answer matching with confidence scores.
 
 ## 🛠️ Tech Stack
 
-| Category | Technology |
-|----------|------------|
-| **Framework** | Next.js 16 (App Router) |
-| **Frontend** | React 19, TailwindCSS 4 |
-| **Database** | MongoDB 7 |
-| **AI/ML** | Ollama (embeddings, translation, generation) |
-| **Language** | TypeScript 5 |
-| **File Handling** | SheetJS (xlsx) |
-| **Icons** | Lucide React |
+### Frontend
+| Category | Technology | Purpose |
+|----------|------------|---------|
+| **Framework** | Next.js 16 (App Router) | Server-side rendering & routing |
+| **UI Library** | React 19 with Compiler | High-performance UI |
+| **Styling** | TailwindCSS 4 | Modern, responsive design |
+| **Language** | TypeScript 5 | Type-safe development |
+| **Icons** | Lucide React | Beautiful icon system |
+
+### Backend & Database
+| Category | Technology | Purpose |
+|----------|------------|---------|
+| **Database** | MongoDB 7 | Document storage |
+| **Search Engine** | MongoDB Atlas Search | Vector & text search |
+| **Runtime** | Node.js 18+ | Server execution |
+
+### AI & Machine Learning
+| Category | Technology | Purpose |
+|----------|------------|---------|
+| **LLM** | OpenAI GPT-4o-mini | Text generation & analysis |
+| **Embeddings** | text-embedding-3-small | Semantic vectors (1536 dimensions) |
+| **Fuzzy Search** | Fuse.js 7.0 | Typo-tolerant matching |
+| **BM25 Ranker** | Custom implementation | Keyword relevance scoring |
+| **NLP** | Natural.js | Text processing |
+| **Cache** | LRU Cache (custom) | Embedding caching |
+
+### Utilities & Tools
+| Category | Technology | Purpose |
+|----------|------------|---------|
+| **Excel Processing** | SheetJS (xlsx) | Import/Export functionality |
+| **Arabic Processing** | Custom stemmer & normalizer | RTL support |
+| **Deployment** | Docker, Vercel | Production hosting |
 
 ---
 
@@ -165,6 +218,23 @@ security-qa-assistant/
 | `MONGODB_URI` | MongoDB connection string | ✅ |
 | `OLLAMA_HOST` | Ollama API endpoint | ⚪ Optional |
 | `AI_ENABLED` | Enable AI features (true/false) | ⚪ Optional |
+
+---
+
+## 📚 Documentation
+
+For detailed technical information, please refer to:
+
+- **[Complete Analysis](docs/ANALYSIS.md)** - Comprehensive project analysis
+  - Architecture deep-dive
+  - Strengths & weaknesses
+  - Testing strategies
+  - Performance optimization recommendations
+  
+- **[OpenAI Ideas](docs/OPENAI_IDEAS.md)** - Creative AI enhancements
+  - Top 5 priority features
+  - Implementation roadmap
+  - Cost analysis
 
 ---
 

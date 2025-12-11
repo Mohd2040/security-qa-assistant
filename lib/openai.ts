@@ -1,11 +1,26 @@
-import OpenAI from "openai";
+// lib/openai.ts
+/**
+ * OpenAI Client - Singleton
+ */
 
-const apiKey = process.env.OPENAI_API_KEY;
+import OpenAI from 'openai';
 
-if (!apiKey) {
-    console.warn("OPENAI_API_KEY is not set in environment variables.");
+let client: OpenAI | null = null;
+
+export function getOpenAIClient(): OpenAI | null {
+    if (!process.env.OPENAI_API_KEY) {
+        return null;
+    }
+
+    if (!client) {
+        client = new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY
+        });
+    }
+
+    return client;
 }
 
-export const openai = new OpenAI({
-    apiKey: apiKey || "dummy-key", // Prevent crash if key is missing, but calls will fail
-});
+export function isOpenAIAvailable(): boolean {
+    return !!process.env.OPENAI_API_KEY;
+}
