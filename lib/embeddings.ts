@@ -2,20 +2,38 @@
 import OpenAI from "openai";
 import { getEmbeddingCache, logCacheStats } from "./embedding-cache";
 
-const apiKey = process.env.OPENAI_API_KEY;
+type AiProvider = "openai" | "ollama" | "none";
 
+// Auto-detect provider (prioritize explicit AI_PROVIDER setting)
+function detectProvider(): AiProvider {
+  // If user explicitly set AI_PROVIDER, use it
+  if (process.env.AI_PROVIDER === "ollama") return "ollama";
+  if (process.env.AI_PROVIDER === "openai") return "openai";
+
+  // Otherwise, auto-detect based on available keys
+  if (process.env.OPENAI_API_KEY) return "openai";
+
+  return "none";
+}
+
+const AI_PROVIDER = detectProvider();
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+const OLLAMA_MODEL_EMBED = process.env.OLLAMA_MODEL_EMBED || "nomic-embed-text";
+
+const apiKey = process.env.OPENAI_API_KEY;
 let client: OpenAI | null = null;
 
 if (apiKey) {
   client = new OpenAI({ apiKey });
-  console.log("[embeddings] OpenAI client initialized");
+  console.log("✅ Using OpenAI for AI features");
+} else if (AI_PROVIDER === "ollama") {
+  console.log(`✅ Using Ollama (${OLLAMA_BASE_URL}) for AI features`);
+  console.log(`   Models: ${OLLAMA_MODEL_EMBED} (embeddings), llama3.1 (text)`);
 } else {
-  console.log("[embeddings] OPENAI_API_KEY not set. Semantic search is disabled.");
+  console.warn("⚠️  No AI provider configured. AI features disabled.");
 }
 
 export async function getEmbedding(text: string): Promise<number[] | null> {
-  if (!client) return null;
-
   const cleaned = text.trim();
   if (!cleaned) return null;
 
@@ -27,18 +45,51 @@ export async function getEmbedding(text: string): Promise<number[] | null> {
     return cachedEmbedding;
   }
 
-  // If not in cache, call API
-  const res = await client.embeddings.create({
-    model: "text-embedding-3-small",
-    input: cleaned,
-  });
+  // Generate embedding based on provider
+  try {
+    let embedding: number[] | null = null;
 
-  const embedding = res.data[0].embedding as unknown as number[];
+    if (AI_PROVIDER === "openai" && client) {
+      // OpenAI
+      const res = await client.embeddings.create({
+        model: "text-embedding-3-small",
+        input: cleaned,
+      });
+      embedding = res.data[0].embedding as unknown as number[];
+    } else if (AI_PROVIDER === "ollama") {
+      // Ollama
+      const response = await fetch(`${OLLAMA_BASE_URL}/api/embeddings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: OLLAMA_MODEL_EMBED,
+          prompt: cleaned,
+        }),
+      });
 
-  // Save to cache for future use
-  cache.set(cleaned, embedding);
+      if (!response.ok) {
+        console.error("Ollama embeddings error:", await response.text());
+        return null;
+      }
 
-  return embedding;
+      const data = (await response.json()) as { embedding?: number[] };
+      if (!data.embedding || !Array.isArray(data.embedding)) return null;
+      embedding = data.embedding;
+    } else {
+      // No provider available
+      return null;
+    }
+
+    // Save to cache for future use
+    if (embedding) {
+      cache.set(cleaned, embedding);
+    }
+
+    return embedding;
+  } catch (e) {
+    // Silent fail
+    return null;
+  }
 }
 
 /**
