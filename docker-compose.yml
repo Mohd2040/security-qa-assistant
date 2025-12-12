@@ -1,22 +1,21 @@
-version: '3.8'
-
 services:
-  ollama:
-    image: ollama/ollama:latest
-    container_name: security_qa_ollama
+  app:
+    image: ghcr.io/mohd2040/security-qa-assistant:latest
+    env_file: .env
     ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    restart: always
-    # Uncomment the following section if you have an NVIDIA GPU and NVIDIA Container Toolkit installed
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+      - "3000:3000"
+    depends_on:
+      - db
+    restart: unless-stopped
 
-volumes:
-  ollama_data:
+  db:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo_user
+      MONGO_INITDB_ROOT_PASSWORD: mongo_pass
+      MONGO_INITDB_DATABASE: securityqa
+    volumes:
+      - ./data/mongo:/data/db
+    ports:
+      - "27017:27017"
+    restart: unless-stopped
