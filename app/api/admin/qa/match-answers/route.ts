@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { normalizeArabic, looksArabic } from "@/lib/arabic";
 import { logEmbeddingCacheStats } from "@/lib/embeddings";
 import { getBatchEmbeddings } from "@/lib/batch-embeddings";
-import { generateAnswer } from "@/lib/ai";
+import { generateCategorizedSuggestion } from "@/lib/ai";
 import { checkRateLimit, getClientIdentifier, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limiter";
 
 export const runtime = "nodejs";
@@ -22,6 +22,11 @@ interface MatchedAnswer {
     match_confidence: "high" | "medium" | "low" | "none";
     decision_required: boolean;
     recommendation: string;
+    alternative_sources?: Array<{
+        question: string;
+        score: number;
+        id: string;
+    }>;
 }
 
 interface MatchResult {
@@ -138,6 +143,8 @@ export async function POST(req: NextRequest) {
 
             let bestMatch: any = null;
             let bestScore = 0;
+            let alternativeSources: Array<{ question: string; score: number; id: string }> = [];
+            let vectorResults: any[] = [];
 
             const trimmedQuestion = question.trim();
 
@@ -156,14 +163,14 @@ export async function POST(req: NextRequest) {
             } else if (questionEmbedding && questionEmbedding.length > 0) {
                 // 2. Use Atlas Vector Search for semantic matching
                 try {
-                    const vectorResults = await collection.aggregate([
+                    vectorResults = await collection.aggregate([
                         {
                             $vectorSearch: {
                                 index: "vector_index",
                                 path: "embedding",
                                 queryVector: questionEmbedding,
                                 numCandidates: 100,
-                                limit: 10
+                                limit: 3
                             }
                         },
                         {
@@ -185,6 +192,13 @@ export async function POST(req: NextRequest) {
                         bestMatch = vectorResults[0];
                         // Normalize vector search score (0-1 range)
                         bestScore = Math.min(1.0, Math.max(0, bestMatch.score));
+
+                        // Store alternative sources (2nd and 3rd matches)
+                        alternativeSources = vectorResults.slice(1, 3).map(r => ({
+                            question: r.question_text || r.question_text_en || "",
+                            score: Math.min(1.0, Math.max(0, r.score)),
+                            id: r._id.toString()
+                        }));
 
                         console.log(`[Match] "${trimmedQuestion.substring(0, 50)}..." → Vector match: ${(bestScore * 100).toFixed(0)}%`);
                     } else {
@@ -239,7 +253,7 @@ export async function POST(req: NextRequest) {
 
             // Determine match confidence
             let matchConfidence: "high" | "medium" | "low" | "none";
-            if (bestScore >= 0.85) {
+            if (bestScore >= 0.80) {
                 matchConfidence = "high";
                 highMatches++;
             } else if (bestScore >= threshold) {
@@ -260,20 +274,20 @@ export async function POST(req: NextRequest) {
                 (matchConfidence === "low" || matchConfidence === "none")
             ) {
                 try {
-                    aiSuggestion = await generateAnswer(question);
+                    aiSuggestion = await generateCategorizedSuggestion(question);
                 } catch (e) {
                     console.error("Failed to generate AI answer", e);
                 }
             }
 
-            // Determine if decision is required (< 60% threshold)
-            const decisionRequired = bestScore < 0.6;
+            // Determine if decision is required (< threshold)
+            const decisionRequired = bestScore < threshold;
 
             // Generate recommendation based on score
             let recommendation = "";
-            if (bestScore >= 0.85) {
+            if (bestScore >= 0.80) {
                 recommendation = "High confidence - Auto-apply recommended";
-            } else if (bestScore >= 0.6) {
+            } else if (bestScore >= threshold) {
                 recommendation = "Medium confidence - Review recommended";
             } else {
                 recommendation = "Low match - Manual decision required";
@@ -282,8 +296,8 @@ export async function POST(req: NextRequest) {
             // Build matched answer object
             const matchedAnswer: MatchedAnswer = {
                 question_text: question,
-                // Only assign status if similarity >= 60%
-                status: (bestScore >= 0.6 && bestMatch)
+                // Only assign status if similarity >= threshold
+                status: (bestScore >= threshold && bestMatch)
                     ? bestMatch.status || "unknown"
                     : "NEEDS_REVIEW",
                 answer_text: bestMatch ? bestMatch.answer_text || "" : "",
@@ -295,6 +309,7 @@ export async function POST(req: NextRequest) {
                 match_confidence: matchConfidence,
                 decision_required: decisionRequired,
                 recommendation: recommendation,
+                alternative_sources: alternativeSources.length > 0 ? alternativeSources : undefined,
             };
 
             matches.push(matchedAnswer);
@@ -318,19 +333,26 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: true, ...result }, { status: 200 });
         }
 
-        // Generate Excel output with new fields
+        // Generate Excel output with new fields (answer_text removed)
         const outputData = matches.map((m) => ({
             question_text: m.question_text,
             status: m.status,
             decision_required: m.decision_required ? "YES - Manual Decision Required" : "NO",
             recommendation: m.recommendation,
-            answer_text: m.answer_text,
             source_question: m.source_question,
             similarity_score: (m.similarity_score * 100).toFixed(0) + "%",
             match_confidence: m.match_confidence,
             domain: m.domain,
             ai_suggestion: m.ai_suggestion,
             source_id: m.source_id,
+            alternative_source_1: m.alternative_sources?.[0]?.question || "",
+            alternative_score_1: m.alternative_sources?.[0]?.score
+                ? (m.alternative_sources[0].score * 100).toFixed(0) + "%"
+                : "",
+            alternative_source_2: m.alternative_sources?.[1]?.question || "",
+            alternative_score_2: m.alternative_sources?.[1]?.score
+                ? (m.alternative_sources[1].score * 100).toFixed(0) + "%"
+                : "",
         }));
 
         const outputWorkbook = XLSX.utils.book_new();
@@ -342,13 +364,16 @@ export async function POST(req: NextRequest) {
             { wch: 18 }, // status
             { wch: 30 }, // decision_required
             { wch: 45 }, // recommendation
-            { wch: 40 }, // answer_text
             { wch: 40 }, // source_question
             { wch: 12 }, // similarity_score
             { wch: 15 }, // match_confidence
             { wch: 15 }, // domain
             { wch: 30 }, // ai_suggestion
             { wch: 25 }, // source_id
+            { wch: 40 }, // alternative_source_1
+            { wch: 12 }, // alternative_score_1
+            { wch: 40 }, // alternative_source_2
+            { wch: 12 }, // alternative_score_2
         ];
 
         // Apply cell colors based on decision_required / match_confidence

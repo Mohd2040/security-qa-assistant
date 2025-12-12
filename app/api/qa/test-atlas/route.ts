@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
 
             diagnostics.tests.atlasTextSearch = {
                 count: atlasTextResults.length,
-                samples: atlasTextResults.slice(0, 2).map(doc => ({
+                samples: atlasTextResults.slice(0, 2).map((doc: any) => ({
                     _id: doc._id,
                     question_text: doc.question_text?.substring(0, 50),
                     score: doc.score
@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
                 const embedding = await getEmbedding(query);
                 const atlasVectorResults = await searchAtlasHybrid({
                     query,
-                    embedding,
+                    embedding: embedding || undefined,
                     filters: { status: "all", domain: "all" },
                     limit: 10
                 });
@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
                 diagnostics.tests.atlasVectorSearch = {
                     embeddingLength: embedding?.length,
                     count: atlasVectorResults.length,
-                    samples: atlasVectorResults.slice(0, 2).map(doc => ({
+                    samples: atlasVectorResults.slice(0, 2).map((doc: any) => ({
                         _id: doc._id,
                         question_text: doc.question_text?.substring(0, 50),
                         score: doc.score

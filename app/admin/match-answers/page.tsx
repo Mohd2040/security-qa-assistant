@@ -30,6 +30,12 @@ interface MatchedAnswer {
     domain: string;
     decision_required: boolean;
     recommendation: string;
+    ai_suggestion?: string;
+    alternative_sources?: Array<{
+        question: string;
+        score: number;
+        id: string;
+    }>;
 }
 
 interface MatchStats {
@@ -515,27 +521,47 @@ export default function MatchAnswersPage() {
                                                                     )}
                                                                 </td>
                                                                 <td className="px-4 py-3">
-                                                                    {row.status === "NEEDS_REVIEW" ? (
+                                                                    {row.status === "applied" ? (
+                                                                        <span className="px-2 py-1 rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-300 border border-emerald-500/30">
+                                                                            APPLIED
+                                                                        </span>
+                                                                    ) : row.status === "not applied" ? (
                                                                         <span className="px-2 py-1 rounded-full bg-red-500/20 text-xs font-bold text-red-300 border border-red-500/30">
+                                                                            NOT APPLIED
+                                                                        </span>
+                                                                    ) : row.status === "NEEDS_REVIEW" ? (
+                                                                        <span className="px-2 py-1 rounded-full bg-orange-500/20 text-xs font-bold text-orange-300 border border-orange-500/30">
                                                                             NEEDS REVIEW
                                                                         </span>
-                                                                    ) : row.status !== "unknown" ? (
+                                                                    ) : (
                                                                         <span className="px-2 py-1 rounded-full bg-white/10 text-xs font-medium text-white border border-white/10">
                                                                             {row.status.replace(/_/g, " ")}
                                                                         </span>
-                                                                    ) : (
-                                                                        <span className="text-slate-500">-</span>
                                                                     )}
                                                                 </td>
                                                                 <td className="px-4 py-3 text-slate-300">
-                                                                    {row.answer_text ? (
-                                                                        <div className="line-clamp-2 max-w-xs text-xs">{row.answer_text}</div>
-                                                                    ) : (
-                                                                        <span className="text-slate-600 italic">No answer matched</span>
+                                                                    {/* Show AI suggestion if available */}
+                                                                    {row.ai_suggestion && (
+                                                                        <div className="text-xs text-purple-300 mb-2 font-medium">
+                                                                            💡 {row.ai_suggestion}
+                                                                        </div>
                                                                     )}
+
+                                                                    {/* Show primary source */}
                                                                     {row.source_question && (
-                                                                        <div className="text-[10px] text-sky-400/70 mt-1 truncate max-w-xs">
-                                                                            Source: {row.source_question}
+                                                                        <div className="text-[10px] text-sky-400/70 truncate max-w-xs">
+                                                                            🎯 Source: {row.source_question}
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* Show alternative sources if available */}
+                                                                    {row.alternative_sources && row.alternative_sources.length > 0 && (
+                                                                        <div className="mt-1.5 space-y-0.5">
+                                                                            {row.alternative_sources.map((alt, altIdx) => (
+                                                                                <div key={altIdx} className="text-[9px] text-slate-500 truncate max-w-xs">
+                                                                                    📌 Alt {altIdx + 1} ({(alt.score * 100).toFixed(0)}%): {alt.question}
+                                                                                </div>
+                                                                            ))}
                                                                         </div>
                                                                     )}
                                                                 </td>

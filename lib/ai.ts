@@ -55,6 +55,48 @@ export async function generateAnswer(question: string): Promise<string> {
   }
 }
 
+/**
+ * Generate AI suggestion with role categorization
+ * Returns format: "Ask [Developer/Infrastructure/Management] for: [question]"
+ */
+export async function generateCategorizedSuggestion(question: string): Promise<string> {
+  if (!isOpenAIEnabled()) return "";
+
+  const prompt = `You are a cybersecurity expert. 
+
+1. Categorize this question into ONE role:
+   - Developer (if about: application, web, programming, development, code, SDLC, software)
+   - Infrastructure (if about: cloud, network, DevOps, servers, deployment, infrastructure, hosting)
+   - Management (if about: policies, governance, compliance, or anything else)
+
+2. Rephrase the question as a clear, professional question to ask that role.
+
+Question: "${question}"
+
+Return ONLY in this format:
+Ask [Role] for: [rephrased question as a clear question]
+
+Example: "Ask Developer for: Do you implement input validation in all user-facing forms?"`;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return "";
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 150,
+    });
+
+    return (completion.choices[0]?.message?.content || "").trim();
+  } catch (e) {
+    console.error("OpenAI API error:", e);
+    return "";
+  }
+}
+
+
 export async function expandQuery(query: string): Promise<string[]> {
   return [query];
 }
