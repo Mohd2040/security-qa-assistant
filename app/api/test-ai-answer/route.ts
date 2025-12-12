@@ -23,9 +23,8 @@ export async function GET(req: NextRequest) {
         } else {
             return NextResponse.json({
                 success: false,
-                message: "⚠️ No answer returned. Check AI configuration.",
-                provider: process.env.AI_PROVIDER,
-                hint: "Make sure Ollama is running and models are downloaded"
+                message: "⚠️ No answer returned. Check OpenAI API configuration.",
+                hint: "Make sure OPENAI_API_KEY is set in .env.local"
             }, { status: 500 });
         }
     } catch (error: any) {

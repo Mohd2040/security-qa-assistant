@@ -1,18 +1,15 @@
 // lib/ai.ts
 import OpenAI from "openai";
 
-export type AiProvider = "openai" | "ollama" | "none";
+export type AiProvider = "openai" | "none";
 
 function detectProvider(): AiProvider {
-  if (process.env.AI_PROVIDER === "ollama") return "ollama";
-  if (process.env.AI_PROVIDER === "openai") return "openai";
   if (process.env.OPENAI_API_KEY) return "openai";
   return "none";
 }
 
 const AI_PROVIDER: AiProvider = detectProvider();
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
-const OLLAMA_MODEL_TEXT = process.env.OLLAMA_MODEL_TEXT || "llama3.1";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 let openaiClient: OpenAI | null = null;
 function getOpenAIClient(): OpenAI | null {
@@ -36,34 +33,24 @@ export function getAiProvider(): AiProvider {
 }
 
 export async function generateAnswer(question: string): Promise<string> {
-  if (!isAiEnabled()) return "";
+  if (!isOpenAIEnabled()) return "";
 
   const prompt = `You are a cybersecurity expert. Answer this question professionally:\n\n${question}\n\nAnswer:`;
 
   try {
-    if (AI_PROVIDER === "openai") {
-      const client = getOpenAIClient();
-      if (!client) return "";
-      const completion = await client.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.5,
-        max_tokens: 500,
-      });
-      return (completion.choices[0]?.message?.content || "").trim();
-    }
+    const client = getOpenAIClient();
+    if (!client) return "";
 
-    // Ollama fallback
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: OLLAMA_MODEL_TEXT, prompt, stream: false }),
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.5,
+      max_tokens: 500,
     });
 
-    if (!response.ok) return "";
-    const data = (await response.json()) as { response?: string };
-    return (data.response || "").trim();
+    return (completion.choices[0]?.message?.content || "").trim();
   } catch (e) {
+    console.error("OpenAI API error:", e);
     return "";
   }
 }
@@ -98,7 +85,7 @@ Question: "${question}"
 Return ONLY the category name, nothing else.`;
 
     const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: OPENAI_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
       max_tokens: 20,
@@ -111,3 +98,47 @@ Return ONLY the category name, nothing else.`;
   }
 }
 
+/**
+ * Generate embeddings for questions (wrapper around getEmbedding from embeddings.ts)
+ */
+export async function getEmbeddingVector(text: string): Promise<number[] | null> {
+  if (!isOpenAIEnabled()) return null;
+
+  // Import dynamically to avoid circular dependency
+  const { getEmbedding } = await import("./embeddings");
+  return await getEmbedding(text);
+}
+
+/**
+ * Generate Arabic explanation for a Q&A pair
+ */
+export async function generateArabicExplanation(params: {
+  question: string;
+  answer: string;
+}): Promise<string | null> {
+  if (!isOpenAIEnabled()) return null;
+
+  const prompt = `أنت خبير أمن معلومات. اشرح السؤال والجواب التالي بالعربية بشكل مبسط:
+
+السؤال: ${params.question}
+الجواب: ${params.answer}
+
+اكتب شرحاً واضحاً بالعربية (3-4 جمل):`;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return null;
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
+      max_tokens: 300,
+    });
+
+    return completion.choices[0]?.message?.content?.trim() || null;
+  } catch (e) {
+    console.error("Failed to generate Arabic explanation:", e);
+    return null;
+  }
+}

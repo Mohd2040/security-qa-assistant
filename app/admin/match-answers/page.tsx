@@ -49,6 +49,9 @@ export default function MatchAnswersPage() {
     const [error, setError] = useState<string | null>(null);
     const [matchData, setMatchData] = useState<MatchStats | null>(null);
 
+    // Progress state
+    const [progress, setProgress] = useState<{ percent: number; message: string } | null>(null);
+
     // Function to download the template
     function handleDownloadTemplate() {
         const ws = XLSX.utils.json_to_sheet([
@@ -73,16 +76,41 @@ export default function MatchAnswersPage() {
 
         try {
             setLoading(true);
+            // Initialize progress
+            setProgress({ percent: 10, message: "Uploading file..." });
+
             const formData = new FormData();
             formData.append("file", file);
             formData.append("threshold", threshold.toString());
             formData.append("includeAi", includeAi.toString());
             formData.append("mode", "preview"); // Request JSON preview
 
+            // Simulate progress while waiting for response
+            const progressInterval = setInterval(() => {
+                setProgress((prev) => {
+                    if (!prev) return null;
+                    if (prev.percent >= 90) return prev; // Stop at 90%
+
+                    let step = 5;
+                    let msg = prev.message;
+
+                    // Update message based on percentage
+                    if (prev.percent < 30) msg = "Reading Excel file...";
+                    else if (prev.percent < 60) msg = "Generating AI Embeddings...";
+                    else if (prev.percent < 80) msg = "Searching Knowledge Base...";
+                    else msg = "Finalizing Matches...";
+
+                    return { percent: prev.percent + step, message: msg };
+                });
+            }, 800); // Update every 800ms
+
             const res = await fetch("/api/admin/qa/match-answers", {
                 method: "POST",
                 body: formData,
             });
+
+            clearInterval(progressInterval);
+            setProgress({ percent: 100, message: "Complete!" });
 
             const contentType = res.headers.get("content-type");
             if (contentType && contentType.indexOf("application/json") !== -1) {
@@ -94,7 +122,6 @@ export default function MatchAnswersPage() {
                 setMatchData(data);
             } else {
                 const text = await res.text();
-                // console.error("Non-JSON response:", text);
                 setError(`Server error: ${res.status} ${res.statusText}`);
             }
 
@@ -102,58 +129,108 @@ export default function MatchAnswersPage() {
             console.error("Error submitting form:", err);
             setError(err.message || "Failed to contact server during matching.");
         } finally {
-            setLoading(false);
+            // Small delay to show 100%
+            setTimeout(() => {
+                setLoading(false);
+                setProgress(null);
+            }, 500);
         }
     }
 
-    async function handleDownloadExcel() {
-        if (!file) return;
+    function handleDownloadExcel() {
+        // ✅ NEW: Use cached matchData instead of re-processing!
+        if (!matchData) {
+            setError("Please preview the matches first before downloading.");
+            return;
+        }
 
         try {
             setLoading(true);
-            const formData = new FormData();
-            formData.append("file", file);
-            formData.append("threshold", threshold.toString());
-            formData.append("includeAi", includeAi.toString());
-            formData.append("mode", "download"); // Request Excel File
+            // Quick progress for download
+            setProgress({ percent: 100, message: "Generating Excel file..." });
 
-            const res = await fetch("/api/admin/qa/match-answers", {
-                method: "POST",
-                body: formData,
-            });
+            // Format data for Excel
+            const outputData = matchData.matches.map((m) => ({
+                question_text: m.question_text,
+                status: m.status,
+                decision_required: m.decision_required ? "YES - Manual Decision Required" : "NO",
+                recommendation: m.recommendation,
+                answer_text: m.answer_text,
+                source_question: m.source_question,
+                similarity_score: (m.similarity_score * 100).toFixed(0) + "%",
+                match_confidence: m.match_confidence,
+                domain: m.domain,
+                ai_suggestion: (m as any).ai_suggestion || "",
+                source_id: (m as any).source_id || "",
+            }));
 
-            if (!res.ok) {
-                const text = await res.text();
-                // Try to parse error if json
-                try {
-                    const json = JSON.parse(text);
-                    setError(json.error || "Failed to download file");
-                } catch (e) {
-                    setError(`Server Error: ${res.statusText}`);
-                }
-                return;
-            }
+            // Create Excel workbook
+            const outputWorkbook = XLSX.utils.book_new();
+            const outputSheet = XLSX.utils.json_to_sheet(outputData);
 
-            // Download the Excel file
-            const blob = await res.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${file.name.replace(".xlsx", "")}_matched.xlsx`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
+            // Set column widths for better readability
+            outputSheet["!cols"] = [
+                { wch: 50 }, // question_text
+                { wch: 18 }, // status
+                { wch: 30 }, // decision_required
+                { wch: 45 }, // recommendation
+                { wch: 40 }, // answer_text
+                { wch: 40 }, // source_question
+                { wch: 12 }, // similarity_score
+                { wch: 15 }, // match_confidence
+                { wch: 15 }, // domain
+                { wch: 30 }, // ai_suggestion
+                { wch: 25 }, // source_id
+            ];
+
+            XLSX.utils.book_append_sheet(outputWorkbook, outputSheet, "Matched Answers");
+
+            // Download the file
+            const filename = file ? `${file.name.replace(".xlsx", "")}_matched.xlsx` : "matched_answers.xlsx";
+            XLSX.writeFile(outputWorkbook, filename);
+
+            console.log(`✅ Downloaded: ${filename} (${matchData.matches.length} matches)`);
         } catch (err: any) {
-            console.error(err);
+            console.error("Download error:", err);
             setError(err.message || "Failed to download file.");
         } finally {
             setLoading(false);
+            setProgress(null);
         }
     }
 
     return (
         <MainLayout>
+            {/* Progress Overlay */}
+            {loading && progress && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+                    <div className="bg-[#0f172a] border border-white/10 p-8 rounded-2xl max-w-md w-full shadow-2xl relative overflow-hidden">
+                        {/* Background Glow */}
+                        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50"></div>
+
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-16 h-16 mb-6 relative">
+                                <div className="absolute inset-0 rounded-full border-4 border-white/10"></div>
+                                <div className="absolute inset-0 rounded-full border-4 border-t-purple-500 border-r-purple-500 animate-spin"></div>
+                                <div className="absolute inset-0 flex items-center justify-center font-bold text-white text-sm">
+                                    {progress.percent}%
+                                </div>
+                            </div>
+
+                            <h3 className="text-xl font-bold text-white mb-2">Processing...</h3>
+                            <p className="text-slate-400 text-sm mb-6 min-h-[20px]">{progress.message}</p>
+
+                            <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+                                <div
+                                    className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-300 ease-out"
+                                    style={{ width: `${progress.percent}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="min-h-screen pt-24 pb-12 px-4 md:px-8">
                 <div className="container-neo max-w-[1400px] mx-auto">
                     {/* Header */}

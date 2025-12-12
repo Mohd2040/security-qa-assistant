@@ -313,7 +313,7 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================
-    // IMPORT MODE (مع Ollama)
+    // IMPORT MODE
     // =========================
 
     // Re-run duplicate check (same logic as preview)

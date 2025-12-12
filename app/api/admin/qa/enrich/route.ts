@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
         {
           ok: false,
           error:
-            "AI provider is not enabled. Set AI_PROVIDER=ollama and configure Ollama.",
+            "OpenAI is not enabled. Set OPENAI_API_KEY in .env.local",
         },
         { status: 400 }
       );

@@ -2,13 +2,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import * as XLSX from "xlsx";
-import Fuse from "fuse.js";
 import { normalizeArabic, looksArabic } from "@/lib/arabic";
-import { cosineSimilarity, getEmbedding, logEmbeddingCacheStats } from "@/lib/embeddings";
+import { logEmbeddingCacheStats } from "@/lib/embeddings";
+import { getBatchEmbeddings } from "@/lib/batch-embeddings";
 import { generateAnswer } from "@/lib/ai";
-import { expandQuery, shouldExpand } from "@/lib/query-expander";
-import { createBM25Ranker, BM25Ranker } from "@/lib/bm25-ranker";
-import { calculateHybridScore, normalizeBM25Score } from "@/lib/dynamic-scoring";
 import { checkRateLimit, getClientIdentifier, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limiter";
 
 export const runtime = "nodejs";
@@ -39,7 +36,7 @@ interface MatchResult {
 /**
  * POST /api/admin/qa/match-answers
  * 
- * Upload Excel with questions → Find similar questions in DB → Return Excel with matched answers
+ * Upload Excel with questions → Find similar questions in DB using Atlas Vector Search → Return Excel with matched answers
  */
 export async function POST(req: NextRequest) {
     try {
@@ -115,64 +112,18 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        console.log(`[Match API] Processing ${questions.length} questions using Atlas Vector Search`);
+
         // Connect to database
         const db = await getDb();
         const collection = db.collection("qa_entries");
 
-        // ✅ CRITICAL FIX: Don't load entire database!
-        // For 300-question files, we need smart data fetching
-        // Strategy: Load most recent + most relevant entries only
-
-        const MAX_ENTRIES = 2000; // Enough for matching, but won't crash with large DBs
-
-        // Get existing Q&A entries with optimization:
-        // 1. Only fetch fields we need (projection)
-        // 2. Limit to recent entries that are more likely to match
-        // 3. Sort by updated_at to get latest content first
-        const existingEntries = await collection
-            .find({}, {
-                projection: {
-                    _id: 1,
-                    question_text: 1,
-                    question_text_en: 1,
-                    answer_text: 1,
-                    status: 1,
-                    domain: 1,
-                    embedding: 1,
-                    updated_at: 1,
-                    created_at: 1
-                }
-            })
-            .sort({ updated_at: -1 }) // Most recent first
-            .limit(MAX_ENTRIES)
-            .toArray();
-
-        console.log(`[Match API] Loaded ${existingEntries.length} entries for matching (limit: ${MAX_ENTRIES})`);
-
-
-        // Initialize Fuse.js for Fuzzy Search
-        const fuseOptions = {
-            includeScore: true,
-            threshold: 0.45,
-            keys: [
-                {
-                    name: "question_text",
-                    getFn: (doc: any) => normalizeArabic(doc.question_text || "")
-                },
-                {
-                    name: "question_text_en",
-                    getFn: (doc: any) => normalizeArabic(doc.question_text_en || "")
-                },
-                {
-                    name: "answer_text",
-                    getFn: (doc: any) => normalizeArabic(doc.answer_text || "")
-                }
-            ]
-        };
-        const fuse = new Fuse(existingEntries, fuseOptions);
-
-        // Initialize BM25 ranker for better keyword matching
-        const bm25Ranker = createBM25Ranker(existingEntries);
+        // ✅ PHASE 2: Batch generate embeddings for ALL questions at once
+        console.log(`[Match API] Generating embeddings for ${questions.length} questions...`);
+        const startTime = Date.now();
+        const questionEmbeddings = await getBatchEmbeddings(questions);
+        const embeddingTime = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`[Match API] Embeddings generated in ${embeddingTime}s`);
 
         const matches: MatchedAnswer[] = [];
         let highMatches = 0;
@@ -180,125 +131,109 @@ export async function POST(req: NextRequest) {
         let lowMatches = 0;
         let noMatches = 0;
 
-        // Process each question
-        for (const question of questions) {
+        // Process each question using Atlas Vector Search
+        for (let i = 0; i < questions.length; i++) {
+            const question = questions[i];
+            const questionEmbedding = questionEmbeddings[i];
+
             let bestMatch: any = null;
             let bestScore = 0;
 
             const trimmedQuestion = question.trim();
-            const isArabic = looksArabic(trimmedQuestion);
-            const normalizedQuestion = isArabic ? normalizeArabic(trimmedQuestion) : trimmedQuestion;
 
-            // Expand query with synonyms if applicable
-            const queryVariations = shouldExpand(trimmedQuestion)
-                ? expandQuery(trimmedQuestion, 3).variations
-                : [trimmedQuestion];
-
-            // 1. Exact Match (Fastest)
-            const exactMatch = existingEntries.find(e =>
-                (e.question_text === trimmedQuestion) ||
-                (e.question_text_en === trimmedQuestion)
-            );
+            // 1. Try exact match first (fastest)
+            const exactMatch = await collection.findOne({
+                $or: [
+                    { question_text: trimmedQuestion },
+                    { question_text_en: trimmedQuestion }
+                ]
+            });
 
             if (exactMatch) {
                 bestMatch = exactMatch;
                 bestScore = 1.0;
-            } else {
-                // 2. Hybrid Search (Fuzzy + Semantic)
-
-                // A. Fuzzy Search Candidates with Synonym Expansion
-                // Search for original query + synonym variations
-                let allFuseResults: any[] = [];
-
-                for (const variation of queryVariations) {
-                    const normalizedVariation = isArabic ? normalizeArabic(variation) : variation;
-                    const results = fuse.search(normalizedVariation);
-                    allFuseResults = allFuseResults.concat(results);
-                }
-
-                // Remove duplicates and sort by score
-                const uniqueResults = new Map();
-                for (const result of allFuseResults) {
-                    const id = result.item._id.toString();
-                    if (!uniqueResults.has(id) || result.score < uniqueResults.get(id).score) {
-                        uniqueResults.set(id, result);
-                    }
-                }
-
-                const fuseResults = Array.from(uniqueResults.values())
-                    .sort((a, b) => (a.score || 0) - (b.score || 0));
-
-                // Expanded to 50 candidates with smart filtering
-                // Only include candidates with reasonable fuzzy scores (>0.3 similarity)
-                const candidates = fuseResults
-                    .filter(r => {
-                        const fuzzyScore = r.score != null ? (1 - r.score) : 0;
-                        return fuzzyScore > 0.3; // Filter out very weak matches
-                    })
-                    .slice(0, 50); // Top 50 candidates for semantic re-ranking
-
-                // B. Semantic Search (Reranking) - OPTIMIZED WITH BATCH PROCESSING
-                let questionEmbedding: number[] | null = null;
+                console.log(`[Match] "${trimmedQuestion.substring(0, 50)}..." → Exact match found`);
+            } else if (questionEmbedding && questionEmbedding.length > 0) {
+                // 2. Use Atlas Vector Search for semantic matching
                 try {
-                    questionEmbedding = await getEmbedding(trimmedQuestion);
-                } catch (e) {
-                    // Ignore embedding errors
-                }
-
-                // ✅ OPTIMIZATION: Pre-filter candidates that have embeddings
-                const candidatesWithEmbeddings = candidates.filter(r =>
-                    r.item.embedding && Array.isArray(r.item.embedding)
-                );
-
-                console.log(`[Match] Question: "${trimmedQuestion.substring(0, 50)}..." | Candidates: ${candidates.length} | With embeddings: ${candidatesWithEmbeddings.length}`);
-
-                // Track max BM25 score for normalization
-                let maxBM25Score = 0;
-                const candidatesWithBM25: Array<{ result: any, bm25Score: number }> = [];
-
-                for (const result of candidates) {
-                    const doc = result.item;
-                    const docIndex = existingEntries.findIndex(e => e._id.toString() === doc._id.toString());
-                    const bm25Score = docIndex >= 0 ? bm25Ranker.getScore(trimmedQuestion, docIndex) : 0;
-                    maxBM25Score = Math.max(maxBM25Score, bm25Score);
-                    candidatesWithBM25.push({ result, bm25Score });
-                }
-
-                for (const { result, bm25Score } of candidatesWithBM25) {
-                    const doc = result.item;
-                    const fuzzyScore = result.score != null ? (1 - result.score) : 0;
-
-                    let semanticScore = 0;
-                    if (questionEmbedding && doc.embedding && Array.isArray(doc.embedding)) {
-                        semanticScore = cosineSimilarity(questionEmbedding, doc.embedding);
-                        semanticScore = Math.max(0, Math.min(1, (semanticScore + 1) / 2));
-                    }
-
-                    // Normalize BM25 score to 0-1 range
-                    const normalizedBM25 = normalizeBM25Score(bm25Score, maxBM25Score);
-
-                    // Dynamic Hybrid Score Calculation
-                    let finalScore = fuzzyScore;
-                    if (semanticScore > 0 || normalizedBM25 > 0) {
-                        // Use dynamic weights based on query characteristics
-                        finalScore = calculateHybridScore(
-                            semanticScore,
-                            fuzzyScore,
-                            normalizedBM25,
-                            trimmedQuestion
-                        );
-                    }
-
-                    if (finalScore > bestScore) {
-                        bestScore = finalScore;
-                        bestMatch = doc;
-
-                        // Early stopping: if we found an excellent match, stop searching
-                        if (bestScore >= 0.95) {
-                            console.log('[Early Stop] Excellent match found (score >= 0.95)');
-                            break;
+                    const vectorResults = await collection.aggregate([
+                        {
+                            $vectorSearch: {
+                                index: "vector_index",
+                                path: "embedding",
+                                queryVector: questionEmbedding,
+                                numCandidates: 100,
+                                limit: 10
+                            }
+                        },
+                        {
+                            $project: {
+                                _id: 1,
+                                question_text: 1,
+                                question_text_en: 1,
+                                answer_text: 1,
+                                status: 1,
+                                domain: 1,
+                                created_at: 1,
+                                updated_at: 1,
+                                score: { $meta: "vectorSearchScore" }
+                            }
                         }
+                    ]).toArray();
+
+                    if (vectorResults.length > 0) {
+                        bestMatch = vectorResults[0];
+                        // Normalize vector search score (0-1 range)
+                        bestScore = Math.min(1.0, Math.max(0, bestMatch.score));
+
+                        console.log(`[Match] "${trimmedQuestion.substring(0, 50)}..." → Vector match: ${(bestScore * 100).toFixed(0)}%`);
+                    } else {
+                        console.log(`[Match] "${trimmedQuestion.substring(0, 50)}..." → No vector matches found`);
                     }
+                } catch (error: any) {
+                    console.error(`[Match] Vector search error for "${trimmedQuestion.substring(0, 30)}...":`, error.message);
+                }
+            } else {
+                // 3. Fallback to text search if no embedding
+                console.log(`[Match] "${trimmedQuestion.substring(0, 50)}..." → No embedding, using text search`);
+
+                try {
+                    const textResults = await collection.aggregate([
+                        {
+                            $search: {
+                                index: "default",
+                                text: {
+                                    query: trimmedQuestion,
+                                    path: ["question_text", "question_text_en", "answer_text"],
+                                    fuzzy: { maxEdits: 1 }
+                                }
+                            }
+                        },
+                        {
+                            $limit: 5
+                        },
+                        {
+                            $project: {
+                                _id: 1,
+                                question_text: 1,
+                                question_text_en: 1,
+                                answer_text: 1,
+                                status: 1,
+                                domain: 1,
+                                created_at: 1,
+                                updated_at: 1,
+                                score: { $meta: "searchScore" }
+                            }
+                        }
+                    ]).toArray();
+
+                    if (textResults.length > 0) {
+                        bestMatch = textResults[0];
+                        // Normalize text search score (typically 1-10 range)
+                        bestScore = Math.min(1.0, bestMatch.score / 10);
+                    }
+                } catch (error: any) {
+                    console.error(`[Match] Text search error:`, error.message);
                 }
             }
 
@@ -368,6 +303,8 @@ export async function POST(req: NextRequest) {
         // Log cache statistics for monitoring
         logEmbeddingCacheStats();
 
+        console.log(`[Match API] Completed: ${highMatches} high, ${mediumMatches} medium, ${lowMatches} low, ${noMatches} none`);
+
         // IF MODE IS PREVIEW, RETURN JSON
         if (mode === "preview") {
             const result: MatchResult = {
@@ -415,10 +352,6 @@ export async function POST(req: NextRequest) {
         ];
 
         // Apply cell colors based on decision_required / match_confidence
-        // Cell colors: Red = NEEDS_REVIEW, Orange = low, Yellow = medium, Green = high
-        // XLSX format: cell address is like "A2", "B2", etc.
-        // Row 1 is header, data starts at row 2
-
         const range = XLSX.utils.decode_range(outputSheet['!ref'] || 'A1');
 
         for (let rowIdx = 0; rowIdx < matches.length; rowIdx++) {

@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
             status = "all",
             domain = "all",
             owner_group = "all",
-            mode = "hybrid" // 'hybrid' | 'text' | 'vector'
+            mode = "hybrid"
         } = body;
 
         if (!query.trim()) {
@@ -23,30 +23,40 @@ export async function POST(req: NextRequest) {
         const filters = { status, domain, owner_group };
         let results: any[] = [];
 
-        // 1. Generate Embedding if needed
+        //  Generate Embedding if needed
         let embedding: number[] | undefined;
-        if (mode !== 'text' && isOpenAIEnabled()) {
+        const openAIEnabled = isOpenAIEnabled();
+
+        if (mode !== 'text' && openAIEnabled) {
             try {
                 const result = await getEmbedding(query);
                 embedding = result || undefined;
             } catch (e) {
-                console.warn("Failed to generate embedding, falling back to text search", e);
+                console.warn(`[Atlas] Embedding failed for "${query}"`);
             }
         }
 
-        // 2. Execute Search
+        // Execute Search
         if (embedding && mode !== 'text') {
-            // Vector / Hybrid Search
-            console.log(`[Atlas] Vector Search: ${query.length > 50 ? query.substring(0, 50) + '...' : query}`);
             results = await searchAtlasHybrid({
                 query,
                 embedding,
                 filters,
                 limit: 50
             });
+
+            // Fallback to text search if vector returns nothing
+            if (results.length === 0) {
+                console.log(`[Atlas] "${query}" → Vector: 0, using Text fallback`);
+                results = await searchAtlasText({
+                    query,
+                    filters,
+                    limit: 50
+                });
+            } else {
+                console.log(`[Atlas] "${query}" → Vector: ${results.length} results`);
+            }
         } else {
-            // Text Search (Fallback or explicit mode)
-            console.log(`[Atlas] Text Search: ${query.length > 50 ? query.substring(0, 50) + '...' : query}`);
             results = await searchAtlasText({
                 query,
                 filters,
@@ -54,27 +64,24 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        // 3. Format Response & Normalize Scores
+        // Format Response & Normalize Scores
         const matches = results.map(doc => {
             let finalScore = 0;
 
             if (doc.score) {
-                // إذا كان Score > 1 (Lucene/Text Search)
                 if (doc.score > 1) {
-                    // محاولة تطبيع بسيطة: نفترض أن 10 هو تطابق ممتاز
-                    // يمكننا استخدام دالة لوغاريتمية أو حد أقصى
+                    // Lucene/Text Search score
                     finalScore = Math.min(100, Math.round(doc.score * 10));
 
-                    // تحسين: إذا كان هناك تطابق تام في النص، نرفع النسبة
                     const q = query.toLowerCase().trim();
                     const textEn = doc.question_text_en?.toLowerCase() || "";
                     const textAr = doc.question_text?.toLowerCase() || "";
 
                     if (textEn.includes(q) || textAr.includes(q)) {
-                        finalScore = Math.max(finalScore, 95); // تطابق تام تقريباً
+                        finalScore = Math.max(finalScore, 95);
                     }
                 } else {
-                    // إذا كان Score <= 1 (Vector/Cosine)
+                    // Vector/Cosine score
                     finalScore = Math.round(doc.score * 100);
                 }
             }
@@ -103,7 +110,7 @@ export async function POST(req: NextRequest) {
         });
 
     } catch (err: any) {
-        console.error("Error in Atlas Search API:", err);
+        console.error("[Atlas Search] Error:", err.message);
         return NextResponse.json(
             { error: err.message || "Internal Server Error" },
             { status: 500 }
