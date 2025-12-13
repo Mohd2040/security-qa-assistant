@@ -101,6 +101,120 @@ export async function expandQuery(query: string): Promise<string[]> {
   return [query];
 }
 
+/**
+ * Cross-Encoder Re-ranking: Re-rank results using AI semantic similarity
+ */
+export async function reRankWithCrossEncoder(
+  question: string,
+  candidates: Array<{ question: string; score: number }>
+): Promise<Array<{ index: number; score: number }>> {
+  if (!isOpenAIEnabled() || candidates.length === 0) {
+    return candidates.map((_, i) => ({ index: i, score: _.score }));
+  }
+
+  const prompt = `Rate the semantic similarity (0-100) between the query and each candidate question. Consider same intent, scope, and context.
+
+Query: "${question}"
+
+Candidates:
+${candidates.map((c, i) => `${i + 1}. "${c.question}"`).join('\n')}
+
+Return ONLY a JSON array of numbers: [score1, score2, ...]`;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return candidates.map((_, i) => ({ index: i, score: _.score }));
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 100,
+    });
+
+    const response = completion.choices[0]?.message?.content?.trim() || "[]";
+    const scores = JSON.parse(response);
+
+    return candidates.map((c, i) => ({
+      index: i,
+      score: (scores[i] || 0) / 100
+    })).sort((a, b) => b.score - a.score);
+  } catch (e) {
+    console.error("Cross-Encoder error:", e);
+    return candidates.map((_, i) => ({ index: i, score: _.score }));
+  }
+}
+
+/**
+ * Auto-Tagging: Assign relevant tags to a question
+ */
+export async function autoTagQuestion(question: string): Promise<string[]> {
+  if (!isOpenAIEnabled()) return [];
+
+  const prompt = `Assign up to 3 relevant tags from this list:
+[Access Control, Encryption, Network Security, Compliance, Data Protection, Incident Response, Cloud Security, Application Security, Physical Security, Risk Management]
+
+Question: "${question}"
+
+Return ONLY comma-separated tags, nothing else.`;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return [];
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 50,
+    });
+
+    const response = completion.choices[0]?.message?.content?.trim() || "";
+    return response.split(',').map(t => t.trim()).filter(Boolean);
+  } catch (e) {
+    console.error("Auto-Tagging error:", e);
+    return [];
+  }
+}
+
+/**
+ * Assess question difficulty and priority
+ */
+export async function assessQuestionDifficulty(question: string): Promise<{
+  importance: number;
+  complexity: number;
+}> {
+  if (!isOpenAIEnabled()) return { importance: 5, complexity: 5 };
+
+  const prompt = `Rate this security question on two scales (1-10):
+Question: "${question}"
+
+Return ONLY JSON: {"importance": X, "complexity": Y}`;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return { importance: 5, complexity: 5 };
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 50,
+    });
+
+    const response = completion.choices[0]?.message?.content?.trim() || "{}";
+    const assessment = JSON.parse(response);
+
+    return {
+      importance: assessment.importance || 5,
+      complexity: assessment.complexity || 5
+    };
+  } catch (e) {
+    console.error("Difficulty Assessment error:", e);
+    return { importance: 5, complexity: 5 };
+  }
+}
+
 export async function analyzeQuestionSimilarity(q1: string, q2: string): Promise<number> {
   return 0;
 }

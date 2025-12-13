@@ -31,11 +31,15 @@ interface MatchedAnswer {
     decision_required: boolean;
     recommendation: string;
     ai_suggestion?: string;
+    source_id?: string;
     alternative_sources?: Array<{
         question: string;
         score: number;
         id: string;
     }>;
+    tags?: string[];
+    importance?: number;
+    complexity?: number;
 }
 
 interface MatchStats {
@@ -51,6 +55,7 @@ export default function MatchAnswersPage() {
     const [file, setFile] = useState<File | null>(null);
     const [threshold, setThreshold] = useState<number>(0.7);
     const [includeAi, setIncludeAi] = useState<boolean>(true);
+    const [useAiEnhancements, setUseAiEnhancements] = useState<boolean>(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [matchData, setMatchData] = useState<MatchStats | null>(null);
@@ -89,6 +94,7 @@ export default function MatchAnswersPage() {
             formData.append("file", file);
             formData.append("threshold", threshold.toString());
             formData.append("includeAi", includeAi.toString());
+            formData.append("useAiEnhancements", useAiEnhancements.toString());
             formData.append("mode", "preview"); // Request JSON preview
 
             // Simulate progress while waiting for response
@@ -161,13 +167,23 @@ export default function MatchAnswersPage() {
                 status: m.status,
                 decision_required: m.decision_required ? "YES - Manual Decision Required" : "NO",
                 recommendation: m.recommendation,
-                answer_text: m.answer_text,
                 source_question: m.source_question,
                 similarity_score: (m.similarity_score * 100).toFixed(0) + "%",
                 match_confidence: m.match_confidence,
                 domain: m.domain,
                 ai_suggestion: (m as any).ai_suggestion || "",
                 source_id: (m as any).source_id || "",
+                alternative_source_1: m.alternative_sources?.[0]?.question || "",
+                alternative_score_1: m.alternative_sources?.[0]?.score
+                    ? (m.alternative_sources[0].score * 100).toFixed(0) + "%"
+                    : "",
+                alternative_source_2: m.alternative_sources?.[1]?.question || "",
+                alternative_score_2: m.alternative_sources?.[1]?.score
+                    ? (m.alternative_sources[1].score * 100).toFixed(0) + "%"
+                    : "",
+                tags: m.tags?.join(", ") || "",
+                importance: m.importance || "",
+                complexity: m.complexity || "",
             }));
 
             // Create Excel workbook
@@ -180,19 +196,25 @@ export default function MatchAnswersPage() {
                 { wch: 18 }, // status
                 { wch: 30 }, // decision_required
                 { wch: 45 }, // recommendation
-                { wch: 40 }, // answer_text
                 { wch: 40 }, // source_question
                 { wch: 12 }, // similarity_score
                 { wch: 15 }, // match_confidence
                 { wch: 15 }, // domain
                 { wch: 30 }, // ai_suggestion
                 { wch: 25 }, // source_id
+                { wch: 40 }, // alternative_source_1
+                { wch: 12 }, // alternative_score_1
+                { wch: 40 }, // alternative_source_2
+                { wch: 12 }, // alternative_score_2
+                { wch: 30 }, // tags
+                { wch: 10 }, // importance
+                { wch: 10 }, // complexity
             ];
 
             XLSX.utils.book_append_sheet(outputWorkbook, outputSheet, "Matched Answers");
 
             // Download the file
-            const filename = file ? `${file.name.replace(".xlsx", "")}_matched.xlsx` : "matched_answers.xlsx";
+            const filename = file ? `${file.name.replace(".xlsx", "")}_matched_v2.xlsx` : "matched_answers_v2.xlsx";
             XLSX.writeFile(outputWorkbook, filename);
 
             console.log(`✅ Downloaded: ${filename} (${matchData.matches.length} matches)`);
@@ -357,6 +379,42 @@ export default function MatchAnswersPage() {
                                         </label>
                                     </div>
 
+                                    {/* AI Enhancements Toggle */}
+                                    <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20">
+                                        <div className="flex items-center gap-2">
+                                            <Sparkles className="w-5 h-5 text-purple-400 animate-pulse" />
+                                            <div>
+                                                <span className="text-sm font-bold text-white block">
+                                                    AI Enhancements (Advanced)
+                                                </span>
+                                                <span className="text-xs text-slate-400">
+                                                    Cross-Encoder, Auto-Tagging, Priority Score
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={useAiEnhancements}
+                                                onChange={(e) => setUseAiEnhancements(e.target.checked)}
+                                                className="sr-only peer"
+                                            />
+                                            <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-purple-600 peer-checked:to-blue-600"></div>
+                                        </label>
+                                    </div>
+
+                                    {/* Warning Message when Ai Enhancements enabled */}
+                                    {useAiEnhancements && (
+                                        <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-start gap-2 text-sm text-blue-200">
+                                            <svg className="w-4 h-4 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                            </svg>
+                                            <div>
+                                                <strong>AI Enhancements Active:</strong> Using Cross-Encoder Re-ranking, Auto-Tagging, and Priority Scoring for maximum accuracy. Processing may take longer but results will be significantly more accurate.
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Preview Button */}
                                     <button
                                         type="submit"
@@ -431,7 +489,7 @@ export default function MatchAnswersPage() {
 
                             {/* Data Preview */}
                             {matchData && (
-                                <div className="flex flex-col h-full animate-fade-in">
+                                <div className="flex flex-col animate-fade-in">
 
                                     {/* Stats Bar */}
                                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
@@ -458,7 +516,7 @@ export default function MatchAnswersPage() {
                                     </div>
 
                                     {/* Preview Table */}
-                                    <div className="glass-panel rounded-2xl p-6 flex-1 overflow-hidden flex flex-col mb-6">
+                                    <div className="glass-panel rounded-2xl p-6 overflow-hidden flex flex-col mb-6">
                                         <div className="flex items-center justify-between mb-4">
                                             <h3 className="text-lg font-bold text-white">Matches Preview</h3>
                                             <div className="flex gap-2 text-sm text-slate-400">
@@ -561,6 +619,27 @@ export default function MatchAnswersPage() {
                                                                                 <div key={altIdx} className="text-[9px] text-slate-500 truncate max-w-xs">
                                                                                     📌 Alt {altIdx + 1} ({(alt.score * 100).toFixed(0)}%): {alt.question}
                                                                                 </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* AI Tags & Scores */}
+                                                                    {(row.tags || row.importance || row.complexity) && (
+                                                                        <div className="mt-2 pt-2 border-t border-white/5 flex flex-wrap gap-2">
+                                                                            {row.importance && (
+                                                                                <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[10px] border border-blue-500/30">
+                                                                                    Imp: {row.importance}
+                                                                                </span>
+                                                                            )}
+                                                                            {row.complexity && (
+                                                                                <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] border border-purple-500/30">
+                                                                                    Cpx: {row.complexity}
+                                                                                </span>
+                                                                            )}
+                                                                            {row.tags?.map((tag, tIdx) => (
+                                                                                <span key={tIdx} className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 text-[10px] border border-slate-600">
+                                                                                    {tag}
+                                                                                </span>
                                                                             ))}
                                                                         </div>
                                                                     )}
