@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useSession } from "next-auth/react";
 import {
   Search,
   SlidersHorizontal,
@@ -29,6 +30,7 @@ import { QaEntry, QaStatus, QaDomain } from "@/lib/types";
 
 export default function SearchPage() {
   const { t } = useLanguage();
+  const { data: session } = useSession();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<QaEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -59,10 +61,10 @@ export default function SearchPage() {
   const [statusFilter, setStatusFilter] = useState<QaStatus | "all">("all");
   const [domainFilter, setDomainFilter] = useState<string>("all");
 
-  // AI Enhancement Toggle (default OFF)
-  const [includeAi, setIncludeAi] = useState<boolean>(false);
-  // Atlas Search Toggle (default OFF)
-  const [useAtlasSearch, setUseAtlasSearch] = useState<boolean>(false);
+  // AI Enhancement Toggle (Always ON for Atlas)
+  const [includeAi] = useState<boolean>(true);
+  // Atlas Search Toggle (Always ON)
+  const [useAtlasSearch] = useState<boolean>(true);
 
   // Clear toast after 3 seconds
   useEffect(() => {
@@ -87,10 +89,14 @@ export default function SearchPage() {
       setTranslatedItems(new Set());
 
       try {
-        const endpoint = useAtlasSearch ? "/api/qa/atlas-search" : "/api/qa/search";
-        const body = useAtlasSearch
-          ? { query, status: statusFilter, domain: domainFilter, mode: includeAi ? 'hybrid' : 'text' }
-          : { query, status: statusFilter, domain: domainFilter, page: 1, pageSize: 50, includeAi };
+        const endpoint = "/api/qa/atlas-search";
+        const body = {
+          query,
+          status: statusFilter,
+          domain: domainFilter,
+          mode: 'hybrid',
+          pageSize: 10 // Limit to 10 results
+        };
 
         const res = await fetch(endpoint, {
           method: "POST",
@@ -113,7 +119,7 @@ export default function SearchPage() {
         setLoading(false);
       }
     },
-    [query, statusFilter, domainFilter, includeAi, useAtlasSearch]
+    [query, statusFilter, domainFilter]
   );
 
   // Auto-search when filters change
@@ -460,43 +466,7 @@ export default function SearchPage() {
                   </select>
                 </div>
 
-                {/* AI Enhancement Toggle */}
-                <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 h-fit self-end">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-purple-400" />
-                    <span className="text-sm font-medium text-white">
-                      AI Enhanced
-                    </span>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer ml-4">
-                    <input
-                      type="checkbox"
-                      checked={includeAi}
-                      onChange={(e) => setIncludeAi(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
-                  </label>
-                </div>
-
-                {/* Atlas Search Toggle */}
-                <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 h-fit self-end">
-                  <div className="flex items-center gap-2">
-                    <Database className="w-4 h-4 text-emerald-400" />
-                    <span className="text-sm font-medium text-white">
-                      Atlas Search
-                    </span>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer ml-4">
-                    <input
-                      type="checkbox"
-                      checked={useAtlasSearch}
-                      onChange={(e) => setUseAtlasSearch(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                  </label>
-                </div>
+                {/* Toggles removed - Atlas Search is now default */}
               </div>
             )}
           </div>
@@ -806,21 +776,45 @@ export default function SearchPage() {
 
                     {/* Edit Button (Amber) */}
                     <button
-                      onClick={() => openEditModal(result)}
-                      className="px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-xs font-medium text-amber-400 transition-all flex items-center gap-1.5"
+                      onClick={() => {
+                        if (!session) {
+                          setToast({
+                            message: "هذه الميزة متاحة للموظفين فقط - This feature is available to employees only",
+                            type: "error"
+                          });
+                          return;
+                        }
+                        openEditModal(result);
+                      }}
+                      disabled={!session}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${!session
+                          ? "bg-amber-500/5 border-amber-500/10 text-amber-400/30 cursor-not-allowed"
+                          : "bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/20 text-amber-400 cursor-pointer"
+                        }`}
                     >
                       <Edit2 className="w-3 h-3" /> Edit
                     </button>
 
                     {/* Translate Button (Purple) */}
                     <button
-                      onClick={() => toggleTranslateResult(result)}
-                      disabled={isTranslating}
-                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${showTranslation
-                        ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
-                        : "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20 text-purple-400"
+                      onClick={() => {
+                        if (!session) {
+                          setToast({
+                            message: "هذه الميزة متاحة للموظفين فقط - This feature is available to employees only",
+                            type: "error"
+                          });
+                          return;
+                        }
+                        toggleTranslateResult(result);
+                      }}
+                      disabled={!session || isTranslating}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${!session
+                          ? "bg-purple-500/5 border-purple-500/10 text-purple-400/30 cursor-not-allowed"
+                          : showTranslation
+                            ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
+                            : "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20 text-purple-400"
                         }`}
-                      title="Show Translation"
+                      title={!session ? "يجب تسجيل الدخول - Login required" : "Show Translation"}
                     >
                       {isTranslating ? (
                         <Loader2 className="w-3 h-3 animate-spin" />

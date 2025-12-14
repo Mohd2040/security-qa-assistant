@@ -92,6 +92,14 @@ export async function POST(req: NextRequest) {
         const sheet = workbook.Sheets[sheetName];
         const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
+        // ✅ NEW: Validate Row Count (Max 101)
+        if (rows.length > 101) {
+            return NextResponse.json(
+                { ok: false, error: `File too large. Maximum allowed rows is 101. Your file has ${rows.length} rows.` },
+                { status: 400 }
+            );
+        }
+
         if (!rows || rows.length === 0) {
             return NextResponse.json(
                 { ok: false, error: "Sheet is empty" },

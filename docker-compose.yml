@@ -9,13 +9,15 @@ services:
     restart: unless-stopped
 
   db:
-    image: mongo:7
+    image: mongodb/mongodb-atlas-local:latest
+    hostname: mongodb
     environment:
-      MONGO_INITDB_ROOT_USERNAME: mongo_user
-      MONGO_INITDB_ROOT_PASSWORD: mongo_pass
-      MONGO_INITDB_DATABASE: securityqa
-    volumes:
-      - ./data/mongo:/data/db
+      - MONGODB_INITDB_ROOT_USERNAME=mongo_user
+      - MONGODB_INITDB_ROOT_PASSWORD=mongo_pass
     ports:
       - "27017:27017"
+    volumes:
+      - ./data/db:/data/db
+      - ./data/configdb:/data/configdb
+      - ./data/mongot:/data/mongot
     restart: unless-stopped

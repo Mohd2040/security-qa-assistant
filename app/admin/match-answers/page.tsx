@@ -75,6 +75,39 @@ export default function MatchAnswersPage() {
         XLSX.writeFile(wb, "question_template.xlsx");
     }
 
+    // Function to handle file selection and validation
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFile = e.target.files?.[0];
+        if (!selectedFile) {
+            setFile(null);
+            return;
+        }
+
+        // Validate row count (Client-side)
+        try {
+            const arrayBuffer = await selectedFile.arrayBuffer();
+            const wb = XLSX.read(arrayBuffer);
+            const firstSheet = wb.Sheets[wb.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(firstSheet);
+
+            if (rows.length > 101) {
+                setError(`File too large. Maximum allowed rows is 101. Your file has ${rows.length} rows.`);
+                setFile(null);
+                e.target.value = ""; // Reset input
+                return;
+            }
+
+            setFile(selectedFile);
+            setMatchData(null);
+            setError(null);
+        } catch (err) {
+            console.error("Error reading file:", err);
+            setError("Error reading file. Please ensure it is a valid Excel file.");
+            setFile(null);
+            e.target.value = "";
+        }
+    };
+
     async function handlePreview(e: FormEvent) {
         e.preventDefault();
         setError(null);
@@ -308,11 +341,7 @@ export default function MatchAnswersPage() {
                                         <input
                                             type="file"
                                             accept=".xlsx,.xls"
-                                            onChange={(e) => {
-                                                setFile(e.target.files?.[0] || null);
-                                                setMatchData(null);
-                                                setError(null);
-                                            }}
+                                            onChange={handleFileChange}
                                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                                         />
                                         <div

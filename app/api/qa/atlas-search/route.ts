@@ -13,7 +13,8 @@ export async function POST(req: NextRequest) {
             status = "all",
             domain = "all",
             owner_group = "all",
-            mode = "hybrid"
+            mode = "hybrid",
+            pageSize = 50
         } = body;
 
         if (!query.trim()) {
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
                 query,
                 embedding,
                 filters,
-                limit: 50
+                limit: pageSize
             });
 
             // Fallback to text search if vector returns nothing
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
                 results = await searchAtlasText({
                     query,
                     filters,
-                    limit: 50
+                    limit: pageSize
                 });
             } else {
                 console.log(`[Atlas] "${query}" → Vector: ${results.length} results`);
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
             results = await searchAtlasText({
                 query,
                 filters,
-                limit: 50
+                limit: pageSize
             });
         }
 
@@ -105,8 +106,8 @@ export async function POST(req: NextRequest) {
             matches,
             total: matches.length,
             page: 1,
-            pageSize: 50,
-            totalPages: 1
+            pageSize: pageSize,
+            totalPages: Math.ceil(matches.length / pageSize)
         });
 
     } catch (err: any) {
