@@ -7,6 +7,8 @@ import { normalizeArabic, looksArabic } from "@/lib/arabic";
 import { getEmbedding, cosineSimilarity } from "@/lib/embeddings";
 import { expandQuery, isOpenAIEnabled } from "@/lib/ai";
 import { checkRateLimit, getClientIdentifier, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limiter";
+import { validateEnum, validateDate, sanitizeString, validateOptionalString } from "@/lib/input-validator";
+import { QA_STATUS_VALUES, QA_DOMAIN_VALUES, OWNER_GROUP_VALUES } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -97,28 +99,86 @@ export async function POST(req: NextRequest) {
     const collection = db.collection("qa_entries");
 
     // -------------------------
-    // 1) بناء الفلتر الأساسي
+    // 1) بناء الفلتر الأساسي مع Input Validation
     // -------------------------
     const filter: any = {};
 
-    if (status !== "all") filter.status = status;
-    if (domain !== "all") filter.domain = domain;
-    if (owner_group !== "all") filter.owner_group = owner_group;
-    if (source_file && source_file.trim()) {
-      filter.source_file = source_file.trim();
-    }
-    if (client_name && client_name.trim()) {
-      filter.client_name = client_name.trim();
+    // ✅ SECURITY: Validate status enum
+    if (status !== "all") {
+      try {
+        const validatedStatus = validateEnum(status, QA_STATUS_VALUES, 'status');
+        filter.status = validatedStatus;
+      } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
     }
 
+    // ✅ SECURITY: Validate domain enum
+    if (domain !== "all") {
+      try {
+        const validatedDomain = validateEnum(domain, QA_DOMAIN_VALUES, 'domain');
+        filter.domain = validatedDomain;
+      } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
+
+    // ✅ SECURITY: Validate owner_group enum
+    if (owner_group !== "all") {
+      try {
+        const validatedOwner = validateEnum(owner_group, OWNER_GROUP_VALUES, 'owner_group');
+        filter.owner_group = validatedOwner;
+      } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
+
+    // ✅ SECURITY: Sanitize string inputs
+    if (source_file) {
+      try {
+        const sanitized = validateOptionalString(source_file, 500);
+        if (sanitized) {
+          filter.source_file = sanitized;
+        }
+      } catch (error: any) {
+        return NextResponse.json({ error: `Invalid source_file: ${error.message}` }, { status: 400 });
+      }
+    }
+
+    if (client_name) {
+      try {
+        const sanitized = validateOptionalString(client_name, 200);
+        if (sanitized) {
+          filter.client_name = sanitized;
+        }
+      } catch (error: any) {
+        return NextResponse.json({ error: `Invalid client_name: ${error.message}` }, { status: 400 });
+      }
+    }
+
+    // ✅ SECURITY: Validate and sanitize date inputs
     if (dateFrom || dateTo) {
       const createdFilter: any = {};
-      if (dateFrom) createdFilter.$gte = new Date(dateFrom).toISOString();
-      if (dateTo) {
-        const end = new Date(dateTo);
-        end.setHours(23, 59, 59, 999);
-        createdFilter.$lte = end.toISOString();
+
+      if (dateFrom) {
+        try {
+          const validatedDate = validateDate(dateFrom, 'dateFrom');
+          createdFilter.$gte = validatedDate.toISOString();
+        } catch (error: any) {
+          return NextResponse.json({ error: error.message }, { status: 400 });
+        }
       }
+
+      if (dateTo) {
+        try {
+          const validatedDate = validateDate(dateTo, 'dateTo');
+          validatedDate.setHours(23, 59, 59, 999);
+          createdFilter.$lte = validatedDate.toISOString();
+        } catch (error: any) {
+          return NextResponse.json({ error: error.message }, { status: 400 });
+        }
+      }
+
       filter.created_at = createdFilter;
     }
 

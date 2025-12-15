@@ -7,6 +7,7 @@ import {
   generateArabicExplanation,
   getEmbeddingVector,
 } from "@/lib/ai";
+import { sanitizeString, validateOptionalString } from "@/lib/input-validator";
 
 export const runtime = "nodejs";
 
@@ -392,11 +393,22 @@ export async function POST(req: NextRequest) {
       const d = row.data;
 
       // المقارنة على السؤال الإنجليزي فقط
+      // ✅ SECURITY: Ensure filter values are primitive strings
       const filter: any = {
-        question_text_en: d.question_text_en,
+        question_text_en: String(d.question_text_en),
       };
       if (d.client_name) {
-        filter.client_name = d.client_name;
+        // Sanitize client_name to prevent NoSQL injection
+        try {
+          const sanitized = validateOptionalString(d.client_name, 200);
+          if (sanitized) {
+            filter.client_name = sanitized;
+          }
+        } catch (error) {
+          // If validation fails, skip this row
+          console.error('Invalid client_name during import:', d.client_name);
+          continue;
+        }
       }
 
       const existing = await collection.findOne(filter);

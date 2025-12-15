@@ -4,6 +4,7 @@ import { User } from "@/lib/models/user";
 import { hash } from "bcryptjs";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
+import { validateEmail } from "@/lib/input-validator";
 
 export const runtime = "nodejs";
 
@@ -43,10 +44,18 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Missing fields" }, { status: 400 });
         }
 
+        // ✅ SECURITY: Validate email format and prevent NoSQL injection
+        let validatedEmail: string;
+        try {
+            validatedEmail = validateEmail(email);
+        } catch (error: any) {
+            return NextResponse.json({ error: `Invalid email: ${error.message}` }, { status: 400 });
+        }
+
         const db = await getDb();
 
         // Check if user exists
-        const existingUser = await db.collection<User>("users").findOne({ email });
+        const existingUser = await db.collection<User>("users").findOne({ email: validatedEmail });
         if (existingUser) {
             return NextResponse.json({ error: "User already exists" }, { status: 400 });
         }
@@ -55,7 +64,7 @@ export async function POST(req: NextRequest) {
 
         const newUser: User = {
             name,
-            email,
+            email: validatedEmail,
             password: hashedPassword,
             role,
             createdAt: new Date(),

@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { getDb } from "@/lib/mongodb";
 import { compare } from "bcryptjs";
 import { User } from "@/lib/models/user";
+import { validateEmail } from "@/lib/input-validator";
 
 export const authOptions: NextAuthOptions = {
     providers: [
@@ -14,39 +15,43 @@ export const authOptions: NextAuthOptions = {
             },
             async authorize(credentials) {
                 try {
-                    console.log('[AUTH] Attempting login for:', credentials?.email);
+                    // ✅ SECURITY: Only log in development mode
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('[AUTH] Login attempt');
+                    }
 
                     if (!credentials?.email || !credentials?.password) {
-                        console.log('[AUTH] Missing credentials');
                         throw new Error("Invalid credentials");
                     }
 
-                    console.log('[AUTH] Getting database connection...');
-                    const db = await getDb();
-                    console.log('[AUTH] Database connected, searching for user...');
-
-                    const user = await db.collection<User>("users").findOne({ email: credentials.email });
-
-                    console.log('[AUTH] User found:', user ? 'Yes' : 'No');
-                    if (user) {
-                        console.log('[AUTH] User details:', { email: user.email, hasPassword: !!user.password });
+                    // ✅ SECURITY: Validate email format and prevent NoSQL injection
+                    let validatedEmail: string;
+                    try {
+                        validatedEmail = validateEmail(credentials.email);
+                    } catch (emailError: any) {
+                        if (process.env.NODE_ENV === 'development') {
+                            console.log('[AUTH] Email validation failed:', emailError.message);
+                        }
+                        throw new Error("Invalid credentials");
                     }
+
+                    const db = await getDb();
+                    const user = await db.collection<User>("users").findOne({ email: validatedEmail });
 
                     if (!user || !user.password) {
-                        console.log('[AUTH] User not found or no password');
                         throw new Error("Invalid credentials");
                     }
 
-                    console.log('[AUTH] Comparing passwords...');
                     const isValid = await compare(credentials.password, user.password);
-                    console.log('[AUTH] Password valid:', isValid);
 
                     if (!isValid) {
-                        console.log('[AUTH] Invalid password');
                         throw new Error("Invalid credentials");
                     }
 
-                    console.log('[AUTH] Login successful for:', user.email);
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('[AUTH] Login successful');
+                    }
+
                     return {
                         id: user._id?.toString() || "",
                         name: user.name,
@@ -54,8 +59,7 @@ export const authOptions: NextAuthOptions = {
                         image: user.role,
                     };
                 } catch (error: any) {
-                    console.error('[AUTH] Error during authorization:', error.message);
-                    console.error('[AUTH] Full error:', error);
+                    console.error('[AUTH] Authentication failed');
                     throw error;
                 }
             }
@@ -83,5 +87,14 @@ export const authOptions: NextAuthOptions = {
     session: {
         strategy: "jwt",
     },
-    secret: process.env.NEXTAUTH_SECRET || "super-secret-key-change-me",
+    secret: process.env.NEXTAUTH_SECRET,
 };
+
+// ✅ SECURITY: Enforce strong secret key at startup
+if (!authOptions.secret || authOptions.secret.length < 32) {
+    throw new Error(
+        '❌ NEXTAUTH_SECRET must be set in environment variables and be at least 32 characters long.\n' +
+        'Generate one with: openssl rand -base64 32\n' +
+        'Or online: https://generate-secret.vercel.app/32'
+    );
+}
