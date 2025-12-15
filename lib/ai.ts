@@ -101,6 +101,10 @@ export async function expandQuery(query: string): Promise<string[]> {
   return [query];
 }
 
+function cleanJsonResponse(text: string): string {
+  return text.replace(/```json/g, "").replace(/```/g, "").trim();
+}
+
 /**
  * Cross-Encoder Re-ranking: Re-rank results using AI semantic similarity
  */
@@ -133,7 +137,7 @@ Return ONLY a JSON array of numbers: [score1, score2, ...]`;
     });
 
     const response = completion.choices[0]?.message?.content?.trim() || "[]";
-    const scores = JSON.parse(response);
+    const scores = JSON.parse(cleanJsonResponse(response));
 
     return candidates.map((c, i) => ({
       index: i,
@@ -203,7 +207,7 @@ Return ONLY JSON: {"importance": X, "complexity": Y}`;
     });
 
     const response = completion.choices[0]?.message?.content?.trim() || "{}";
-    const assessment = JSON.parse(response);
+    const assessment = JSON.parse(cleanJsonResponse(response));
 
     return {
       importance: assessment.importance || 5,

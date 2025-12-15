@@ -22,13 +22,14 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-ARG MONGODB_URI
+
 # Next.js collects completely anonymous telemetry data about general usage.
 # Learn more here: https://nextjs.org/telemetry
 # Uncomment the following line in case you want to disable telemetry during the build.
-ENV NEXT_TELEMETRY_DISABLED 1
-
-RUN MONGODB_URI=${MONGODB_URI} npm run build
+ARG MONGODB_URI
+ARG NEXTAUTH_SECRET
+RUN MONGODB_URI=${MONGODB_URI} NEXTAUTH_SECRET=${NEXTAUTH_SECRET} npm run build
+#RUN MONGODB_URI=${MONGODB_URI} npm run build
 
 # Production image, copy all the files and run next
 FROM base AS runner
