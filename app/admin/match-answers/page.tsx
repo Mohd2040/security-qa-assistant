@@ -40,6 +40,7 @@ interface MatchedAnswer {
     tags?: string[];
     importance?: number;
     complexity?: number;
+    logic_explanation?: string;
 }
 
 interface MatchStats {
@@ -55,7 +56,7 @@ export default function MatchAnswersPage() {
     const [file, setFile] = useState<File | null>(null);
     const [threshold, setThreshold] = useState<number>(0.7);
     const [includeAi, setIncludeAi] = useState<boolean>(true);
-    const [useAiEnhancements, setUseAiEnhancements] = useState<boolean>(false);
+    const [useAiEnhancements, setUseAiEnhancements] = useState<boolean>(true);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [matchData, setMatchData] = useState<MatchStats | null>(null);
@@ -631,6 +632,14 @@ export default function MatchAnswersPage() {
                                                                     {row.ai_suggestion && (
                                                                         <div className="text-xs text-purple-300 mb-2 font-medium">
                                                                             💡 {row.ai_suggestion}
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* Show Logic Explanation if available */}
+                                                                    {(row as any).logic_explanation && (
+                                                                        <div className="p-2 mb-2 rounded bg-indigo-500/20 border border-indigo-500/30 text-xs text-indigo-200">
+                                                                            <span className="font-bold block mb-0.5">🤖 AI Logic:</span>
+                                                                            {(row as any).logic_explanation}
                                                                         </div>
                                                                     )}
 

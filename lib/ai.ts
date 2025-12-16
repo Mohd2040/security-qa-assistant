@@ -302,3 +302,66 @@ export async function generateArabicExplanation(params: {
     return null;
   }
 }
+
+/**
+ * Derive the correct answer/status for a target question based on a source question's logic.
+ * Handles negation, inversion, and statement-to-question logic.
+ */
+export async function deriveAnswerFromMatch(
+  sourceQuestion: string,
+  sourceAnswer: string,
+  sourceStatus: string,
+  targetQuestion: string
+): Promise<{ answer: string; status: string; explanation: string }> {
+  if (!isOpenAIEnabled()) {
+    return { answer: sourceAnswer, status: sourceStatus, explanation: "AI not enabled" };
+  }
+
+  const prompt = `You are a logic engine for a Security QA system.
+We have a known Source Question with a known Answer and Status.
+We have a New Question that is semantically similar to the Source Question.
+Your task is to determine the correct Answer and Status for the New Question, based on the logic of the Source Question.
+
+Source Question: "${sourceQuestion}"
+Source Answer: "${sourceAnswer}"
+Source Status: "${sourceStatus}"
+
+New Question: "${targetQuestion}"
+
+Rules:
+1. If the New Question asks the same thing, copy the Source Answer and Status.
+2. If the New Question asks the opposite (e.g. Source: 'Do X', New: 'Do not do X'), invert the answer/status logically.
+3. If the Source is a statement (e.g. 'X must be encrypted') and New is a question (e.g. 'Is X encrypted?'), determine the answer based on the Status.
+   - Example: Source 'Prod data must not be in dev' (Status: Applied). New 'Is prod data in dev?'. Answer: 'No'. Status: 'not applied'.
+   - Example: Source 'Prod data must not be in dev' (Status: Not Applied). New 'Is prod data in dev?'. Answer: 'Yes'. Status: 'applied'.
+
+4. **IMPORTANT**: For the 'status' field, try to use standard values: 'applied' or 'not applied' (lowercase) if they fit. If the answer is 'No', the status is usually 'not applied'.
+
+Return ONLY JSON: { "answer": "...", "status": "...", "explanation": "..." }`;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return { answer: sourceAnswer, status: sourceStatus, explanation: "Client not available" };
+
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o", // Use a smart model for logic
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 150,
+      response_format: { type: "json_object" }
+    });
+
+    const response = completion.choices[0]?.message?.content?.trim() || "{}";
+    const result = JSON.parse(response);
+
+    return {
+      answer: result.answer || sourceAnswer,
+      status: result.status || sourceStatus,
+      explanation: result.explanation || "Derived by AI"
+    };
+  } catch (e) {
+    console.error("Derive Answer error:", e);
+    // Fallback to direct copy
+    return { answer: sourceAnswer, status: sourceStatus, explanation: "Error in derivation" };
+  }
+}

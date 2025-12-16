@@ -14,7 +14,8 @@ export default withAuth(
             "/admin/logs",  // System Logs - admin only
             "/admin/monitoring",  // Infrastructure Monitoring - admin only
             "/admin/reports",  // Reports - admin only
-            "/admin/prepare"  // Prepare - admin only
+            "/admin/prepare",  // Prepare - admin only
+            "/admin/import"   // Import - admin only
         ];
 
         const isAdminOnlyRoute = adminOnlyRoutes.some(route => {

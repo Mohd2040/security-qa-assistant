@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { normalizeArabic, looksArabic } from "@/lib/arabic";
 import { logEmbeddingCacheStats } from "@/lib/embeddings";
 import { getBatchEmbeddings } from "@/lib/batch-embeddings";
-import { generateCategorizedSuggestion, reRankWithCrossEncoder, autoTagQuestion, assessQuestionDifficulty } from "@/lib/ai";
+import { generateCategorizedSuggestion, reRankWithCrossEncoder, autoTagQuestion, assessQuestionDifficulty, deriveAnswerFromMatch } from "@/lib/ai";
 import { checkRateLimit, getClientIdentifier, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limiter";
 
 export const runtime = "nodejs";
@@ -30,6 +30,9 @@ interface MatchedAnswer {
     tags?: string[];
     importance?: number;
     complexity?: number;
+    derived_answer?: string;
+    derived_status?: string;
+    logic_explanation?: string;
 }
 
 interface MatchResult {
@@ -341,14 +344,33 @@ export async function POST(req: NextRequest) {
                     }
                 }
 
+                // ✅ LOGIC DERIVATION: Check if answer needs logical adjustment
+                let derivedAnswer = bestMatch ? bestMatch.answer_text || "" : "";
+                let derivedStatus = (bestScore >= threshold && bestMatch) ? bestMatch.status || "unknown" : "NEEDS_REVIEW";
+                let logicExplanation = "";
+
+                if (bestMatch && bestScore >= threshold && useAiEnhancements) {
+                    try {
+                        const derivation = await deriveAnswerFromMatch(
+                            bestMatch.question_text || bestMatch.question_text_en || "",
+                            bestMatch.answer_text || "",
+                            bestMatch.status || "unknown",
+                            question
+                        );
+                        derivedAnswer = derivation.answer;
+                        derivedStatus = derivation.status;
+                        logicExplanation = derivation.explanation;
+                    } catch (e) {
+                        console.error("Logic derivation failed", e);
+                    }
+                }
+
                 // Build matched answer object
                 const matchedAnswer: MatchedAnswer = {
                     question_text: question,
                     // Only assign status if similarity >= threshold
-                    status: (bestScore >= threshold && bestMatch)
-                        ? bestMatch.status || "unknown"
-                        : "NEEDS_REVIEW",
-                    answer_text: bestMatch ? bestMatch.answer_text || "" : "",
+                    status: derivedStatus,
+                    answer_text: derivedAnswer,
                     source_question: bestMatch ? bestMatch.question_text || "" : "",
                     source_id: bestMatch ? bestMatch._id.toString() : "",
                     similarity_score: bestScore,
@@ -361,6 +383,9 @@ export async function POST(req: NextRequest) {
                     tags,
                     importance,
                     complexity,
+                    derived_answer: derivedAnswer,
+                    derived_status: derivedStatus,
+                    logic_explanation: logicExplanation
                 };
 
                 return matchedAnswer;
@@ -419,6 +444,7 @@ export async function POST(req: NextRequest) {
             tags: m.tags?.join(", ") || "",
             importance: m.importance || "",
             complexity: m.complexity || "",
+            logic_explanation: m.logic_explanation || "",
         }));
 
         const outputWorkbook = XLSX.utils.book_new();
@@ -443,6 +469,7 @@ export async function POST(req: NextRequest) {
             { wch: 30 }, // tags
             { wch: 12 }, // importance
             { wch: 12 }, // complexity
+            { wch: 50 }, // logic_explanation
         ];
 
         // Apply cell colors based on decision_required / match_confidence

@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import { QaEntry, QaDomain, OwnerGroup, QaStatus } from "@/lib/types";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth-config";
 
 // قيم مسموح بها للحالات والتصنيفات والـ owner
 const ALLOWED_STATUS: QaStatus[] = [
@@ -57,6 +59,11 @@ function normalizeOwner(value: any): OwnerGroup {
 export async function POST(req: NextRequest) {
   try {
     // نستخدم any هنا لأن body فيه حقول أكثر من QaEntry (category, security_area, ...)
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body: any = await req.json();
 
     if (!body.question_text || !body.answer_text) {
