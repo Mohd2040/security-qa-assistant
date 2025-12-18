@@ -23,7 +23,7 @@ if (apiKey) {
   console.warn("⚠️  No OpenAI API key configured. AI features disabled.");
 }
 
-export async function getEmbedding(text: string): Promise<number[] | null> {
+export async function getEmbedding(text: string, user: string = "System"): Promise<number[] | null> {
   const cleaned = text.trim();
   if (!cleaned) return null;
 
@@ -44,6 +44,23 @@ export async function getEmbedding(text: string): Promise<number[] | null> {
       });
       const embedding = res.data[0].embedding as unknown as number[];
 
+      // Track Usage
+      try {
+        const { trackUsage } = await import("@/lib/usage-tracker");
+        await trackUsage(
+          OPENAI_MODEL_EMBED,
+          {
+            prompt_tokens: res.usage?.prompt_tokens || 0,
+            completion_tokens: 0, // Embeddings don't have completion tokens
+            total_tokens: res.usage?.total_tokens || 0,
+          },
+          user,
+          "Embedding"
+        );
+      } catch (err) {
+        console.error("Failed to track embedding usage:", err);
+      }
+
       // Save to cache for future use
       if (embedding) {
         cache.set(cleaned, embedding);
@@ -56,6 +73,7 @@ export async function getEmbedding(text: string): Promise<number[] | null> {
     return null;
   } catch (e) {
     // Silent fail
+    console.error("Embedding error:", e);
     return null;
   }
 }

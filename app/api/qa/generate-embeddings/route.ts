@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
                     continue;
                 }
 
-                const embedding = await getEmbedding(textToEmbed);
+                const embedding = await getEmbedding(textToEmbed, "System (Batch)");
 
                 if (embedding && Array.isArray(embedding) && embedding.length > 0) {
                     await collection.updateOne(

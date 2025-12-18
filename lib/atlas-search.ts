@@ -28,25 +28,31 @@ export async function searchAtlasHybrid(params: AtlasSearchParams) {
   const db = await getDb();
   const collection = db.collection("qa_entries");
 
-  const pipeline: any[] = [];
-
   // 1. Vector Search Stage
-  pipeline.push({
-    $vectorSearch: {
-      index: "vector_index",
-      path: "embedding",
-      queryVector: embedding,
-      numCandidates: limit * 10,
-      limit: limit * 2,
+  const pipeline: any[] = [
+    {
+      $vectorSearch: {
+        index: "vector_index",
+        path: "embedding",
+        queryVector: embedding,
+        numCandidates: limit * 10,
+        limit: limit,
+      },
     },
-  });
+  ];
 
-  // 2. Apply filters
+  // 2. Filter Stage (if any)
   const matchStage: any = {};
   if (filters) {
-    if (filters.status && filters.status !== 'all') matchStage.status = filters.status;
-    if (filters.domain && filters.domain !== 'all') matchStage.domain = filters.domain;
-    if (filters.owner_group && filters.owner_group !== 'all') matchStage.owner_group = filters.owner_group;
+    if (filters.status && filters.status !== "all") {
+      matchStage.status = filters.status;
+    }
+    if (filters.domain && filters.domain !== "all") {
+      matchStage.domain = filters.domain;
+    }
+    if (filters.owner_group && filters.owner_group !== "all") {
+      matchStage.owner_group = filters.owner_group;
+    }
   }
 
   if (Object.keys(matchStage).length > 0) {
@@ -59,10 +65,15 @@ export async function searchAtlasHybrid(params: AtlasSearchParams) {
       _id: 1,
       question_text: 1,
       question_text_en: 1,
+      question_text_ar: 1, // Added
       answer_text: 1,
       status: 1,
       domain: 1,
       owner_group: 1,
+      client_name: 1, // Added
+      category: 1, // Added
+      security_area: 1, // Added
+      explanation_ar: 1, // Added
       created_at: 1,
       updated_at: 1,
       score: { $meta: "vectorSearchScore" },
@@ -130,10 +141,15 @@ export async function searchAtlasText(params: AtlasSearchParams) {
         _id: 1,
         question_text: 1,
         question_text_en: 1,
+        question_text_ar: 1, // Added
         answer_text: 1,
         status: 1,
         domain: 1,
         owner_group: 1,
+        client_name: 1, // Added
+        category: 1, // Added
+        security_area: 1, // Added
+        explanation_ar: 1, // Added
         created_at: 1,
         updated_at: 1,
         score: { $meta: "searchScore" }

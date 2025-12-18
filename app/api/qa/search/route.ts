@@ -6,6 +6,8 @@ import Fuse from "fuse.js";
 import { normalizeArabic, looksArabic } from "@/lib/arabic";
 import { getEmbedding, cosineSimilarity } from "@/lib/embeddings";
 import { expandQuery, isOpenAIEnabled } from "@/lib/ai";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth-config";
 import { checkRateLimit, getClientIdentifier, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limiter";
 import { validateEnum, validateDate, sanitizeString, validateOptionalString } from "@/lib/input-validator";
 import { QA_STATUS_VALUES, QA_DOMAIN_VALUES, OWNER_GROUP_VALUES } from "@/lib/types";
@@ -306,12 +308,16 @@ export async function POST(req: NextRequest) {
 
     const scoredDocs: ScoredDoc[] = [];
 
+    // Get User Session for Tracking
+    const session = await getServerSession(authOptions);
+    const userEmail = session?.user?.email || "Anonymous";
+
     // -------------------------
     // 4) Optional Semantic Search (rerank)
     // -------------------------
     let queryEmbedding: number[] | null = null;
     try {
-      queryEmbedding = await getEmbedding(trimmedQuery);
+      queryEmbedding = await getEmbedding(trimmedQuery, userEmail);
     } catch (e) {
       queryEmbedding = null;
     }

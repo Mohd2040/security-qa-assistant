@@ -2,11 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { getEmbedding } from "@/lib/embeddings";
 import { searchAtlasHybrid, searchAtlasText } from "@/lib/atlas-search";
 import { isOpenAIEnabled } from "@/lib/ai";
+import { getDb } from "@/lib/mongodb";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth-config";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
     try {
+        const session = await getServerSession(authOptions);
+        const userEmail = session?.user?.email || "Anonymous";
+
         const body = await req.json();
         const {
             query = "",
@@ -24,40 +30,28 @@ export async function POST(req: NextRequest) {
         const filters = { status, domain, owner_group };
         let results: any[] = [];
 
-        //  Generate Embedding if needed
-        let embedding: number[] | undefined;
-        const openAIEnabled = isOpenAIEnabled();
+        if (mode === "hybrid" && isOpenAIEnabled()) {
+            // Generate embedding with user tracking
+            const embedding = await getEmbedding(query, userEmail);
 
-        if (mode !== 'text' && openAIEnabled) {
-            try {
-                const result = await getEmbedding(query);
-                embedding = result || undefined;
-            } catch (e) {
-                console.warn(`[Atlas] Embedding failed for "${query}"`);
-            }
-        }
-
-        // Execute Search
-        if (embedding && mode !== 'text') {
-            results = await searchAtlasHybrid({
-                query,
-                embedding,
-                filters,
-                limit: pageSize
-            });
-
-            // Fallback to text search if vector returns nothing
-            if (results.length === 0) {
-                console.log(`[Atlas] "${query}" → Vector: 0, using Text fallback`);
+            if (embedding) {
+                console.log(`[Atlas] "${query}" → Vector generated`);
+                results = await searchAtlasHybrid({
+                    query,
+                    embedding,
+                    filters,
+                    limit: pageSize
+                });
+            } else {
+                console.log(`[Atlas] "${query}" → Vector failed, fallback to text`);
                 results = await searchAtlasText({
                     query,
                     filters,
                     limit: pageSize
                 });
-            } else {
-                console.log(`[Atlas] "${query}" → Vector: ${results.length} results`);
             }
         } else {
+            console.log(`[Atlas] "${query}" → Text Search (Mode: ${mode})`);
             results = await searchAtlasText({
                 query,
                 filters,
@@ -95,12 +89,34 @@ export async function POST(req: NextRequest) {
                 status: doc.status,
                 domain: doc.domain,
                 owner_group: doc.owner_group,
+                client_name: doc.client_name,
+                category: doc.category,
+                security_area: doc.security_area,
+                explanation_ar: doc.explanation_ar,
+                question_text_ar: doc.question_text_ar,
                 created_at: doc.created_at,
                 updated_at: doc.updated_at,
                 score: finalScore,
                 source: "atlas"
             };
         });
+
+        // Log Search Event
+        try {
+            const { logEvent } = await import("@/lib/logger");
+            await logEvent({
+                user: userEmail,
+                action: "SEARCH",
+                details: {
+                    query,
+                    results_count: matches.length,
+                    filters,
+                    mode
+                }
+            });
+        } catch (logError) {
+            console.error("Failed to log search event:", logError);
+        }
 
         return NextResponse.json({
             matches,

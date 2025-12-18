@@ -1,189 +1,255 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { Server, Database, DollarSign, Activity, Loader2, ArrowLeft, TrendingUp } from "lucide-react";
-import Link from "next/link";
+import {
+    Activity,
+    DollarSign,
+    Zap,
+    Users,
+    BarChart2,
+    PieChart,
+    Clock,
+    RefreshCw
+} from "lucide-react";
+import {
+    BarChart,
+    Bar,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    ResponsiveContainer,
+    PieChart as RechartsPieChart,
+    Pie,
+    Cell
+} from "recharts";
 
-interface MonitoringStats {
-    qaEntries: number;
-    totalSearches: number;
-    totalUsers: number;
-    apiCost: string;
-    embeddingCost: string;
-    totalCost: string;
-    recentActivity: Array<{
-        query: string;
-        timestamp: string;
-        resultsCount: number;
-    }>;
-}
+const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8"];
 
 export default function MonitoringPage() {
-    const [stats, setStats] = useState<MonitoringStats | null>(null);
+    const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        fetchStats();
-    }, []);
-
-    const fetchStats = async () => {
+    const fetchData = async () => {
+        setLoading(true);
         try {
             const res = await fetch("/api/admin/monitoring");
-            if (res.ok) {
-                const data = await res.json();
-                setStats(data);
-            }
+            const json = await res.json();
+            setData(json);
         } catch (error) {
-            console.error("Failed to fetch monitoring stats", error);
+            console.error("Failed to fetch monitoring data", error);
         } finally {
             setLoading(false);
         }
     };
 
-    const statsCards = stats ? [
-        { label: "QA Entries", value: stats.qaEntries.toLocaleString(), icon: Database, color: "text-sky-400", bg: "bg-sky-500/10", border: "border-sky-500/20" },
-        { label: "Total Searches", value: stats.totalSearches.toLocaleString(), icon: Activity, color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20" },
-        { label: "Active Users", value: stats.totalUsers.toString(), icon: Server, color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
-        { label: "Total Cost", value: stats.totalCost, icon: DollarSign, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" },
-    ] : [];
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    if (loading) {
+        return (
+            <MainLayout>
+                <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
+                    <RefreshCw className="w-8 h-8 text-sky-400 animate-spin" />
+                </div>
+            </MainLayout>
+        );
+    }
+
+    const { stats, byFeature, byUser, dailyTrend, recentCalls } = data;
 
     return (
         <MainLayout>
-            <div className="min-h-screen pt-24 pb-12 px-4 md:px-8">
-                <div className="container-neo max-w-7xl mx-auto">
-                    {/* Back Button */}
-                    <Link
-                        href="/admin"
-                        className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-6 group"
-                    >
-                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-                        <span className="text-sm font-medium">Back to Admin Dashboard</span>
-                    </Link>
+            <div className="min-h-screen bg-[#0f172a] p-8">
+                <div className="max-w-7xl mx-auto space-y-8">
 
-                    <div className="mb-8">
-                        <h1 className="text-3xl font-bold text-white mb-2">Infrastructure Monitoring</h1>
-                        <p className="text-slate-400">Monitor API usage, costs, and system performance.</p>
+                    {/* Header */}
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h1 className="text-3xl font-bold text-white mb-2">AI Monitoring Dashboard</h1>
+                            <p className="text-slate-400">Real-time insights into OpenAI usage and costs.</p>
+                        </div>
+                        <button
+                            onClick={fetchData}
+                            className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-white transition-all"
+                        >
+                            <RefreshCw className="w-5 h-5" />
+                        </button>
                     </div>
 
-                    {loading ? (
-                        <div className="flex items-center justify-center py-20">
-                            <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
+                    {/* Stats Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="bg-slate-900/50 border border-white/10 rounded-2xl p-6 relative overflow-hidden group">
+                            <div className="absolute right-0 top-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl -mr-16 -mt-16 transition-all group-hover:bg-emerald-500/20" />
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className="p-3 bg-emerald-500/10 rounded-xl">
+                                    <DollarSign className="w-6 h-6 text-emerald-400" />
+                                </div>
+                                <h3 className="text-slate-400 font-medium">Total Cost</h3>
+                            </div>
+                            <p className="text-4xl font-bold text-white">${stats.totalCost.toFixed(4)}</p>
+                            <p className="text-emerald-400 text-sm mt-2 flex items-center gap-1">
+                                <Activity className="w-3 h-3" /> Lifetime usage
+                            </p>
                         </div>
-                    ) : (
-                        <>
-                            {/* Stats Grid */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                                {statsCards.map((stat, index) => (
-                                    <div key={index} className="glass-card p-6 rounded-2xl border border-white/5 hover:border-white/10 transition-all group">
-                                        <div className="flex items-start justify-between mb-4">
-                                            <div className={`p-3 rounded-xl ${stat.bg} ${stat.border} border`}>
-                                                <stat.icon className={`w-6 h-6 ${stat.color}`} />
-                                            </div>
-                                            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-                                                {stat.label}
-                                            </span>
-                                        </div>
-                                        <div className="text-3xl font-bold text-white group-hover:scale-105 transition-transform origin-left">
-                                            {stat.value}
-                                        </div>
+
+                        <div className="bg-slate-900/50 border border-white/10 rounded-2xl p-6 relative overflow-hidden group">
+                            <div className="absolute right-0 top-0 w-32 h-32 bg-sky-500/10 rounded-full blur-3xl -mr-16 -mt-16 transition-all group-hover:bg-sky-500/20" />
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className="p-3 bg-sky-500/10 rounded-xl">
+                                    <Zap className="w-6 h-6 text-sky-400" />
+                                </div>
+                                <h3 className="text-slate-400 font-medium">Total Tokens</h3>
+                            </div>
+                            <p className="text-4xl font-bold text-white">{(stats.totalTokens / 1000).toFixed(1)}k</p>
+                            <p className="text-sky-400 text-sm mt-2">Processed tokens</p>
+                        </div>
+
+                        <div className="bg-slate-900/50 border border-white/10 rounded-2xl p-6 relative overflow-hidden group">
+                            <div className="absolute right-0 top-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl -mr-16 -mt-16 transition-all group-hover:bg-purple-500/20" />
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className="p-3 bg-purple-500/10 rounded-xl">
+                                    <Activity className="w-6 h-6 text-purple-400" />
+                                </div>
+                                <h3 className="text-slate-400 font-medium">Total Requests</h3>
+                            </div>
+                            <p className="text-4xl font-bold text-white">{stats.totalRequests}</p>
+                            <p className="text-purple-400 text-sm mt-2">API calls made</p>
+                        </div>
+                    </div>
+
+                    {/* Charts Section */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Daily Trend */}
+                        <div className="bg-slate-900/50 border border-white/10 rounded-2xl p-6">
+                            <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                                <BarChart2 className="w-5 h-5 text-sky-400" /> Daily Cost Trend
+                            </h3>
+                            <div className="h-64">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={dailyTrend}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                                        <XAxis dataKey="_id" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                                        <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
+                                        <Tooltip
+                                            contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }}
+                                            itemStyle={{ color: '#38bdf8' }}
+                                            formatter={(value: number) => [`$${value.toFixed(4)}`, 'Cost']}
+                                        />
+                                        <Bar dataKey="cost" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+
+                        {/* Usage by Feature */}
+                        <div className="bg-slate-900/50 border border-white/10 rounded-2xl p-6">
+                            <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                                <PieChart className="w-5 h-5 text-purple-400" /> Cost by Feature
+                            </h3>
+                            <div className="h-64 flex items-center justify-center">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <RechartsPieChart>
+                                        <Pie
+                                            data={byFeature}
+                                            cx="50%"
+                                            cy="50%"
+                                            innerRadius={60}
+                                            outerRadius={80}
+                                            paddingAngle={5}
+                                            dataKey="cost"
+                                        >
+                                            {byFeature.map((entry: any, index: number) => (
+                                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip
+                                            contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }}
+                                            formatter={(value: number) => [`$${value.toFixed(4)}`, 'Cost']}
+                                        />
+                                    </RechartsPieChart>
+                                </ResponsiveContainer>
+                            </div>
+                            <div className="flex flex-wrap justify-center gap-4 mt-4">
+                                {byFeature.map((entry: any, index: number) => (
+                                    <div key={entry._id} className="flex items-center gap-2 text-sm text-slate-400">
+                                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                                        {entry._id}
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    </div>
 
-                            {/* Cost Breakdown */}
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                                <div className="glass-panel p-6 rounded-2xl border border-white/5">
-                                    <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                                        <DollarSign className="w-5 h-5 text-amber-400" />
-                                        Cost Breakdown
-                                    </h2>
-                                    <div className="space-y-4">
-                                        <div className="flex items-center justify-between p-4 rounded-xl bg-white/5">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-2 h-2 rounded-full bg-sky-500" />
-                                                <span className="text-slate-300">API Calls</span>
+                    {/* Top Users & Recent Calls */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Top Users */}
+                        <div className="lg:col-span-1 bg-slate-900/50 border border-white/10 rounded-2xl p-6">
+                            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                <Users className="w-5 h-5 text-emerald-400" /> Top Users
+                            </h3>
+                            <div className="space-y-4">
+                                {byUser.map((user: any, i: number) => (
+                                    <div key={user._id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-400">
+                                                {user._id.charAt(0).toUpperCase()}
                                             </div>
-                                            <span className="text-white font-bold">{stats?.apiCost}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between p-4 rounded-xl bg-white/5">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-2 h-2 rounded-full bg-purple-500" />
-                                                <span className="text-slate-300">Embeddings</span>
+                                            <div>
+                                                <p className="text-sm font-medium text-white truncate w-24">{user._id}</p>
+                                                <p className="text-xs text-slate-500">{user.requests} reqs</p>
                                             </div>
-                                            <span className="text-white font-bold">{stats?.embeddingCost}</span>
                                         </div>
-                                        <div className="h-px bg-white/10" />
-                                        <div className="flex items-center justify-between p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                                            <div className="flex items-center gap-3">
-                                                <TrendingUp className="w-5 h-5 text-amber-400" />
-                                                <span className="text-white font-medium">Total Estimated</span>
-                                            </div>
-                                            <span className="text-amber-400 font-bold text-xl">{stats?.totalCost}</span>
-                                        </div>
+                                        <p className="text-sm font-bold text-emerald-400">${user.cost.toFixed(4)}</p>
                                     </div>
-                                </div>
-
-                                {/* Recent Activity */}
-                                <div className="glass-panel p-6 rounded-2xl border border-white/5">
-                                    <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                                        <Activity className="w-5 h-5 text-purple-400" />
-                                        Recent Search Activity
-                                    </h2>
-                                    <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar">
-                                        {stats?.recentActivity && stats.recentActivity.length > 0 ? (
-                                            stats.recentActivity.map((activity, index) => (
-                                                <div key={index} className="p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
-                                                    <div className="text-sm text-white font-medium mb-1 truncate">
-                                                        {activity.query}
-                                                    </div>
-                                                    <div className="flex items-center justify-between text-xs text-slate-500">
-                                                        <span>{new Date(activity.timestamp).toLocaleString()}</span>
-                                                        <span>{activity.resultsCount} results</span>
-                                                    </div>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <div className="text-center text-slate-500 py-8">
-                                                No recent activity
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
+                                ))}
                             </div>
+                        </div>
 
-                            {/* System Health */}
-                            <div className="glass-panel p-6 rounded-2xl border border-white/5">
-                                <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                                    <Server className="w-5 h-5 text-emerald-400" />
-                                    System Health
-                                </h2>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div className="p-4 rounded-xl bg-emerald-500/10 border-emerald-500/20 border">
-                                        <div className="text-sm text-slate-400 mb-1">Database</div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                            <span className="text-emerald-400 font-bold">Operational</span>
-                                        </div>
-                                    </div>
-                                    <div className="p-4 rounded-xl bg-emerald-500/10 border-emerald-500/20 border">
-                                        <div className="text-sm text-slate-400 mb-1">API</div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                            <span className="text-emerald-400 font-bold">Operational</span>
-                                        </div>
-                                    </div>
-                                    <div className="p-4 rounded-xl bg-emerald-500/10 border-emerald-500/20 border">
-                                        <div className="text-sm text-slate-400 mb-1">Search</div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                            <span className="text-emerald-400 font-bold">Operational</span>
-                                        </div>
-                                    </div>
-                                </div>
+                        {/* Recent Calls */}
+                        <div className="lg:col-span-2 bg-slate-900/50 border border-white/10 rounded-2xl p-6">
+                            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                <Clock className="w-5 h-5 text-amber-400" /> Recent API Calls
+                            </h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead>
+                                        <tr className="text-xs uppercase text-slate-500 border-b border-white/10">
+                                            <th className="pb-3 pl-2">Time</th>
+                                            <th className="pb-3">User</th>
+                                            <th className="pb-3">Feature</th>
+                                            <th className="pb-3">Model</th>
+                                            <th className="pb-3">Tokens</th>
+                                            <th className="pb-3 pr-2 text-right">Cost</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5">
+                                        {recentCalls.map((call: any, i: number) => (
+                                            <tr key={i} className="text-sm hover:bg-white/5 transition-colors">
+                                                <td className="py-3 pl-2 text-slate-400">
+                                                    {new Date(call.timestamp).toLocaleTimeString()}
+                                                </td>
+                                                <td className="py-3 text-white">{call.user}</td>
+                                                <td className="py-3 text-slate-300">
+                                                    <span className="px-2 py-1 rounded-full bg-white/10 text-xs">
+                                                        {call.feature}
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 text-slate-400 text-xs">{call.model}</td>
+                                                <td className="py-3 text-slate-400">{call.tokens_total}</td>
+                                                <td className="py-3 pr-2 text-right font-mono text-emerald-400">
+                                                    ${call.cost.toFixed(5)}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
-                        </>
-                    )}
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </MainLayout>

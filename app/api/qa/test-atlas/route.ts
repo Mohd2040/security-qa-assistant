@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
         // Test 4: Atlas Vector Search (if OpenAI enabled)
         if (isOpenAIEnabled()) {
             try {
-                const embedding = await getEmbedding(query);
+                const embedding = await getEmbedding(query, "System (Test)");
                 const atlasVectorResults = await searchAtlasHybrid({
                     query,
                     embedding: embedding || undefined,

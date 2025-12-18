@@ -54,6 +54,27 @@ export async function POST(req: NextRequest) {
             temperature: 0.3,
         });
 
+        // ✅ TRACK USAGE
+        if (completion.usage) {
+            const { trackUsage } = await import("@/lib/usage-tracker");
+            // We need session for user tracking, but this might be called without session in some contexts
+            // Attempt to get session
+            const { getServerSession } = await import("next-auth");
+            const { authOptions } = await import("@/lib/auth-config");
+            const session = await getServerSession(authOptions);
+
+            await trackUsage(
+                OPENAI_MODEL,
+                {
+                    prompt_tokens: completion.usage.prompt_tokens,
+                    completion_tokens: completion.usage.completion_tokens,
+                    total_tokens: completion.usage.total_tokens
+                },
+                session?.user?.email || "Anonymous",
+                "Translate"
+            );
+        }
+
         let translatedText = completion.choices[0]?.message?.content?.trim() || "";
 
         if (!translatedText) {
@@ -82,6 +103,26 @@ export async function POST(req: NextRequest) {
                     }
                 }
             );
+
+            // ✅ LOGGING: Log translation event
+            // We need to get the user session here, but this route might be called client-side
+            // Let's import getServerSession
+            const { getServerSession } = await import("next-auth");
+            const { authOptions } = await import("@/lib/auth-config");
+            const session = await getServerSession(authOptions);
+
+            if (session?.user?.email) {
+                const { logEvent } = await import("@/lib/logger");
+                await logEvent({
+                    user: session.user.email,
+                    action: "TRANSLATE",
+                    details: {
+                        target_lang: targetLang,
+                        text_length: text.length,
+                        qa_id: qaId
+                    }
+                });
+            }
         }
 
         return NextResponse.json({ translatedText }, { status: 200 });

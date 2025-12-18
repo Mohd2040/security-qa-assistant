@@ -52,6 +52,14 @@ export const authOptions: NextAuthOptions = {
                         console.log('[AUTH] Login successful');
                     }
 
+                    // ✅ LOGGING: Log successful login
+                    const { logEvent } = await import("@/lib/logger");
+                    await logEvent({
+                        user: user.email,
+                        action: "LOGIN",
+                        details: { role: user.role }
+                    });
+
                     return {
                         id: user._id?.toString() || "",
                         name: user.name,

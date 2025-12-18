@@ -11,68 +11,82 @@ export async function GET(req: NextRequest) {
         }
 
         const db = await getDb();
+        const collection = db.collection("openai_usage");
 
-        // Get real monitoring statistics
-        const [
-            totalQAEntries,
-            totalSearches,
-            totalUsers,
-            recentActivity,
-            qaWithEmbeddings
-        ] = await Promise.all([
-            db.collection("qa_entries").countDocuments(),
-            db.collection("search_analytics").countDocuments(),
-            db.collection("users").countDocuments(),
-            db.collection("search_analytics").find({}).sort({ timestamp: -1 }).limit(10).toArray(),
-            db.collection("qa_entries").countDocuments({ embedding: { $exists: true, $ne: null } })
-        ]);
+        // 1. Total Stats
+        const totalStats = await collection.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    totalCost: { $sum: "$cost" },
+                    totalTokens: { $sum: "$tokens_total" },
+                    totalRequests: { $sum: 1 }
+                }
+            }
+        ]).toArray();
 
-        // Calculate real costs based on actual usage
-        // GPT-4o-mini pricing: $0.150 / 1M input tokens, $0.600 / 1M output tokens
-        // Average search: ~500 input tokens, ~200 output tokens
-        const avgInputTokensPerSearch = 500;
-        const avgOutputTokensPerSearch = 200;
-        const inputCostPer1M = 0.15;
-        const outputCostPer1M = 0.60;
+        // 2. Usage by Feature
+        const usageByFeature = await collection.aggregate([
+            {
+                $group: {
+                    _id: "$feature",
+                    cost: { $sum: "$cost" },
+                    requests: { $sum: 1 }
+                }
+            },
+            { $sort: { cost: -1 } }
+        ]).toArray();
 
-        const totalInputTokens = totalSearches * avgInputTokensPerSearch;
-        const totalOutputTokens = totalSearches * avgOutputTokensPerSearch;
+        // 3. Usage by User (Top 10)
+        const usageByUser = await collection.aggregate([
+            {
+                $group: {
+                    _id: "$user",
+                    cost: { $sum: "$cost" },
+                    requests: { $sum: 1 },
+                    tokens: { $sum: "$tokens_total" }
+                }
+            },
+            { $sort: { cost: -1 } },
+            { $limit: 10 }
+        ]).toArray();
 
-        const inputCost = (totalInputTokens / 1000000) * inputCostPer1M;
-        const outputCost = (totalOutputTokens / 1000000) * outputCostPer1M;
-        const estimatedAPICost = (inputCost + outputCost).toFixed(2);
+        // 4. Daily Trend (Last 7 Days)
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-        // text-embedding-3-small pricing: $0.020 / 1M tokens
-        // Average embedding: ~100 tokens per QA entry
-        const avgTokensPerEmbedding = 100;
-        const embeddingCostPer1M = 0.02;
-        const totalEmbeddingTokens = qaWithEmbeddings * avgTokensPerEmbedding;
-        const estimatedEmbeddingCost = ((totalEmbeddingTokens / 1000000) * embeddingCostPer1M).toFixed(2);
+        const dailyTrend = await collection.aggregate([
+            {
+                $match: {
+                    timestamp: { $gte: sevenDaysAgo }
+                }
+            },
+            {
+                $group: {
+                    _id: { $dateToString: { format: "%Y-%m-%d", date: "$timestamp" } },
+                    cost: { $sum: "$cost" },
+                    tokens: { $sum: "$tokens_total" }
+                }
+            },
+            { $sort: { _id: 1 } }
+        ]).toArray();
 
-        const totalCost = (parseFloat(estimatedAPICost) + parseFloat(estimatedEmbeddingCost)).toFixed(2);
+        // 5. Recent Calls
+        const recentCalls = await collection.find({})
+            .sort({ timestamp: -1 })
+            .limit(20)
+            .toArray();
 
         return NextResponse.json({
-            qaEntries: totalQAEntries,
-            totalSearches,
-            totalUsers,
-            apiCost: `$${estimatedAPICost}`,
-            embeddingCost: `$${estimatedEmbeddingCost}`,
-            totalCost: `$${totalCost}`,
-            // Additional stats for transparency
-            stats: {
-                qaWithEmbeddings,
-                estimatedInputTokens: totalInputTokens,
-                estimatedOutputTokens: totalOutputTokens,
-                estimatedEmbeddingTokens: totalEmbeddingTokens
-            },
-            recentActivity: recentActivity.map(a => ({
-                query: a.query,
-                timestamp: a.timestamp,
-                resultsCount: a.results_count || 0
-            }))
+            stats: totalStats[0] || { totalCost: 0, totalTokens: 0, totalRequests: 0 },
+            byFeature: usageByFeature,
+            byUser: usageByUser,
+            dailyTrend,
+            recentCalls
         });
+
     } catch (error) {
-        console.error("[Monitoring Stats Error]:", error);
+        console.error("Monitoring API Error:", error);
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 }

@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import { QaEntry } from "@/lib/types";
 import { cosineSimilarity, getEmbedding } from "@/lib/embeddings";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth-config";
 
 export const runtime = "nodejs";
 
@@ -23,7 +25,10 @@ export async function POST(req: NextRequest) {
 
     const limit = Math.min(Math.max(body.limit ?? 10, 1), 50);
 
-    const embedding = await getEmbedding(query);
+    const session = await getServerSession(authOptions);
+    const userEmail = session?.user?.email || "Anonymous";
+
+    const embedding = await getEmbedding(query, userEmail);
     if (!embedding) {
       return NextResponse.json(
         {

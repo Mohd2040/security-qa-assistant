@@ -1,5 +1,6 @@
 // lib/ai.ts
 import OpenAI from "openai";
+import { trackUsage } from "@/lib/usage-tracker";
 
 export type AiProvider = "openai" | "none";
 
@@ -32,7 +33,21 @@ export function getAiProvider(): AiProvider {
   return AI_PROVIDER;
 }
 
-export async function generateAnswer(question: string): Promise<string> {
+async function trackAiUsage(response: any, user: string, feature: string) {
+  if (!response || !response.usage) return;
+  await trackUsage(
+    response.model || OPENAI_MODEL,
+    {
+      prompt_tokens: response.usage.prompt_tokens,
+      completion_tokens: response.usage.completion_tokens,
+      total_tokens: response.usage.total_tokens,
+    },
+    user,
+    feature
+  );
+}
+
+export async function generateAnswer(question: string, user: string = "System"): Promise<string> {
   if (!isOpenAIEnabled()) return "";
 
   const prompt = `You are a cybersecurity expert. Answer this question professionally:\n\n${question}\n\nAnswer:`;
@@ -48,6 +63,8 @@ export async function generateAnswer(question: string): Promise<string> {
       max_tokens: 500,
     });
 
+    await trackAiUsage(completion, user, "Generate Answer");
+
     return (completion.choices[0]?.message?.content || "").trim();
   } catch (e) {
     console.error("OpenAI API error:", e);
@@ -59,11 +76,10 @@ export async function generateAnswer(question: string): Promise<string> {
  * Generate AI suggestion with role categorization
  * Returns format: "Ask [Developer/Infrastructure/Management] for: [question]"
  */
-export async function generateCategorizedSuggestion(question: string): Promise<string> {
+export async function generateCategorizedSuggestion(question: string, user: string = "System"): Promise<string> {
   if (!isOpenAIEnabled()) return "";
 
   const prompt = `You are a cybersecurity expert. 
-
 1. Categorize this question into ONE role:
    - Developer (if about: application, web, programming, development, code, SDLC, software)
    - Infrastructure (if about: cloud, network, DevOps, servers, deployment, infrastructure, hosting)
@@ -89,6 +105,8 @@ Example: "Ask Developer for: Do you implement input validation in all user-facin
       max_tokens: 150,
     });
 
+    await trackAiUsage(completion, user, "Categorized Suggestion");
+
     return (completion.choices[0]?.message?.content || "").trim();
   } catch (e) {
     console.error("OpenAI API error:", e);
@@ -110,7 +128,8 @@ function cleanJsonResponse(text: string): string {
  */
 export async function reRankWithCrossEncoder(
   question: string,
-  candidates: Array<{ question: string; score: number }>
+  candidates: Array<{ question: string; score: number }>,
+  user: string = "System"
 ): Promise<Array<{ index: number; score: number }>> {
   if (!isOpenAIEnabled() || candidates.length === 0) {
     return candidates.map((_, i) => ({ index: i, score: _.score }));
@@ -123,7 +142,7 @@ Query: "${question}"
 Candidates:
 ${candidates.map((c, i) => `${i + 1}. "${c.question}"`).join('\n')}
 
-Return ONLY a JSON array of numbers: [score1, score2, ...]`;
+Return ONLY a JSON array of numbers, e.g. [85, 40, 10]. The order must match the candidates.`;
 
   try {
     const client = getOpenAIClient();
@@ -136,13 +155,20 @@ Return ONLY a JSON array of numbers: [score1, score2, ...]`;
       max_tokens: 100,
     });
 
-    const response = completion.choices[0]?.message?.content?.trim() || "[]";
-    const scores = JSON.parse(cleanJsonResponse(response));
+    await trackAiUsage(completion, user, "Re-ranking");
 
-    return candidates.map((c, i) => ({
-      index: i,
-      score: (scores[i] || 0) / 100
-    })).sort((a, b) => b.score - a.score);
+    const content = completion.choices[0]?.message?.content || "[]";
+    const scores = JSON.parse(cleanJsonResponse(content));
+
+    if (Array.isArray(scores) && scores.length === candidates.length) {
+      return candidates.map((_, i) => ({
+        index: i,
+        score: scores[i]
+      })).sort((a, b) => b.score - a.score);
+    }
+
+    return candidates.map((_, i) => ({ index: i, score: _.score }));
+
   } catch (e) {
     console.error("Cross-Encoder error:", e);
     return candidates.map((_, i) => ({ index: i, score: _.score }));
@@ -152,15 +178,15 @@ Return ONLY a JSON array of numbers: [score1, score2, ...]`;
 /**
  * Auto-Tagging: Assign relevant tags to a question
  */
-export async function autoTagQuestion(question: string): Promise<string[]> {
+export async function autoTagQuestion(question: string, user: string = "System"): Promise<string[]> {
   if (!isOpenAIEnabled()) return [];
 
   const prompt = `Assign up to 3 relevant tags from this list:
-[Access Control, Encryption, Network Security, Compliance, Data Protection, Incident Response, Cloud Security, Application Security, Physical Security, Risk Management]
+  [Access Control, Encryption, Network Security, Compliance, Data Protection, Incident Response, Cloud Security, Application Security, Physical Security, Risk Management]
 
-Question: "${question}"
+  Question: "${question}"
 
-Return ONLY comma-separated tags, nothing else.`;
+Return ONLY comma - separated tags, nothing else.`;
 
   try {
     const client = getOpenAIClient();
@@ -173,6 +199,8 @@ Return ONLY comma-separated tags, nothing else.`;
       max_tokens: 50,
     });
 
+    await trackAiUsage(completion, user, "Auto-Tagging");
+
     const response = completion.choices[0]?.message?.content?.trim() || "";
     return response.split(',').map(t => t.trim()).filter(Boolean);
   } catch (e) {
@@ -184,16 +212,16 @@ Return ONLY comma-separated tags, nothing else.`;
 /**
  * Assess question difficulty and priority
  */
-export async function assessQuestionDifficulty(question: string): Promise<{
+export async function assessQuestionDifficulty(question: string, user: string = "System"): Promise<{
   importance: number;
   complexity: number;
 }> {
   if (!isOpenAIEnabled()) return { importance: 5, complexity: 5 };
 
-  const prompt = `Rate this security question on two scales (1-10):
-Question: "${question}"
+  const prompt = `Rate this security question on two scales(1 - 10):
+  Question: "${question}"
 
-Return ONLY JSON: {"importance": X, "complexity": Y}`;
+Return ONLY JSON: { "importance": X, "complexity": Y } `;
 
   try {
     const client = getOpenAIClient();
@@ -205,6 +233,8 @@ Return ONLY JSON: {"importance": X, "complexity": Y}`;
       temperature: 0,
       max_tokens: 50,
     });
+
+    await trackAiUsage(completion, user, "Difficulty Assessment");
 
     const response = completion.choices[0]?.message?.content?.trim() || "{}";
     const assessment = JSON.parse(cleanJsonResponse(response));
@@ -224,7 +254,7 @@ export async function analyzeQuestionSimilarity(q1: string, q2: string): Promise
 }
 
 // Analyze which domain/category a question belongs to
-export async function analyzeQuestionDomain(question: string): Promise<string> {
+export async function analyzeQuestionDomain(question: string, user: string = "System"): Promise<string> {
   if (!isOpenAIEnabled()) return "General";
 
   try {
@@ -232,13 +262,13 @@ export async function analyzeQuestionDomain(question: string): Promise<string> {
     if (!client) return "General";
 
     const prompt = `Analyze this cybersecurity question and classify it into ONE of these categories:
-- Management (policies, governance, compliance, audits)
-- Developer (secure coding, SDLC, code review)
-- Infrastructure (network, servers, cloud, deployment)
-- Identity (authentication, authorization, access control)
-- Data (encryption, backup, privacy, DLP)
-- Incident Response (monitoring, SOC, forensics)
-- General (doesn't fit other categories)
+  - Management(policies, governance, compliance, audits)
+    - Developer(secure coding, SDLC, code review)
+    - Infrastructure(network, servers, cloud, deployment)
+    - Identity(authentication, authorization, access control)
+    - Data(encryption, backup, privacy, DLP)
+    - Incident Response(monitoring, SOC, forensics)
+      - General(doesn't fit other categories)
 
 Question: "${question}"
 
@@ -251,6 +281,8 @@ Return ONLY the category name, nothing else.`;
       max_tokens: 20,
     });
 
+    await trackAiUsage(completion, user, "Domain Analysis");
+
     const category = (completion.choices[0]?.message?.content || "General").trim();
     return category;
   } catch (e) {
@@ -261,12 +293,12 @@ Return ONLY the category name, nothing else.`;
 /**
  * Generate embeddings for questions (wrapper around getEmbedding from embeddings.ts)
  */
-export async function getEmbeddingVector(text: string): Promise<number[] | null> {
+export async function getEmbeddingVector(text: string, user: string = "System"): Promise<number[] | null> {
   if (!isOpenAIEnabled()) return null;
 
   // Import dynamically to avoid circular dependency
   const { getEmbedding } = await import("./embeddings");
-  return await getEmbedding(text);
+  return await getEmbedding(text, user);
 }
 
 /**
@@ -275,15 +307,15 @@ export async function getEmbeddingVector(text: string): Promise<number[] | null>
 export async function generateArabicExplanation(params: {
   question: string;
   answer: string;
-}): Promise<string | null> {
+}, user: string = "System"): Promise<string | null> {
   if (!isOpenAIEnabled()) return null;
 
-  const prompt = `أنت خبير أمن معلومات. اشرح السؤال والجواب التالي بالعربية بشكل مبسط:
+  const prompt = `أنت خبير أمن معلومات.اشرح السؤال والجواب التالي بالعربية بشكل مبسط:
 
-السؤال: ${params.question}
+        السؤال: ${params.question}
 الجواب: ${params.answer}
 
-اكتب شرحاً واضحاً بالعربية (3-4 جمل):`;
+اكتب شرحاً واضحاً بالعربية(3 - 4 جمل): `;
 
   try {
     const client = getOpenAIClient();
@@ -295,6 +327,8 @@ export async function generateArabicExplanation(params: {
       temperature: 0.7,
       max_tokens: 300,
     });
+
+    await trackAiUsage(completion, user, "Arabic Explanation");
 
     return completion.choices[0]?.message?.content?.trim() || null;
   } catch (e) {
@@ -311,7 +345,8 @@ export async function deriveAnswerFromMatch(
   sourceQuestion: string,
   sourceAnswer: string,
   sourceStatus: string,
-  targetQuestion: string
+  targetQuestion: string,
+  user: string = "System"
 ): Promise<{ answer: string; status: string; explanation: string }> {
   if (!isOpenAIEnabled()) {
     return { answer: sourceAnswer, status: sourceStatus, explanation: "AI not enabled" };
@@ -328,16 +363,16 @@ Source Status: "${sourceStatus}"
 
 New Question: "${targetQuestion}"
 
-Rules:
-1. If the New Question asks the same thing, copy the Source Answer and Status.
-2. If the New Question asks the opposite (e.g. Source: 'Do X', New: 'Do not do X'), invert the answer/status logically.
-3. If the Source is a statement (e.g. 'X must be encrypted') and New is a question (e.g. 'Is X encrypted?'), determine the answer based on the Status.
-   - Example: Source 'Prod data must not be in dev' (Status: Applied). New 'Is prod data in dev?'. Answer: 'No'. Status: 'not applied'.
-   - Example: Source 'Prod data must not be in dev' (Status: Not Applied). New 'Is prod data in dev?'. Answer: 'Yes'. Status: 'applied'.
+  Rules:
+  1. If the New Question asks the same thing, copy the Source Answer and Status.
+2. If the New Question asks the opposite(e.g.Source: 'Do X', New: 'Do not do X'), invert the answer / status logically.
+3. If the Source is a statement(e.g. 'X must be encrypted') and New is a question(e.g. 'Is X encrypted?'), determine the answer based on the Status.
+   - Example: Source 'Prod data must not be in dev'(Status: Applied).New 'Is prod data in dev?'.Answer: 'No'.Status: 'not applied'.
+   - Example: Source 'Prod data must not be in dev'(Status: Not Applied).New 'Is prod data in dev?'.Answer: 'Yes'.Status: 'applied'.
 
-4. **IMPORTANT**: For the 'status' field, try to use standard values: 'applied' or 'not applied' (lowercase) if they fit. If the answer is 'No', the status is usually 'not applied'.
+4. ** IMPORTANT **: For the 'status' field, try to use standard values: 'applied' or 'not applied'(lowercase) if they fit.If the answer is 'No', the status is usually 'not applied'.
 
-Return ONLY JSON: { "answer": "...", "status": "...", "explanation": "..." }`;
+Return ONLY JSON: { "answer": "...", "status": "...", "explanation": "..." } `;
 
   try {
     const client = getOpenAIClient();
@@ -350,6 +385,8 @@ Return ONLY JSON: { "answer": "...", "status": "...", "explanation": "..." }`;
       max_tokens: 150,
       response_format: { type: "json_object" }
     });
+
+    await trackAiUsage(completion, user, "Auto-Match Logic");
 
     const response = completion.choices[0]?.message?.content?.trim() || "{}";
     const result = JSON.parse(response);

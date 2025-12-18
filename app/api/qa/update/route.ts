@@ -44,6 +44,17 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        // ✅ LOGGING: Log edit event
+        const { logEvent } = await import("@/lib/logger");
+        await logEvent({
+            user: (session.user as any).email,
+            action: "EDIT",
+            details: {
+                qa_id: _id,
+                updated_fields: Object.keys(updates)
+            }
+        });
+
         return NextResponse.json(
             { success: true, message: "Entry updated successfully" },
             { status: 200 }
