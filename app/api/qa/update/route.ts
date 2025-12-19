@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
         }
 
         const body = await req.json();
-        const { _id, ...updates } = body;
+        const { _id, ...rawUpdates } = body;
 
         if (!_id) {
             return NextResponse.json(
@@ -23,11 +23,32 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        // ✅ SECURITY: Whitelist allowed fields to prevent mass assignment
+        const allowedFields = [
+            "question_text",
+            "question_text_en",
+            "question_text_ar",
+            "answer_text",
+            "status",
+            "domain",
+            "owner_group",
+            "client_name",
+            "category",
+            "security_area",
+            "explanation_ar",
+            "needs_dev_input",
+            "needs_infra_input"
+        ];
+
+        const updates: any = {};
+        allowedFields.forEach(field => {
+            if (rawUpdates[field] !== undefined) {
+                updates[field] = rawUpdates[field];
+            }
+        });
+
         const db = await getDb();
         const collection = db.collection("qa_entries");
-
-        // Remove immutable fields if present
-        delete updates.created_at;
 
         // Add updated_at
         updates.updated_at = new Date().toISOString();

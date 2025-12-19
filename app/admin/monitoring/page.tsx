@@ -136,7 +136,7 @@ export default function MonitoringPage() {
                                         <Tooltip
                                             contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }}
                                             itemStyle={{ color: '#38bdf8' }}
-                                            formatter={(value: number) => [`$${value.toFixed(4)}`, 'Cost']}
+                                            formatter={(value: any) => [`$${Number(value || 0).toFixed(4)}`, 'Cost']}
                                         />
                                         <Bar dataKey="cost" fill="#38bdf8" radius={[4, 4, 0, 0]} />
                                     </BarChart>
@@ -167,7 +167,7 @@ export default function MonitoringPage() {
                                         </Pie>
                                         <Tooltip
                                             contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }}
-                                            formatter={(value: number) => [`$${value.toFixed(4)}`, 'Cost']}
+                                            formatter={(value: any) => [`$${Number(value || 0).toFixed(4)}`, 'Cost']}
                                         />
                                     </RechartsPieChart>
                                 </ResponsiveContainer>

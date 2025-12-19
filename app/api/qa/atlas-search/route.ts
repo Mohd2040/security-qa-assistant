@@ -15,15 +15,22 @@ export async function POST(req: NextRequest) {
 
         const body = await req.json();
         const {
-            query = "",
-            status = "all",
-            domain = "all",
-            owner_group = "all",
+            query: rawQuery = "",
+            status: rawStatus = "all",
+            domain: rawDomain = "all",
+            owner_group: rawOwnerGroup = "all",
             mode = "hybrid",
             pageSize = 50
         } = body;
 
-        if (!query.trim()) {
+        // ✅ SECURITY: Sanitize inputs to prevent NoSQL injection
+        const { sanitizeMongoInput } = await import("@/lib/input-validator");
+        const query = sanitizeMongoInput(rawQuery) || "";
+        const status = sanitizeMongoInput(rawStatus) || "all";
+        const domain = sanitizeMongoInput(rawDomain) || "all";
+        const owner_group = sanitizeMongoInput(rawOwnerGroup) || "all";
+
+        if (!query.trim() && status === "all" && domain === "all") {
             return NextResponse.json({ matches: [], total: 0 });
         }
 

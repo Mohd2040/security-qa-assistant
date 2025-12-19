@@ -20,17 +20,36 @@ export async function PUT(
         const body = await req.json();
         const { name, email, password, role } = body;
 
+        // ✅ SECURITY: Validate inputs
+        const { validateEmail, validateEnum, sanitizeMongoInput } = await import("@/lib/input-validator");
+
+        let validatedEmail: string;
+        let validatedName: string;
+        let validatedRole: string;
+
+        try {
+            validatedEmail = validateEmail(email);
+            validatedName = sanitizeMongoInput(name) || "";
+            validatedRole = validateEnum(role, ["admin", "user"], "role");
+        } catch (validationError: any) {
+            return NextResponse.json({ error: validationError.message }, { status: 400 });
+        }
+
         const db = await getDb();
 
         const updateData: any = {
-            name,
-            email,
-            role,
+            name: validatedName,
+            email: validatedEmail,
+            role: validatedRole,
+            updatedAt: new Date(),
         };
 
         // Only update password if provided
         if (password && password.trim() !== "") {
-            const hashedPassword = await bcrypt.hash(password, 10);
+            if (password.length < 8) {
+                return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+            }
+            const hashedPassword = await bcrypt.hash(password, 12);
             updateData.password = hashedPassword;
         }
 
