@@ -27,7 +27,8 @@
 - 📊 **Admin Dashboard** - Real-time analytics, user management, cost tracking
 - 🌐 **Bilingual Support** - Seamless English/Arabic with AI translation
 - 📥 **Bulk Operations** - Import/export with validation and deduplication
-- 🔐 **Role-Based Access** - Admin, Security, Developer roles with middleware protection
+- 🔐 **Enterprise Security** - NoSQL injection protection, Rate limiting, and Secure headers
+- 🛡️ **Role-Based Access** - Admin, Security, Developer roles with middleware protection
 
 ---
 
@@ -144,13 +145,34 @@ Our search system combines **three powerful technologies**:
 
 - **Authentication**
   - NextAuth with credentials provider
-  - Session-based auth
+  - Session-based auth (JWT strategy)
   - Protected routes via middleware
-  - Secure password hashing (bcrypt)
+  - Secure password hashing (bcrypt with 12 rounds)
+  - Strict input validation (Email, Roles, Password strength)
 
 ---
 
-## 🚀 Quick Start
+## �️ Security & Hardening
+
+The platform has undergone a comprehensive security audit and hardening process:
+
+### 🛡️ Application Security (SAST)
+- **NoSQL Injection Prevention**: All user-supplied inputs are sanitized using a centralized validation layer (`lib/input-validator.ts`) before reaching MongoDB.
+- **Mass Assignment Protection**: Strict whitelisting of fields for all update operations to prevent unauthorized modification of internal metadata.
+- **Rate Limiting**: Memory-based rate limiting implemented for high-cost/sensitive endpoints (Search, Translate) to prevent DoS and API cost spikes.
+- **Input Validation**: Centralized validation for all data models using strict type checking and regex-based format verification.
+
+### 🌐 Infrastructure & Headers
+- **Security Headers**: Configured via `next.config.ts`:
+  - `X-Frame-Options: DENY` (Prevents Clickjacking)
+  - `X-Content-Type-Options: nosniff` (Prevents MIME sniffing)
+  - `Referrer-Policy: strict-origin-when-cross-origin`
+  - `Permissions-Policy`: Restricted access to sensitive browser features.
+- **Dependency Management**: Regular audits (`npm audit`) to ensure all packages (Next.js, xlsx, etc.) are free from known vulnerabilities (RCE, Prototype Pollution).
+
+---
+
+## �🚀 Quick Start
 
 ### Prerequisites
 - Node.js 18+
@@ -214,7 +236,7 @@ docker-compose up -d
 ### Frontend
 | Technology | Version | Purpose |
 |-----------|---------|---------|
-| **Next.js** | 15 (App Router) | Full-stack React framework |
+| **Next.js** | 16.1.0 (App Router) | Full-stack React framework |
 | **React** | 19 with Compiler | High-performance UI |
 | **TypeScript** | 5 | Type-safe development |
 | **TailwindCSS** | 4 | Modern responsive design |

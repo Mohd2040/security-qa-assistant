@@ -5,6 +5,7 @@ import { isOpenAIEnabled } from "@/lib/ai";
 import { getDb } from "@/lib/mongodb";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,25 @@ export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         const userEmail = session?.user?.email || "Anonymous";
+        const ip = getClientIp(req);
+
+        // ✅ SECURITY: Rate Limiting (50 requests per 10 minutes per IP/User)
+        const limitResult = rateLimit(`${ip}-${userEmail}`, {
+            limit: 50,
+            windowMs: 10 * 60 * 1000
+        });
+
+        if (!limitResult.success) {
+            return NextResponse.json(
+                { error: "Too many requests. Please try again later." },
+                {
+                    status: 429,
+                    headers: {
+                        "Retry-After": Math.ceil((limitResult.reset - Date.now()) / 1000).toString()
+                    }
+                }
+            );
+        }
 
         const body = await req.json();
         const {

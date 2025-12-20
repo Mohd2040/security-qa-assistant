@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth-config";
 
 export const runtime = "nodejs";
 
@@ -15,6 +18,23 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 export async function POST(req: NextRequest) {
     try {
+        const ip = getClientIp(req);
+        const session = await getServerSession(authOptions);
+        const userEmail = session?.user?.email || "Anonymous";
+
+        // ✅ SECURITY: Rate Limiting (20 translations per 10 minutes)
+        const limitResult = rateLimit(`translate-${ip}-${userEmail}`, {
+            limit: 20,
+            windowMs: 10 * 60 * 1000
+        });
+
+        if (!limitResult.success) {
+            return NextResponse.json(
+                { error: "Translation limit reached. Please try again in a few minutes." },
+                { status: 429 }
+            );
+        }
+
         const { text, targetLang, qaId } = (await req.json()) as TranslateBody;
 
         if (!text) {
@@ -57,12 +77,6 @@ export async function POST(req: NextRequest) {
         // ✅ TRACK USAGE
         if (completion.usage) {
             const { trackUsage } = await import("@/lib/usage-tracker");
-            // We need session for user tracking, but this might be called without session in some contexts
-            // Attempt to get session
-            const { getServerSession } = await import("next-auth");
-            const { authOptions } = await import("@/lib/auth-config");
-            const session = await getServerSession(authOptions);
-
             await trackUsage(
                 OPENAI_MODEL,
                 {
@@ -70,7 +84,7 @@ export async function POST(req: NextRequest) {
                     completion_tokens: completion.usage.completion_tokens,
                     total_tokens: completion.usage.total_tokens
                 },
-                session?.user?.email || "Anonymous",
+                userEmail,
                 "Translate"
             );
         }
@@ -105,16 +119,10 @@ export async function POST(req: NextRequest) {
             );
 
             // ✅ LOGGING: Log translation event
-            // We need to get the user session here, but this route might be called client-side
-            // Let's import getServerSession
-            const { getServerSession } = await import("next-auth");
-            const { authOptions } = await import("@/lib/auth-config");
-            const session = await getServerSession(authOptions);
-
-            if (session?.user?.email) {
+            if (userEmail !== "Anonymous") {
                 const { logEvent } = await import("@/lib/logger");
                 await logEvent({
-                    user: session.user.email,
+                    user: userEmail,
                     action: "TRANSLATE",
                     details: {
                         target_lang: targetLang,
