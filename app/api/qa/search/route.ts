@@ -5,6 +5,12 @@ import { QaEntry, QaDomain, OwnerGroup, QaStatus } from "@/lib/types";
 import Fuse from "fuse.js";
 import { normalizeArabic, looksArabic } from "@/lib/arabic";
 import { getEmbedding, cosineSimilarity } from "@/lib/embeddings";
+import { expandQuery, isOpenAIEnabled } from "@/lib/ai";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth-config";
+import { checkRateLimit, getClientIdentifier, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limiter";
+import { validateEnum, validateDate, sanitizeString, validateOptionalString } from "@/lib/input-validator";
+import { QA_STATUS_VALUES, QA_DOMAIN_VALUES, OWNER_GROUP_VALUES } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -19,6 +25,7 @@ interface SearchBody {
   dateTo?: string; // ISO التاريخ إلى
   source_file?: string;
   client_name?: string;
+  includeAi?: boolean; // تفعيل تحسينات AI (Query Expansion)
 }
 
 // هذا النوع يمثل الـ Document اللي راجع من Mongo
@@ -43,6 +50,14 @@ type InternalDoc = {
 
 export async function POST(req: NextRequest) {
   try {
+    // ✅ SECURITY: Check Rate Limit (200 requests/minute for search)
+    const clientId = getClientIdentifier(req);
+    const rateLimit = checkRateLimit(clientId, RATE_LIMITS.search);
+
+    if (!rateLimit.allowed) {
+      return rateLimitResponse(rateLimit.resetTime);
+    }
+
     const body = (await req.json()) as SearchBody;
 
     const {
@@ -54,6 +69,7 @@ export async function POST(req: NextRequest) {
       dateTo,
       source_file,
       client_name,
+      includeAi = false,
     } = body;
 
     let { page = 1, pageSize = 50 } = body;
@@ -67,32 +83,104 @@ export async function POST(req: NextRequest) {
       ? normalizeArabic(trimmedQuery)
       : trimmedQuery;
 
+    // -------------------------
+    // AI Query Expansion (إذا مفعّل)
+    // -------------------------
+    let expandedTerms: string[] = [trimmedQuery];
+    if (includeAi && trimmedQuery && isOpenAIEnabled()) {
+      try {
+        expandedTerms = await expandQuery(trimmedQuery);
+        console.log("[AI] Query expanded:", expandedTerms);
+      } catch (e) {
+        console.warn("[AI] Query expansion failed, using original query", e);
+        expandedTerms = [trimmedQuery];
+      }
+    }
+
     const db = await getDb();
     const collection = db.collection("qa_entries");
 
     // -------------------------
-    // 1) بناء الفلتر الأساسي
+    // 1) بناء الفلتر الأساسي مع Input Validation
     // -------------------------
     const filter: any = {};
 
-    if (status !== "all") filter.status = status;
-    if (domain !== "all") filter.domain = domain;
-    if (owner_group !== "all") filter.owner_group = owner_group;
-    if (source_file && source_file.trim()) {
-      filter.source_file = source_file.trim();
-    }
-    if (client_name && client_name.trim()) {
-      filter.client_name = client_name.trim();
+    // ✅ SECURITY: Validate status enum
+    if (status !== "all") {
+      try {
+        const validatedStatus = validateEnum(status, QA_STATUS_VALUES, 'status');
+        filter.status = validatedStatus;
+      } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
     }
 
+    // ✅ SECURITY: Validate domain enum
+    if (domain !== "all") {
+      try {
+        const validatedDomain = validateEnum(domain, QA_DOMAIN_VALUES, 'domain');
+        filter.domain = validatedDomain;
+      } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
+
+    // ✅ SECURITY: Validate owner_group enum
+    if (owner_group !== "all") {
+      try {
+        const validatedOwner = validateEnum(owner_group, OWNER_GROUP_VALUES, 'owner_group');
+        filter.owner_group = validatedOwner;
+      } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
+
+    // ✅ SECURITY: Sanitize string inputs
+    if (source_file) {
+      try {
+        const sanitized = validateOptionalString(source_file, 500);
+        if (sanitized) {
+          filter.source_file = sanitized;
+        }
+      } catch (error: any) {
+        return NextResponse.json({ error: `Invalid source_file: ${error.message}` }, { status: 400 });
+      }
+    }
+
+    if (client_name) {
+      try {
+        const sanitized = validateOptionalString(client_name, 200);
+        if (sanitized) {
+          filter.client_name = sanitized;
+        }
+      } catch (error: any) {
+        return NextResponse.json({ error: `Invalid client_name: ${error.message}` }, { status: 400 });
+      }
+    }
+
+    // ✅ SECURITY: Validate and sanitize date inputs
     if (dateFrom || dateTo) {
       const createdFilter: any = {};
-      if (dateFrom) createdFilter.$gte = new Date(dateFrom).toISOString();
-      if (dateTo) {
-        const end = new Date(dateTo);
-        end.setHours(23, 59, 59, 999);
-        createdFilter.$lte = end.toISOString();
+
+      if (dateFrom) {
+        try {
+          const validatedDate = validateDate(dateFrom, 'dateFrom');
+          createdFilter.$gte = validatedDate.toISOString();
+        } catch (error: any) {
+          return NextResponse.json({ error: error.message }, { status: 400 });
+        }
       }
+
+      if (dateTo) {
+        try {
+          const validatedDate = validateDate(dateTo, 'dateTo');
+          validatedDate.setHours(23, 59, 59, 999);
+          createdFilter.$lte = validatedDate.toISOString();
+        } catch (error: any) {
+          return NextResponse.json({ error: error.message }, { status: 400 });
+        }
+      }
+
       filter.created_at = createdFilter;
     }
 
@@ -138,7 +226,7 @@ export async function POST(req: NextRequest) {
         normalizedQuery,
         filters: { status, domain, owner_group, dateFrom, dateTo, source_file },
         total,
-      }).catch(() => {});
+      }).catch(() => { });
 
       return NextResponse.json(
         {
@@ -183,9 +271,33 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    const fuseResults = fuse.search(
-      isArabicQuery ? normalizedQuery : trimmedQuery
-    );
+    const fuseResults = (() => {
+      // إذا كان لدينا expanded terms متعددة، نبحث بكل منها وندمج النتائج
+      if (expandedTerms.length > 1) {
+        type FuseResultItem = { item: InternalDoc; score?: number; refIndex: number };
+        const allResults = new Map<string, FuseResultItem>();
+
+        for (const term of expandedTerms) {
+          const searchTerm = isArabicQuery ? normalizeArabic(term) : term;
+          const results = fuse.search(searchTerm);
+
+          for (const result of results) {
+            const id = result.item._id?.toString() || "";
+            const existing = allResults.get(id);
+            // نحتفظ بالنتيجة الأفضل (أقل score في Fuse = أفضل)
+            if (!existing || (result.score || 1) < (existing.score || 1)) {
+              allResults.set(id, result);
+            }
+          }
+        }
+
+        return Array.from(allResults.values());
+      }
+
+      // البحث العادي بدون AI
+      return fuse.search(isArabicQuery ? normalizedQuery : trimmedQuery);
+    })();
+
 
     type ScoredDoc = {
       doc: InternalDoc;
@@ -196,12 +308,16 @@ export async function POST(req: NextRequest) {
 
     const scoredDocs: ScoredDoc[] = [];
 
+    // Get User Session for Tracking
+    const session = await getServerSession(authOptions);
+    const userEmail = session?.user?.email || "Anonymous";
+
     // -------------------------
     // 4) Optional Semantic Search (rerank)
     // -------------------------
     let queryEmbedding: number[] | null = null;
     try {
-      queryEmbedding = await getEmbedding(trimmedQuery);
+      queryEmbedding = await getEmbedding(trimmedQuery, userEmail);
     } catch (e) {
       queryEmbedding = null;
     }
@@ -286,7 +402,7 @@ export async function POST(req: NextRequest) {
       normalizedQuery,
       filters: { status, domain, owner_group, dateFrom, dateTo, source_file },
       total,
-    }).catch(() => {});
+    }).catch(() => { });
 
     return NextResponse.json(
       {

@@ -9,6 +9,7 @@ interface ParsedRow {
   rowNumber: number;
   data: Record<string, any>;
   errors: string[];
+  warnings?: string[];
 }
 
 interface PreviewResponse {
@@ -223,9 +224,10 @@ export default function ImportPage() {
                         setImportResult(null);
                       }}
                     >
-                      <option value="upsert">Upsert (Update/Insert)</option>
-                      <option value="insertOnly">Insert New Only</option>
-                      <option value="updateExisting">Update Existing Only</option>
+                      <option value="upsert">🔄 Update/Insert (Hybrid)</option>
+                      <option value="insertOnly">➕ Insert New Only (Skip Duplicates)</option>
+                      <option value="updateExisting">✏️ Update Existing Only</option>
+                      <option value="replace_all">🔁 Replace All (Delete & Re-insert)</option>
                     </select>
                     <Settings className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-400 pointer-events-none" />
                   </div>
@@ -271,7 +273,7 @@ export default function ImportPage() {
                       <button
                         type="button"
                         onClick={handleImport}
-                        disabled={loadingImport || !file || preview.invalidRows > 0 && preview.validRows === 0}
+                        disabled={loadingImport || !file || (preview.invalidRows > 0 && preview.validRows === 0)}
                         className="btn-primary flex-1 py-3 flex items-center justify-center gap-2 font-medium disabled:opacity-50 disabled:grayscale"
                       >
                         {loadingImport ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
@@ -279,6 +281,16 @@ export default function ImportPage() {
                       </button>
                     )}
                   </div>
+
+                  {/* Strategy Warning */}
+                  {strategy === "replace_all" && (
+                    <div className="mt-4 p-3 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-start gap-2 text-sm text-orange-200">
+                      <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                      <div>
+                        <strong>Replace Mode:</strong> Duplicates will be DELETED and replaced with new data.
+                      </div>
+                    </div>
+                  )}
                 </form>
 
                 {error && (
@@ -330,11 +342,16 @@ export default function ImportPage() {
                                     {(row.data.status || '-').replace(/_/g, ' ')}
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 text-red-400 text-xs">
+                                <td className="px-4 py-3 text-xs">
                                   {row.errors.length > 0 ? (
-                                    <div className="flex items-center gap-1">
+                                    <div className="flex items-center gap-1 text-red-400">
                                       <AlertCircle className="w-3 h-3" />
                                       {row.errors[0]} {row.errors.length > 1 && `+${row.errors.length - 1} more`}
+                                    </div>
+                                  ) : row.warnings && row.warnings.length > 0 ? (
+                                    <div className="flex items-center gap-1 text-yellow-400">
+                                      <AlertCircle className="w-3 h-3" />
+                                      {row.warnings[0]}
                                     </div>
                                   ) : (
                                     <CheckCircle className="w-4 h-4 text-emerald-500/50" />

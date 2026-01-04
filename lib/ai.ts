@@ -1,144 +1,404 @@
 // lib/ai.ts
-// طبقة واحدة مسئولة عن الذكاء الصناعي (Ollama الآن، وممكن OpenAI لاحقًا)
+import OpenAI from "openai";
+import { trackUsage } from "@/lib/usage-tracker";
 
-export type AiProvider = "ollama" | "none";
+export type AiProvider = "openai" | "none";
 
-const AI_PROVIDER: AiProvider =
-  process.env.AI_PROVIDER === "ollama" ? "ollama" : "none";
+function detectProvider(): AiProvider {
+  if (process.env.OPENAI_API_KEY) return "openai";
+  return "none";
+}
 
-const OLLAMA_BASE_URL =
-  process.env.OLLAMA_BASE_URL || "http://localhost:11434";
-const OLLAMA_MODEL_TEXT =
-  process.env.OLLAMA_MODEL_TEXT || "llama3.1"; // نموذج توليد النص
-const OLLAMA_MODEL_EMBED =
-  process.env.OLLAMA_MODEL_EMBED || "nomic-embed-text"; // نموذج embeddings
+const AI_PROVIDER: AiProvider = detectProvider();
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+let openaiClient: OpenAI | null = null;
+function getOpenAIClient(): OpenAI | null {
+  if (!process.env.OPENAI_API_KEY) return null;
+  if (!openaiClient) {
+    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return openaiClient;
+}
 
 export function isAiEnabled(): boolean {
-  return AI_PROVIDER === "ollama";
+  return AI_PROVIDER !== "none";
 }
 
-interface ExplanationInput {
-  question: string;
-  answer?: string;
+export function isOpenAIEnabled(): boolean {
+  return AI_PROVIDER === "openai" && !!process.env.OPENAI_API_KEY;
 }
 
-/**
- * توليد شرح عربي مختصر للضابط الأمني
- */
-export async function generateArabicExplanation(
-  input: ExplanationInput
-): Promise<string> {
-  if (!isAiEnabled()) return "";
+export function getAiProvider(): AiProvider {
+  return AI_PROVIDER;
+}
 
-  const { question, answer } = input;
-  const prompt = `
-أنت خبير أمن معلومات، اشرح الضابط الأمني التالي باللغة العربية الفصحى، بطريقة مبسطة ومختصرة (سطرين إلى ثلاثة أسطر فقط).
-
-السؤال (عن الضابط الأمني):
-${question}
-
-${answer ? `الإجابة/الوصف الفني:\n${answer}\n` : ""}
-
-أعد صياغة الفكرة في شرح عربي بسيط موجه لمهندس غير خبير سيكوريتي.
-`;
-
-  const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+async function trackAiUsage(response: any, user: string, feature: string) {
+  if (!response || !response.usage) return;
+  await trackUsage(
+    response.model || OPENAI_MODEL,
+    {
+      prompt_tokens: response.usage.prompt_tokens,
+      completion_tokens: response.usage.completion_tokens,
+      total_tokens: response.usage.total_tokens,
     },
-    // stream: false = نرجع رد واحد جاهز، بدون ستريم
-    body: JSON.stringify({
-      model: OLLAMA_MODEL_TEXT,
-      prompt,
-      stream: false,
-    }),
-  });
-
-  if (!response.ok) {
-    console.error("Ollama generate error:", await response.text());
-    return "";
-  }
-
-  const data = (await response.json()) as { response?: string };
-  const text = (data.response || "").trim();
-
-  // نرجّع النص بدون فواصل زيادة
-  return text.replace(/\n{2,}/g, "\n").trim();
+    user,
+    feature
+  );
 }
 
-/**
- * توليد Embedding (Vector) للنص
- */
-export async function getEmbeddingVector(
-  text: string
-): Promise<number[] | null> {
-  if (!isAiEnabled()) return null;
+export async function generateAnswer(question: string, user: string = "System"): Promise<string> {
+  if (!isOpenAIEnabled()) return "";
 
-  const clean = text.trim();
-  if (!clean) return null;
-
-  const response = await fetch(`${OLLAMA_BASE_URL}/api/embeddings`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: OLLAMA_MODEL_EMBED,
-      prompt: clean,
-    }),
-  });
-
-  if (!response.ok) {
-    console.error("Ollama embeddings error:", await response.text());
-    return null;
-  }
-
-  const data = (await response.json()) as { embedding?: number[] };
-  if (!data.embedding || !Array.isArray(data.embedding)) return null;
-
-  return data.embedding;
-}
-
-/**
- * توليد إجابة مقترحة للسؤال باستخدام الذكاء الصناعي
- */
-export async function generateAnswer(question: string): Promise<string> {
-  if (!isAiEnabled()) return "";
-
-  const prompt = `
-أنت خبير أمن معلومات ومستشار امتثال (GRC).
-مطلوب منك الإجابة على السؤال الأمني التالي بشكل مهني ومختصر (فقرة واحدة).
-استخدم المصطلحات الأمنية الصحيحة (NIST, ISO 27001).
-
-السؤال:
-${question}
-
-الإجابة المقترحة:
-`;
+  const prompt = `You are a cybersecurity expert. Answer this question professionally:\n\n${question}\n\nAnswer:`;
 
   try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL_TEXT,
-        prompt,
-        stream: false,
-      }),
+    const client = getOpenAIClient();
+    if (!client) return "";
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.5,
+      max_tokens: 500,
     });
 
-    if (!response.ok) {
-      console.error("Ollama generate answer error:", await response.text());
-      return "";
+    await trackAiUsage(completion, user, "Generate Answer");
+
+    return (completion.choices[0]?.message?.content || "").trim();
+  } catch (e) {
+    console.error("OpenAI API error:", e);
+    return "";
+  }
+}
+
+/**
+ * Generate AI suggestion with role categorization
+ * Returns format: "Ask [Developer/Infrastructure/Management] for: [question]"
+ */
+export async function generateCategorizedSuggestion(question: string, user: string = "System"): Promise<string> {
+  if (!isOpenAIEnabled()) return "";
+
+  const prompt = `You are a cybersecurity expert. 
+1. Categorize this question into ONE role:
+   - Developer (if about: application, web, programming, development, code, SDLC, software)
+   - Infrastructure (if about: cloud, network, DevOps, servers, deployment, infrastructure, hosting)
+   - Management (if about: policies, governance, compliance, or anything else)
+
+2. Rephrase the question as a clear, professional question to ask that role.
+
+Question: "${question}"
+
+Return ONLY in this format:
+Ask [Role] for: [rephrased question as a clear question]
+
+Example: "Ask Developer for: Do you implement input validation in all user-facing forms?"`;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return "";
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 150,
+    });
+
+    await trackAiUsage(completion, user, "Categorized Suggestion");
+
+    return (completion.choices[0]?.message?.content || "").trim();
+  } catch (e) {
+    console.error("OpenAI API error:", e);
+    return "";
+  }
+}
+
+
+export async function expandQuery(query: string): Promise<string[]> {
+  return [query];
+}
+
+function cleanJsonResponse(text: string): string {
+  return text.replace(/```json/g, "").replace(/```/g, "").trim();
+}
+
+/**
+ * Cross-Encoder Re-ranking: Re-rank results using AI semantic similarity
+ */
+export async function reRankWithCrossEncoder(
+  question: string,
+  candidates: Array<{ question: string; score: number }>,
+  user: string = "System"
+): Promise<Array<{ index: number; score: number }>> {
+  if (!isOpenAIEnabled() || candidates.length === 0) {
+    return candidates.map((_, i) => ({ index: i, score: _.score }));
+  }
+
+  const prompt = `Rate the semantic similarity (0-100) between the query and each candidate question. Consider same intent, scope, and context.
+
+Query: "${question}"
+
+Candidates:
+${candidates.map((c, i) => `${i + 1}. "${c.question}"`).join('\n')}
+
+Return ONLY a JSON array of numbers, e.g. [85, 40, 10]. The order must match the candidates.`;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return candidates.map((_, i) => ({ index: i, score: _.score }));
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 100,
+    });
+
+    await trackAiUsage(completion, user, "Re-ranking");
+
+    const content = completion.choices[0]?.message?.content || "[]";
+    const scores = JSON.parse(cleanJsonResponse(content));
+
+    if (Array.isArray(scores) && scores.length === candidates.length) {
+      return candidates.map((_, i) => ({
+        index: i,
+        score: scores[i]
+      })).sort((a, b) => b.score - a.score);
     }
 
-    const data = (await response.json()) as { response?: string };
-    return (data.response || "").trim();
+    return candidates.map((_, i) => ({ index: i, score: _.score }));
+
   } catch (e) {
-    console.error("Ollama connection error:", e);
-    return "";
+    console.error("Cross-Encoder error:", e);
+    return candidates.map((_, i) => ({ index: i, score: _.score }));
+  }
+}
+
+/**
+ * Auto-Tagging: Assign relevant tags to a question
+ */
+export async function autoTagQuestion(question: string, user: string = "System"): Promise<string[]> {
+  if (!isOpenAIEnabled()) return [];
+
+  const prompt = `Assign up to 3 relevant tags from this list:
+  [Access Control, Encryption, Network Security, Compliance, Data Protection, Incident Response, Cloud Security, Application Security, Physical Security, Risk Management]
+
+  Question: "${question}"
+
+Return ONLY comma - separated tags, nothing else.`;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return [];
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 50,
+    });
+
+    await trackAiUsage(completion, user, "Auto-Tagging");
+
+    const response = completion.choices[0]?.message?.content?.trim() || "";
+    return response.split(',').map(t => t.trim()).filter(Boolean);
+  } catch (e) {
+    console.error("Auto-Tagging error:", e);
+    return [];
+  }
+}
+
+/**
+ * Assess question difficulty and priority
+ */
+export async function assessQuestionDifficulty(question: string, user: string = "System"): Promise<{
+  importance: number;
+  complexity: number;
+}> {
+  if (!isOpenAIEnabled()) return { importance: 5, complexity: 5 };
+
+  const prompt = `Rate this security question on two scales(1 - 10):
+  Question: "${question}"
+
+Return ONLY JSON: { "importance": X, "complexity": Y } `;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return { importance: 5, complexity: 5 };
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 50,
+    });
+
+    await trackAiUsage(completion, user, "Difficulty Assessment");
+
+    const response = completion.choices[0]?.message?.content?.trim() || "{}";
+    const assessment = JSON.parse(cleanJsonResponse(response));
+
+    return {
+      importance: assessment.importance || 5,
+      complexity: assessment.complexity || 5
+    };
+  } catch (e) {
+    console.error("Difficulty Assessment error:", e);
+    return { importance: 5, complexity: 5 };
+  }
+}
+
+export async function analyzeQuestionSimilarity(q1: string, q2: string): Promise<number> {
+  return 0;
+}
+
+// Analyze which domain/category a question belongs to
+export async function analyzeQuestionDomain(question: string, user: string = "System"): Promise<string> {
+  if (!isOpenAIEnabled()) return "General";
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return "General";
+
+    const prompt = `Analyze this cybersecurity question and classify it into ONE of these categories:
+  - Management(policies, governance, compliance, audits)
+    - Developer(secure coding, SDLC, code review)
+    - Infrastructure(network, servers, cloud, deployment)
+    - Identity(authentication, authorization, access control)
+    - Data(encryption, backup, privacy, DLP)
+    - Incident Response(monitoring, SOC, forensics)
+      - General(doesn't fit other categories)
+
+Question: "${question}"
+
+Return ONLY the category name, nothing else.`;
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 20,
+    });
+
+    await trackAiUsage(completion, user, "Domain Analysis");
+
+    const category = (completion.choices[0]?.message?.content || "General").trim();
+    return category;
+  } catch (e) {
+    return "General";
+  }
+}
+
+/**
+ * Generate embeddings for questions (wrapper around getEmbedding from embeddings.ts)
+ */
+export async function getEmbeddingVector(text: string, user: string = "System"): Promise<number[] | null> {
+  if (!isOpenAIEnabled()) return null;
+
+  // Import dynamically to avoid circular dependency
+  const { getEmbedding } = await import("./embeddings");
+  return await getEmbedding(text, user);
+}
+
+/**
+ * Generate Arabic explanation for a Q&A pair
+ */
+export async function generateArabicExplanation(params: {
+  question: string;
+  answer: string;
+}, user: string = "System"): Promise<string | null> {
+  if (!isOpenAIEnabled()) return null;
+
+  const prompt = `أنت خبير أمن معلومات.اشرح السؤال والجواب التالي بالعربية بشكل مبسط:
+
+        السؤال: ${params.question}
+الجواب: ${params.answer}
+
+اكتب شرحاً واضحاً بالعربية(3 - 4 جمل): `;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return null;
+
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
+      max_tokens: 300,
+    });
+
+    await trackAiUsage(completion, user, "Arabic Explanation");
+
+    return completion.choices[0]?.message?.content?.trim() || null;
+  } catch (e) {
+    console.error("Failed to generate Arabic explanation:", e);
+    return null;
+  }
+}
+
+/**
+ * Derive the correct answer/status for a target question based on a source question's logic.
+ * Handles negation, inversion, and statement-to-question logic.
+ */
+export async function deriveAnswerFromMatch(
+  sourceQuestion: string,
+  sourceAnswer: string,
+  sourceStatus: string,
+  targetQuestion: string,
+  user: string = "System"
+): Promise<{ answer: string; status: string; explanation: string }> {
+  if (!isOpenAIEnabled()) {
+    return { answer: sourceAnswer, status: sourceStatus, explanation: "AI not enabled" };
+  }
+
+  const prompt = `You are a logic engine for a Security QA system.
+We have a known Source Question with a known Answer and Status.
+We have a New Question that is semantically similar to the Source Question.
+Your task is to determine the correct Answer and Status for the New Question, based on the logic of the Source Question.
+
+Source Question: "${sourceQuestion}"
+Source Answer: "${sourceAnswer}"
+Source Status: "${sourceStatus}"
+
+New Question: "${targetQuestion}"
+
+  Rules:
+  1. If the New Question asks the same thing, copy the Source Answer and Status.
+2. If the New Question asks the opposite(e.g.Source: 'Do X', New: 'Do not do X'), invert the answer / status logically.
+3. If the Source is a statement(e.g. 'X must be encrypted') and New is a question(e.g. 'Is X encrypted?'), determine the answer based on the Status.
+   - Example: Source 'Prod data must not be in dev'(Status: Applied).New 'Is prod data in dev?'.Answer: 'No'.Status: 'not applied'.
+   - Example: Source 'Prod data must not be in dev'(Status: Not Applied).New 'Is prod data in dev?'.Answer: 'Yes'.Status: 'applied'.
+
+4. ** IMPORTANT **: For the 'status' field, try to use standard values: 'applied' or 'not applied'(lowercase) if they fit.If the answer is 'No', the status is usually 'not applied'.
+
+Return ONLY JSON: { "answer": "...", "status": "...", "explanation": "..." } `;
+
+  try {
+    const client = getOpenAIClient();
+    if (!client) return { answer: sourceAnswer, status: sourceStatus, explanation: "Client not available" };
+
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o", // Use a smart model for logic
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 150,
+      response_format: { type: "json_object" }
+    });
+
+    await trackAiUsage(completion, user, "Auto-Match Logic");
+
+    const response = completion.choices[0]?.message?.content?.trim() || "{}";
+    const result = JSON.parse(response);
+
+    return {
+      answer: result.answer || sourceAnswer,
+      status: result.status || sourceStatus,
+      explanation: result.explanation || "Derived by AI"
+    };
+  } catch (e) {
+    console.error("Derive Answer error:", e);
+    // Fallback to direct copy
+    return { answer: sourceAnswer, status: sourceStatus, explanation: "Error in derivation" };
   }
 }

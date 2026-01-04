@@ -21,6 +21,7 @@ export const metadata: Metadata = {
 import "./globals.css";
 import type { Metadata } from "next";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { AuthProvider } from "@/components/AuthProvider";
 
 export const metadata: Metadata = {
   title: "Security Q&A Intelligence Hub | AI-Powered Knowledge Base",
@@ -56,10 +57,18 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased">
+<<<<<<< HEAD
         <LanguageProvider>
           {children}
         </LanguageProvider>
 >>>>>>> devops3
+=======
+        <AuthProvider>
+          <LanguageProvider>
+            {children}
+          </LanguageProvider>
+        </AuthProvider>
+>>>>>>> security-qa-assistance/devops3
       </body>
     </html>
   );

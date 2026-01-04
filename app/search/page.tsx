@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useSession } from "next-auth/react";
 import {
   Search,
   SlidersHorizontal,
@@ -23,11 +24,13 @@ import {
   ArrowRightLeft,
   Globe,
   AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import { QaEntry, QaStatus, QaDomain } from "@/lib/types";
 
 export default function SearchPage() {
   const { t } = useLanguage();
+  const { data: session } = useSession();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<QaEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -58,6 +61,11 @@ export default function SearchPage() {
   const [statusFilter, setStatusFilter] = useState<QaStatus | "all">("all");
   const [domainFilter, setDomainFilter] = useState<string>("all");
 
+  // AI Enhancement Toggle (Always ON for Atlas)
+  const [includeAi] = useState<boolean>(true);
+  // Atlas Search Toggle (Always ON)
+  const [useAtlasSearch] = useState<boolean>(true);
+
   // Clear toast after 3 seconds
   useEffect(() => {
     if (toast) {
@@ -81,16 +89,19 @@ export default function SearchPage() {
       setTranslatedItems(new Set());
 
       try {
-        const res = await fetch("/api/qa/search", {
+        const endpoint = "/api/qa/atlas-search";
+        const body = {
+          query,
+          status: statusFilter,
+          domain: domainFilter,
+          mode: 'hybrid',
+          pageSize: 10 // Limit to 10 results
+        };
+
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query,
-            status: statusFilter,
-            domain: domainFilter,
-            page: 1,
-            pageSize: 50,
-          }),
+          body: JSON.stringify(body),
         });
 
         const data = await res.json();
@@ -454,9 +465,12 @@ export default function SearchPage() {
                     </option>
                   </select>
                 </div>
+
+                {/* Toggles removed - Atlas Search is now default */}
               </div>
             )}
           </div>
+
 
           {/* Results Grid */}
           <div className="space-y-4">
@@ -718,6 +732,45 @@ export default function SearchPage() {
                             </span>
                           </div>
                         )}
+                        {result.category && (
+                          <div className="flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-indigo-500/20 flex items-center justify-center text-[8px] text-indigo-400">
+                              #
+                            </span>
+                            <span>
+                              Category:{" "}
+                              <span className="text-slate-300">
+                                {result.category}
+                              </span>
+                            </span>
+                          </div>
+                        )}
+                        {result.security_area && (
+                          <div className="flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-emerald-500/20 flex items-center justify-center text-[8px] text-emerald-400">
+                              S
+                            </span>
+                            <span>
+                              Area:{" "}
+                              <span className="text-slate-300">
+                                {result.security_area}
+                              </span>
+                            </span>
+                          </div>
+                        )}
+                        {result.owner_group && (
+                          <div className="flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-orange-500/20 flex items-center justify-center text-[8px] text-orange-400">
+                              O
+                            </span>
+                            <span>
+                              Owner:{" "}
+                              <span className="text-slate-300">
+                                {result.owner_group}
+                              </span>
+                            </span>
+                          </div>
+                        )}
                         <div>
                           <span>
                             ID:{" "}
@@ -762,21 +815,45 @@ export default function SearchPage() {
 
                     {/* Edit Button (Amber) */}
                     <button
-                      onClick={() => openEditModal(result)}
-                      className="px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-xs font-medium text-amber-400 transition-all flex items-center gap-1.5"
+                      onClick={() => {
+                        if (!session) {
+                          setToast({
+                            message: "هذه الميزة متاحة للموظفين فقط - This feature is available to employees only",
+                            type: "error"
+                          });
+                          return;
+                        }
+                        openEditModal(result);
+                      }}
+                      disabled={!session}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${!session
+                        ? "bg-amber-500/5 border-amber-500/10 text-amber-400/30 cursor-not-allowed"
+                        : "bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/20 text-amber-400 cursor-pointer"
+                        }`}
                     >
                       <Edit2 className="w-3 h-3" /> Edit
                     </button>
 
                     {/* Translate Button (Purple) */}
                     <button
-                      onClick={() => toggleTranslateResult(result)}
-                      disabled={isTranslating}
-                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${showTranslation
-                        ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
-                        : "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20 text-purple-400"
+                      onClick={() => {
+                        if (!session) {
+                          setToast({
+                            message: "هذه الميزة متاحة للموظفين فقط - This feature is available to employees only",
+                            type: "error"
+                          });
+                          return;
+                        }
+                        toggleTranslateResult(result);
+                      }}
+                      disabled={!session || isTranslating}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${!session
+                        ? "bg-purple-500/5 border-purple-500/10 text-purple-400/30 cursor-not-allowed"
+                        : showTranslation
+                          ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
+                          : "bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20 text-purple-400"
                         }`}
-                      title="Show Translation"
+                      title={!session ? "يجب تسجيل الدخول - Login required" : "Show Translation"}
                     >
                       {isTranslating ? (
                         <Loader2 className="w-3 h-3 animate-spin" />
@@ -840,12 +917,12 @@ export default function SearchPage() {
                       Question (Arabic)
                     </label>
                     <textarea
-                      value={(editingItem as any).question_text_ar || ""}
+                      value={editingItem.question_text_ar || ""}
                       onChange={(e) =>
                         setEditingItem({
                           ...editingItem,
                           question_text_ar: e.target.value,
-                        } as any)
+                        })
                       }
                       className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-sky-500/50 transition-all"
                       rows={2}

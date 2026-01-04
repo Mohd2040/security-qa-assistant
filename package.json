@@ -14,18 +14,26 @@
   },
   "dependencies": {
 <<<<<<< HEAD
+<<<<<<< HEAD
     "next": "16.0.6",
     "react": "19.2.0",
     "react-dom": "19.2.0"
 =======
     "fuse.js": "^7.0.0",
+=======
+    "bcryptjs": "^3.0.3",
+>>>>>>> security-qa-assistance/devops3
     "dotenv": "^17.2.3",
+    "fuse.js": "^7.0.0",
     "lucide-react": "^0.453.0",
     "mongodb": "^7.0.0",
-    "next": "16.0.6",
+    "natural": "^8.1.0",
+    "next": "^16.1.0",
+    "next-auth": "^4.24.13",
     "openai": "^6.10.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "recharts": "^3.6.0",
     "xlsx": "^0.18.5"
 >>>>>>> devops3
   },
@@ -44,7 +52,11 @@
     "typescript": "^5"
   }
 <<<<<<< HEAD
+<<<<<<< HEAD
 }
 =======
 }
 >>>>>>> devops3
+=======
+}
+>>>>>>> security-qa-assistance/devops3

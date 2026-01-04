@@ -1,9 +1,10 @@
-// app/api/qa/import/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getDb } from "@/lib/mongodb";
 import { QaDomain, OwnerGroup, QaStatus } from "@/lib/types";
 import { generateArabicExplanation } from "@/lib/ai";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth-config";
 
 export const runtime = "nodejs";
 
@@ -56,6 +57,11 @@ function mapOwnerGroup(val: any): OwnerGroup {
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const formData = await req.formData();
     const file = formData.get("file");
 
@@ -80,6 +86,7 @@ export async function POST(req: NextRequest) {
 
     const resultsForExcel: any[] = [];
     const now = new Date().toISOString();
+    let successCount = 0;
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -113,10 +120,10 @@ export async function POST(req: NextRequest) {
 
         const owner_group = mapOwnerGroup(
           row.owner_group ||
-            row["Owner"] ||
-            row["Responsible"] ||
-            row["Owner Group"] ||
-            ""
+          row["Owner"] ||
+          row["Responsible"] ||
+          row["Owner Group"] ||
+          ""
         );
 
         const security_area =
@@ -154,9 +161,9 @@ export async function POST(req: NextRequest) {
         if (!explanation_ar && process.env.OPENAI_API_KEY) {
           try {
             explanation_ar = await generateArabicExplanation({
-                question: question_text_en,
-                answer: answer_text,
-              });
+              question: question_text_en,
+              answer: answer_text,
+            }, (session.user as any).email || "Anonymous");
           } catch (e) {
             console.error("AI explanation error:", e);
             // لا نرمي خطأ، فقط نكمّل بدونه
@@ -198,6 +205,7 @@ export async function POST(req: NextRequest) {
         resultRow.import_status = "inserted";
         resultRow.inserted_id = insertResult.insertedId.toString();
         resultRow.error_message = "";
+        successCount++;
       } catch (err: any) {
         console.error(`Row ${i + 2} import error:`, err);
         resultRow.import_status = "error";
@@ -207,6 +215,18 @@ export async function POST(req: NextRequest) {
 
       resultsForExcel.push(resultRow);
     }
+
+    // ✅ LOGGING: Log import event
+    const { logEvent } = await import("@/lib/logger");
+    await logEvent({
+      user: (session.user as any).email,
+      action: "IMPORT",
+      details: {
+        filename: file.name,
+        count: successCount,
+        total_rows: rows.length
+      }
+    });
 
     // بناء ملف Excel للنتيجة
     const resultSheet = XLSX.utils.json_to_sheet(resultsForExcel);

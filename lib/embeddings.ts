@@ -1,29 +1,88 @@
 // lib/embeddings.ts
 import OpenAI from "openai";
+import { getEmbeddingCache, logCacheStats } from "./embedding-cache";
+
+type AiProvider = "openai" | "none";
+
+function detectProvider(): AiProvider {
+  if (process.env.OPENAI_API_KEY) return "openai";
+  return "none";
+}
+
+const AI_PROVIDER = detectProvider();
+const OPENAI_MODEL_EMBED = process.env.OPENAI_MODEL_EMBED || "text-embedding-3-small";
 
 const apiKey = process.env.OPENAI_API_KEY;
-
 let client: OpenAI | null = null;
 
 if (apiKey) {
   client = new OpenAI({ apiKey });
-  console.log("[embeddings] OpenAI client initialized");
+  console.log("✅ Using OpenAI for AI features");
+  console.log(`   Embedding Model: ${OPENAI_MODEL_EMBED}`);
 } else {
-  console.log("[embeddings] OPENAI_API_KEY not set. Semantic search is disabled.");
+  console.warn("⚠️  No OpenAI API key configured. AI features disabled.");
 }
 
-export async function getEmbedding(text: string): Promise<number[] | null> {
-  if (!client) return null;
-
+export async function getEmbedding(text: string, user: string = "System"): Promise<number[] | null> {
   const cleaned = text.trim();
   if (!cleaned) return null;
 
-  const res = await client.embeddings.create({
-    model: "text-embedding-3-small",
-    input: cleaned,
-  });
+  // Try to get from cache first
+  const cache = getEmbeddingCache();
+  const cachedEmbedding = cache.get(cleaned);
 
-  return res.data[0].embedding as unknown as number[];
+  if (cachedEmbedding) {
+    return cachedEmbedding;
+  }
+
+  // Generate embedding using OpenAI
+  try {
+    if (AI_PROVIDER === "openai" && client) {
+      const res = await client.embeddings.create({
+        model: OPENAI_MODEL_EMBED,
+        input: cleaned,
+      });
+      const embedding = res.data[0].embedding as unknown as number[];
+
+      // Track Usage
+      try {
+        const { trackUsage } = await import("@/lib/usage-tracker");
+        await trackUsage(
+          OPENAI_MODEL_EMBED,
+          {
+            prompt_tokens: res.usage?.prompt_tokens || 0,
+            completion_tokens: 0, // Embeddings don't have completion tokens
+            total_tokens: res.usage?.total_tokens || 0,
+          },
+          user,
+          "Embedding"
+        );
+      } catch (err) {
+        console.error("Failed to track embedding usage:", err);
+      }
+
+      // Save to cache for future use
+      if (embedding) {
+        cache.set(cleaned, embedding);
+      }
+
+      return embedding;
+    }
+
+    // No provider available
+    return null;
+  } catch (e) {
+    // Silent fail
+    console.error("Embedding error:", e);
+    return null;
+  }
+}
+
+/**
+ * Log cache statistics (useful for debugging/monitoring)
+ */
+export function logEmbeddingCacheStats(): void {
+  logCacheStats();
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {

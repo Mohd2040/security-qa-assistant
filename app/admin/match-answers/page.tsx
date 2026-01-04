@@ -28,6 +28,19 @@ interface MatchedAnswer {
     similarity_score: number;
     match_confidence: "high" | "medium" | "low" | "none";
     domain: string;
+    decision_required: boolean;
+    recommendation: string;
+    ai_suggestion?: string;
+    source_id?: string;
+    alternative_sources?: Array<{
+        question: string;
+        score: number;
+        id: string;
+    }>;
+    tags?: string[];
+    importance?: number;
+    complexity?: number;
+    logic_explanation?: string;
 }
 
 interface MatchStats {
@@ -43,9 +56,13 @@ export default function MatchAnswersPage() {
     const [file, setFile] = useState<File | null>(null);
     const [threshold, setThreshold] = useState<number>(0.7);
     const [includeAi, setIncludeAi] = useState<boolean>(true);
+    const [useAiEnhancements, setUseAiEnhancements] = useState<boolean>(true);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [matchData, setMatchData] = useState<MatchStats | null>(null);
+
+    // Progress state
+    const [progress, setProgress] = useState<{ percent: number; message: string } | null>(null);
 
     // Function to download the template
     function handleDownloadTemplate() {
@@ -59,6 +76,39 @@ export default function MatchAnswersPage() {
         XLSX.writeFile(wb, "question_template.xlsx");
     }
 
+    // Function to handle file selection and validation
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFile = e.target.files?.[0];
+        if (!selectedFile) {
+            setFile(null);
+            return;
+        }
+
+        // Validate row count (Client-side)
+        try {
+            const arrayBuffer = await selectedFile.arrayBuffer();
+            const wb = XLSX.read(arrayBuffer);
+            const firstSheet = wb.Sheets[wb.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(firstSheet);
+
+            if (rows.length > 101) {
+                setError(`File too large. Maximum allowed rows is 101. Your file has ${rows.length} rows.`);
+                setFile(null);
+                e.target.value = ""; // Reset input
+                return;
+            }
+
+            setFile(selectedFile);
+            setMatchData(null);
+            setError(null);
+        } catch (err) {
+            console.error("Error reading file:", err);
+            setError("Error reading file. Please ensure it is a valid Excel file.");
+            setFile(null);
+            e.target.value = "";
+        }
+    };
+
     async function handlePreview(e: FormEvent) {
         e.preventDefault();
         setError(null);
@@ -71,16 +121,42 @@ export default function MatchAnswersPage() {
 
         try {
             setLoading(true);
+            // Initialize progress
+            setProgress({ percent: 10, message: "Uploading file..." });
+
             const formData = new FormData();
             formData.append("file", file);
             formData.append("threshold", threshold.toString());
             formData.append("includeAi", includeAi.toString());
+            formData.append("useAiEnhancements", useAiEnhancements.toString());
             formData.append("mode", "preview"); // Request JSON preview
+
+            // Simulate progress while waiting for response
+            const progressInterval = setInterval(() => {
+                setProgress((prev) => {
+                    if (!prev) return null;
+                    if (prev.percent >= 90) return prev; // Stop at 90%
+
+                    let step = 5;
+                    let msg = prev.message;
+
+                    // Update message based on percentage
+                    if (prev.percent < 30) msg = "Reading Excel file...";
+                    else if (prev.percent < 60) msg = "Generating AI Embeddings...";
+                    else if (prev.percent < 80) msg = "Searching Knowledge Base...";
+                    else msg = "Finalizing Matches...";
+
+                    return { percent: prev.percent + step, message: msg };
+                });
+            }, 800); // Update every 800ms
 
             const res = await fetch("/api/admin/qa/match-answers", {
                 method: "POST",
                 body: formData,
             });
+
+            clearInterval(progressInterval);
+            setProgress({ percent: 100, message: "Complete!" });
 
             const contentType = res.headers.get("content-type");
             if (contentType && contentType.indexOf("application/json") !== -1) {
@@ -92,7 +168,6 @@ export default function MatchAnswersPage() {
                 setMatchData(data);
             } else {
                 const text = await res.text();
-                // console.error("Non-JSON response:", text);
                 setError(`Server error: ${res.status} ${res.statusText}`);
             }
 
@@ -100,58 +175,124 @@ export default function MatchAnswersPage() {
             console.error("Error submitting form:", err);
             setError(err.message || "Failed to contact server during matching.");
         } finally {
-            setLoading(false);
+            // Small delay to show 100%
+            setTimeout(() => {
+                setLoading(false);
+                setProgress(null);
+            }, 500);
         }
     }
 
-    async function handleDownloadExcel() {
-        if (!file) return;
+    function handleDownloadExcel() {
+        // ✅ NEW: Use cached matchData instead of re-processing!
+        if (!matchData) {
+            setError("Please preview the matches first before downloading.");
+            return;
+        }
 
         try {
             setLoading(true);
-            const formData = new FormData();
-            formData.append("file", file);
-            formData.append("threshold", threshold.toString());
-            formData.append("includeAi", includeAi.toString());
-            formData.append("mode", "download"); // Request Excel File
+            // Quick progress for download
+            setProgress({ percent: 100, message: "Generating Excel file..." });
 
-            const res = await fetch("/api/admin/qa/match-answers", {
-                method: "POST",
-                body: formData,
-            });
+            // Format data for Excel
+            const outputData = matchData.matches.map((m) => ({
+                question_text: m.question_text,
+                status: m.status,
+                decision_required: m.decision_required ? "YES - Manual Decision Required" : "NO",
+                recommendation: m.recommendation,
+                source_question: m.source_question,
+                similarity_score: (m.similarity_score * 100).toFixed(0) + "%",
+                match_confidence: m.match_confidence,
+                domain: m.domain,
+                ai_suggestion: (m as any).ai_suggestion || "",
+                source_id: (m as any).source_id || "",
+                alternative_source_1: m.alternative_sources?.[0]?.question || "",
+                alternative_score_1: m.alternative_sources?.[0]?.score
+                    ? (m.alternative_sources[0].score * 100).toFixed(0) + "%"
+                    : "",
+                alternative_source_2: m.alternative_sources?.[1]?.question || "",
+                alternative_score_2: m.alternative_sources?.[1]?.score
+                    ? (m.alternative_sources[1].score * 100).toFixed(0) + "%"
+                    : "",
+                tags: m.tags?.join(", ") || "",
+                importance: m.importance || "",
+                complexity: m.complexity || "",
+            }));
 
-            if (!res.ok) {
-                const text = await res.text();
-                // Try to parse error if json
-                try {
-                    const json = JSON.parse(text);
-                    setError(json.error || "Failed to download file");
-                } catch (e) {
-                    setError(`Server Error: ${res.statusText}`);
-                }
-                return;
-            }
+            // Create Excel workbook
+            const outputWorkbook = XLSX.utils.book_new();
+            const outputSheet = XLSX.utils.json_to_sheet(outputData);
 
-            // Download the Excel file
-            const blob = await res.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${file.name.replace(".xlsx", "")}_matched.xlsx`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
+            // Set column widths for better readability
+            outputSheet["!cols"] = [
+                { wch: 50 }, // question_text
+                { wch: 18 }, // status
+                { wch: 30 }, // decision_required
+                { wch: 45 }, // recommendation
+                { wch: 40 }, // source_question
+                { wch: 12 }, // similarity_score
+                { wch: 15 }, // match_confidence
+                { wch: 15 }, // domain
+                { wch: 30 }, // ai_suggestion
+                { wch: 25 }, // source_id
+                { wch: 40 }, // alternative_source_1
+                { wch: 12 }, // alternative_score_1
+                { wch: 40 }, // alternative_source_2
+                { wch: 12 }, // alternative_score_2
+                { wch: 30 }, // tags
+                { wch: 10 }, // importance
+                { wch: 10 }, // complexity
+            ];
+
+            XLSX.utils.book_append_sheet(outputWorkbook, outputSheet, "Matched Answers");
+
+            // Download the file
+            const filename = file ? `${file.name.replace(".xlsx", "")}_matched_v2.xlsx` : "matched_answers_v2.xlsx";
+            XLSX.writeFile(outputWorkbook, filename);
+
+            console.log(`✅ Downloaded: ${filename} (${matchData.matches.length} matches)`);
         } catch (err: any) {
-            console.error(err);
+            console.error("Download error:", err);
             setError(err.message || "Failed to download file.");
         } finally {
             setLoading(false);
+            setProgress(null);
         }
     }
 
     return (
         <MainLayout>
+            {/* Progress Overlay */}
+            {loading && progress && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+                    <div className="bg-[#0f172a] border border-white/10 p-8 rounded-2xl max-w-md w-full shadow-2xl relative overflow-hidden">
+                        {/* Background Glow */}
+                        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50"></div>
+
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-16 h-16 mb-6 relative">
+                                <div className="absolute inset-0 rounded-full border-4 border-white/10"></div>
+                                <div className="absolute inset-0 rounded-full border-4 border-t-purple-500 border-r-purple-500 animate-spin"></div>
+                                <div className="absolute inset-0 flex items-center justify-center font-bold text-white text-sm">
+                                    {progress.percent}%
+                                </div>
+                            </div>
+
+                            <h3 className="text-xl font-bold text-white mb-2">Processing...</h3>
+                            <p className="text-slate-400 text-sm mb-6 min-h-[20px]">{progress.message}</p>
+
+                            <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+                                <div
+                                    className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-300 ease-out"
+                                    style={{ width: `${progress.percent}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="min-h-screen pt-24 pb-12 px-4 md:px-8">
                 <div className="container-neo max-w-[1400px] mx-auto">
                     {/* Header */}
@@ -201,11 +342,7 @@ export default function MatchAnswersPage() {
                                         <input
                                             type="file"
                                             accept=".xlsx,.xls"
-                                            onChange={(e) => {
-                                                setFile(e.target.files?.[0] || null);
-                                                setMatchData(null);
-                                                setError(null);
-                                            }}
+                                            onChange={handleFileChange}
                                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                                         />
                                         <div
@@ -271,6 +408,42 @@ export default function MatchAnswersPage() {
                                             <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
                                         </label>
                                     </div>
+
+                                    {/* AI Enhancements Toggle */}
+                                    <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20">
+                                        <div className="flex items-center gap-2">
+                                            <Sparkles className="w-5 h-5 text-purple-400 animate-pulse" />
+                                            <div>
+                                                <span className="text-sm font-bold text-white block">
+                                                    AI Enhancements (Advanced)
+                                                </span>
+                                                <span className="text-xs text-slate-400">
+                                                    Cross-Encoder, Auto-Tagging, Priority Score
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={useAiEnhancements}
+                                                onChange={(e) => setUseAiEnhancements(e.target.checked)}
+                                                className="sr-only peer"
+                                            />
+                                            <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-purple-600 peer-checked:to-blue-600"></div>
+                                        </label>
+                                    </div>
+
+                                    {/* Warning Message when Ai Enhancements enabled */}
+                                    {useAiEnhancements && (
+                                        <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-start gap-2 text-sm text-blue-200">
+                                            <svg className="w-4 h-4 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                            </svg>
+                                            <div>
+                                                <strong>AI Enhancements Active:</strong> Using Cross-Encoder Re-ranking, Auto-Tagging, and Priority Scoring for maximum accuracy. Processing may take longer but results will be significantly more accurate.
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {/* Preview Button */}
                                     <button
@@ -346,7 +519,7 @@ export default function MatchAnswersPage() {
 
                             {/* Data Preview */}
                             {matchData && (
-                                <div className="flex flex-col h-full animate-fade-in">
+                                <div className="flex flex-col animate-fade-in">
 
                                     {/* Stats Bar */}
                                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
@@ -373,7 +546,7 @@ export default function MatchAnswersPage() {
                                     </div>
 
                                     {/* Preview Table */}
-                                    <div className="glass-panel rounded-2xl p-6 flex-1 overflow-hidden flex flex-col mb-6">
+                                    <div className="glass-panel rounded-2xl p-6 overflow-hidden flex flex-col mb-6">
                                         <div className="flex items-center justify-between mb-4">
                                             <h3 className="text-lg font-bold text-white">Matches Preview</h3>
                                             <div className="flex gap-2 text-sm text-slate-400">
@@ -396,41 +569,116 @@ export default function MatchAnswersPage() {
                                                 </thead>
                                                 <tbody className="divide-y divide-white/5">
                                                     {matchData.matches.map((row, idx) => {
+                                                        // Determine colors based on decision_required and confidence
                                                         let scoreColor = "text-red-400";
                                                         let bgClass = "hover:bg-red-500/5";
-                                                        if (row.match_confidence === "high") {
+                                                        let borderClass = "border-l-4 border-l-red-500";
+
+                                                        if (row.decision_required) {
+                                                            // Red for NEEDS_REVIEW (< 60%)
+                                                            scoreColor = "text-red-400";
+                                                            bgClass = "hover:bg-red-500/5 bg-red-500/5";
+                                                            borderClass = "border-l-4 border-l-red-500";
+                                                        } else if (row.match_confidence === "high") {
                                                             scoreColor = "text-emerald-400";
                                                             bgClass = "hover:bg-emerald-500/5";
+                                                            borderClass = "border-l-4 border-l-emerald-500";
                                                         } else if (row.match_confidence === "medium") {
-                                                            scoreColor = "text-amber-400";
-                                                            bgClass = "hover:bg-amber-500/5";
+                                                            scoreColor = "text-yellow-400";
+                                                            bgClass = "hover:bg-yellow-500/5";
+                                                            borderClass = "border-l-4 border-l-yellow-500";
+                                                        } else if (row.match_confidence === "low") {
+                                                            scoreColor = "text-orange-400";
+                                                            bgClass = "hover:bg-orange-500/5";
+                                                            borderClass = "border-l-4 border-l-orange-500";
                                                         }
 
                                                         return (
-                                                            <tr key={idx} className={`transition-colors ${bgClass}`}>
+                                                            <tr key={idx} className={`transition-colors ${bgClass} ${borderClass}`}>
                                                                 <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
-                                                                <td className="px-4 py-3 text-white font-medium">
-                                                                    {row.question_text}
+                                                                <td className="px-4 py-3">
+                                                                    <div className="text-white font-medium">{row.question_text}</div>
                                                                     <div className="text-xs text-slate-500 mt-1">{row.domain}</div>
+
+                                                                    {/* Warning for decision required */}
+                                                                    {row.decision_required && (
+                                                                        <div className="flex items-center gap-1.5 mt-2 text-xs text-red-400">
+                                                                            <AlertTriangle className="w-3 h-3" />
+                                                                            <span>{row.recommendation}</span>
+                                                                        </div>
+                                                                    )}
                                                                 </td>
                                                                 <td className="px-4 py-3">
-                                                                    {row.status !== "unknown" ? (
+                                                                    {row.status === "applied" ? (
+                                                                        <span className="px-2 py-1 rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-300 border border-emerald-500/30">
+                                                                            APPLIED
+                                                                        </span>
+                                                                    ) : row.status === "not applied" ? (
+                                                                        <span className="px-2 py-1 rounded-full bg-red-500/20 text-xs font-bold text-red-300 border border-red-500/30">
+                                                                            NOT APPLIED
+                                                                        </span>
+                                                                    ) : row.status === "NEEDS_REVIEW" ? (
+                                                                        <span className="px-2 py-1 rounded-full bg-orange-500/20 text-xs font-bold text-orange-300 border border-orange-500/30">
+                                                                            NEEDS REVIEW
+                                                                        </span>
+                                                                    ) : (
                                                                         <span className="px-2 py-1 rounded-full bg-white/10 text-xs font-medium text-white border border-white/10">
                                                                             {row.status.replace(/_/g, " ")}
                                                                         </span>
-                                                                    ) : (
-                                                                        <span className="text-slate-500">-</span>
                                                                     )}
                                                                 </td>
                                                                 <td className="px-4 py-3 text-slate-300">
-                                                                    {row.answer_text ? (
-                                                                        <div className="line-clamp-2 max-w-xs text-xs">{row.answer_text}</div>
-                                                                    ) : (
-                                                                        <span className="text-slate-600 italic">No answer matched</span>
+                                                                    {/* Show AI suggestion if available */}
+                                                                    {row.ai_suggestion && (
+                                                                        <div className="text-xs text-purple-300 mb-2 font-medium">
+                                                                            💡 {row.ai_suggestion}
+                                                                        </div>
                                                                     )}
+
+                                                                    {/* Show Logic Explanation if available */}
+                                                                    {(row as any).logic_explanation && (
+                                                                        <div className="p-2 mb-2 rounded bg-indigo-500/20 border border-indigo-500/30 text-xs text-indigo-200">
+                                                                            <span className="font-bold block mb-0.5">🤖 AI Logic:</span>
+                                                                            {(row as any).logic_explanation}
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* Show primary source */}
                                                                     {row.source_question && (
-                                                                        <div className="text-[10px] text-sky-400/70 mt-1 truncate max-w-xs">
-                                                                            Source: {row.source_question}
+                                                                        <div className="text-[10px] text-sky-400/70 truncate max-w-xs">
+                                                                            🎯 Source: {row.source_question}
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* Show alternative sources if available */}
+                                                                    {row.alternative_sources && row.alternative_sources.length > 0 && (
+                                                                        <div className="mt-1.5 space-y-0.5">
+                                                                            {row.alternative_sources.map((alt, altIdx) => (
+                                                                                <div key={altIdx} className="text-[9px] text-slate-500 truncate max-w-xs">
+                                                                                    📌 Alt {altIdx + 1} ({(alt.score * 100).toFixed(0)}%): {alt.question}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* AI Tags & Scores */}
+                                                                    {(row.tags || row.importance || row.complexity) && (
+                                                                        <div className="mt-2 pt-2 border-t border-white/5 flex flex-wrap gap-2">
+                                                                            {row.importance && (
+                                                                                <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[10px] border border-blue-500/30">
+                                                                                    Imp: {row.importance}
+                                                                                </span>
+                                                                            )}
+                                                                            {row.complexity && (
+                                                                                <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] border border-purple-500/30">
+                                                                                    Cpx: {row.complexity}
+                                                                                </span>
+                                                                            )}
+                                                                            {row.tags?.map((tag, tIdx) => (
+                                                                                <span key={tIdx} className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 text-[10px] border border-slate-600">
+                                                                                    {tag}
+                                                                                </span>
+                                                                            ))}
                                                                         </div>
                                                                     )}
                                                                 </td>

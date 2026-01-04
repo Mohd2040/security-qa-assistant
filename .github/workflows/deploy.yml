@@ -35,6 +35,8 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha
+      - name: Generate build-only NEXTAUTH_SECRET
+        run: echo "BUILD_NEXTAUTH_SECRET=$(openssl rand -base64 32)" >> $GITHUB_ENV
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
@@ -45,3 +47,4 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             MONGODB_URI=mongodb://dummy:dummy@localhost:27017/dummy_db_for_build
+            NEXTAUTH_SECRET=${{ env.BUILD_NEXTAUTH_SECRET }}
