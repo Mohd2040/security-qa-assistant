@@ -42,21 +42,30 @@ jobs:
         if: ${{ inputs.project_type == 'node' }}
         run: npm ci
 
-      - name: Run npm audit (Dependency Scan)
+      - name: Run npm audit (Dependency Scan - SCA)
         if: ${{ inputs.project_type == 'node' && inputs.run_npm_audit }}
         run: |
           npm audit --json > npm-audit-report.json || true
           npm audit > npm-audit-report.txt || true
         continue-on-error: true
 
-      - name: Run Trivy Vulnerability Scanner (Filesystem)
+      - name: Run OWASP Dependency-Check (SCA)
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'security-qa-assistant'
+          path: '.'
+          format: 'HTML'
+          out: 'dependency-check-report'
+        continue-on-error: true
+
+      - name: Run Trivy Vulnerability Scanner (Filesystem - SAST)
         if: ${{ inputs.run_trivy }}
         uses: aquasecurity/trivy-action@0.24.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
-          format: 'table'
-          output: 'trivy-fs-report.txt'
+          format: 'json'
+          output: 'trivy-fs-report.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
         continue-on-error: true
 
@@ -66,8 +75,8 @@ jobs:
         with:
           scan-type: 'config'
           scan-ref: '.'
-          format: 'table'
-          output: 'trivy-config-report.txt'
+          format: 'json'
+          output: 'trivy-config-report.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
         continue-on-error: true
 
@@ -82,33 +91,39 @@ jobs:
 
       - name: Generate Security Report Summary
         run: |
+          # Create summary report
           cat > security-report.md << 'EOF'
           # Security Vulnerability Report
           
-          **Generated:** $(date)
-          **Project Type:** ${{ inputs.project_type }}
-          **DAST Target:** ${{ inputs.dast_url || 'N/A' }}
+          EOF
           
-          ---
+          echo "**Generated:** $(date)" >> security-report.md
+          echo "**Project Type:** ${{ inputs.project_type }}" >> security-report.md
+          echo "**DAST Target:** ${{ inputs.dast_url || 'N/A' }}" >> security-report.md
+          echo "" >> security-report.md
+          echo "---" >> security-report.md
+          echo "" >> security-report.md
           
+          cat >> security-report.md << 'EOF'
           ## Executive Summary
           
-          This report contains the results of automated security scans including:
-          - Dependency vulnerability scanning (npm audit)
-          - Static Application Security Testing - SAST (Trivy)
-          - Configuration scanning (Trivy)
-          - Dynamic Application Security Testing - DAST (OWASP ZAP)
+          This report contains automated security scan results:
+          
+          - **SCA (Software Composition Analysis)**: npm audit + OWASP Dependency-Check
+          - **SAST (Static Application Security Testing)**: Trivy filesystem scan
+          - **Configuration Analysis**: Trivy config scan
+          - **DAST (Dynamic Application Security Testing)**: OWASP ZAP
           
           ---
           
-          ## Dependency Scan Results (npm audit)
+          ## SCA: Dependency Vulnerabilities (npm audit)
           
           EOF
           
-          if [ -f npm-audit-report.txt ]; then
-            echo '```' >> security-report.md
-            cat npm-audit-report.txt >> security-report.md
-            echo '```' >> security-report.md
+          if [ -f npm-audit-report.json ]; then
+            echo "**Summary:**" >> security-report.md
+            echo "" >> security-report.md
+            jq -r '.metadata | "- Total Dependencies: \(.dependencies // 0)\n- Vulnerabilities: \(.vulnerabilities.total // 0)\n- Critical: \(.vulnerabilities.critical // 0)\n- High: \(.vulnerabilities.high // 0)\n- Medium: \(.vulnerabilities.moderate // 0)\n- Low: \(.vulnerabilities.low // 0)"' npm-audit-report.json >> security-report.md || echo "Could not parse npm audit data" >> security-report.md
           else
             echo '*No npm audit report generated*' >> security-report.md
           fi
@@ -117,14 +132,28 @@ jobs:
           
           ---
           
-          ## Filesystem Vulnerability Scan (Trivy - SAST)
+          ## SCA: OWASP Dependency-Check
           
           EOF
           
-          if [ -f trivy-fs-report.txt ]; then
-            echo '```' >> security-report.md
-            cat trivy-fs-report.txt >> security-report.md
-            echo '```' >> security-report.md
+          if [ -d dependency-check-report ]; then
+            echo '*Detailed HTML report available in artifacts*' >> security-report.md
+          else
+            echo '*No Dependency-Check report generated*' >> security-report.md
+          fi
+          
+          cat >> security-report.md << 'EOF'
+          
+          ---
+          
+          ## SAST: Trivy Filesystem Scan
+          
+          EOF
+          
+          if [ -f trivy-fs-report.json ]; then
+            echo "**Vulnerabilities Found:**" >> security-report.md
+            echo "" >> security-report.md
+            jq -r '.Results[]? | select(.Vulnerabilities) | .Vulnerabilities | group_by(.Severity) | map({Severity: .[0].Severity, Count: length}) | .[] | "- \(.Severity): \(.Count)"' trivy-fs-report.json >> security-report.md || echo "No vulnerabilities or parsing error" >> security-report.md
           else
             echo '*No Trivy filesystem report generated*' >> security-report.md
           fi
@@ -133,14 +162,14 @@ jobs:
           
           ---
           
-          ## Configuration Scan (Trivy)
+          ## Configuration Scan
           
           EOF
           
-          if [ -f trivy-config-report.txt ]; then
-            echo '```' >> security-report.md
-            cat trivy-config-report.txt >> security-report.md
-            echo '```' >> security-report.md
+          if [ -f trivy-config-report.json ]; then
+            echo "**Misconfigurations Found:**" >> security-report.md
+            echo "" >> security-report.md
+            jq -r '.Results[]? | select(.Misconfigurations) | .Misconfigurations | group_by(.Severity) | map({Severity: .[0].Severity, Count: length}) | .[] | "- \(.Severity): \(.Count)"' trivy-config-report.json >> security-report.md || echo "No misconfigurations or parsing error" >> security-report.md
           else
             echo '*No Trivy config report generated*' >> security-report.md
           fi
@@ -149,27 +178,29 @@ jobs:
           
           ---
           
-          ## DAST Scan Results (OWASP ZAP)
+          ## DAST: OWASP ZAP Scan
           
           EOF
           
           if [ -f report_html.html ]; then
             echo '*ZAP HTML report available in artifacts*' >> security-report.md
           else
-            echo '*No DAST scan performed*' >> security-report.md
+            echo '*No DAST scan performed (requires target URL)*' >> security-report.md
           fi
 
       - name: Install Pandoc for PDF Generation
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-latex-extra
+          sudo apt-get install -y pandoc texlive-xetex texlive-fonts-recommended
 
       - name: Convert Report to PDF
         run: |
           pandoc security-report.md -o security-report.pdf \
-            --pdf-engine=pdflatex \
+            --pdf-engine=xelatex \
             -V geometry:margin=1in \
-            -V colorlinks=true
+            -V colorlinks=true \
+            -V mainfont="DejaVu Sans"
+        continue-on-error: true
 
       - name: Display Reports in Logs
         run: |
@@ -183,8 +214,9 @@ jobs:
           path: |
             npm-audit-report.json
             npm-audit-report.txt
-            trivy-fs-report.txt
-            trivy-config-report.txt
+            trivy-fs-report.json
+            trivy-config-report.json
+            dependency-check-report/
             security-report.md
             security-report.pdf
             report_html.html

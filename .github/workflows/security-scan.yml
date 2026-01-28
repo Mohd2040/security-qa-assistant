@@ -2,9 +2,9 @@ name: Security Vulnerability Test
 
 on:
   push:
-    branches: [ "main", "master", "devops3" ]
+    branches: [ "devops3" ]
   pull_request:
-    branches: [ "main", "master", "devops3" ]
+    branches: [ "devops3" ]
   workflow_dispatch:
     inputs:
       dast_url:
