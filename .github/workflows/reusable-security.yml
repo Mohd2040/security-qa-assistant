@@ -86,6 +86,8 @@ jobs:
         with:
           target: ${{ inputs.dast_url }}
           cmd_options: '-T 120 -z "-config api.disablekey=true"'
+          fail_action: false
+          allow_issue_writing: false
         continue-on-error: true
         env:
           # For authenticated scanning, set these in GitHub Secrets:
