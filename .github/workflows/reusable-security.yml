@@ -85,9 +85,14 @@ jobs:
         uses: zaproxy/action-baseline@v0.12.0
         with:
           target: ${{ inputs.dast_url }}
-          rules_file_name: '.zap/rules.tsv'
-          cmd_options: '-a'
+          cmd_options: '-T 120 -z "-config api.disablekey=true"'
         continue-on-error: true
+        env:
+          # For authenticated scanning, set these in GitHub Secrets:
+          # ZAP_AUTH_HEADER: 'Authorization'
+          # ZAP_AUTH_HEADER_VALUE: 'Bearer YOUR_TOKEN'
+          ZAP_AUTH_HEADER: ${{ secrets.ZAP_AUTH_HEADER }}
+          ZAP_AUTH_HEADER_VALUE: ${{ secrets.ZAP_AUTH_HEADER_VALUE }}
 
       - name: Generate Security Report Summary
         run: |
