@@ -1,0 +1,191 @@
+name: Reusable Security Scan
+
+on:
+  workflow_call:
+    inputs:
+      project_type:
+        description: 'Project type (node, dotnet, etc.)'
+        required: false
+        type: string
+        default: 'node'
+      run_trivy:
+        description: 'Run Trivy filesystem scan'
+        required: false
+        type: boolean
+        default: true
+      run_npm_audit:
+        description: 'Run npm audit'
+        required: false
+        type: boolean
+        default: true
+      dast_url:
+        description: 'Target URL for DAST scan (optional)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        if: ${{ inputs.project_type == 'node' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        if: ${{ inputs.project_type == 'node' }}
+        run: npm ci
+
+      - name: Run npm audit (Dependency Scan)
+        if: ${{ inputs.project_type == 'node' && inputs.run_npm_audit }}
+        run: |
+          npm audit --json > npm-audit-report.json || true
+          npm audit > npm-audit-report.txt || true
+        continue-on-error: true
+
+      - name: Run Trivy Vulnerability Scanner (Filesystem)
+        if: ${{ inputs.run_trivy }}
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          output: 'trivy-fs-report.txt'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+
+      - name: Run Trivy Config Scanner (Misconfiguration)
+        if: ${{ inputs.run_trivy }}
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'table'
+          output: 'trivy-config-report.txt'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+
+      - name: Run OWASP ZAP Baseline Scan (DAST)
+        if: ${{ inputs.dast_url != '' }}
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: ${{ inputs.dast_url }}
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a'
+        continue-on-error: true
+
+      - name: Generate Security Report Summary
+        run: |
+          cat > security-report.md << 'EOF'
+          # Security Vulnerability Report
+          
+          **Generated:** $(date)
+          **Project Type:** ${{ inputs.project_type }}
+          **DAST Target:** ${{ inputs.dast_url || 'N/A' }}
+          
+          ---
+          
+          ## Executive Summary
+          
+          This report contains the results of automated security scans including:
+          - Dependency vulnerability scanning (npm audit)
+          - Static Application Security Testing - SAST (Trivy)
+          - Configuration scanning (Trivy)
+          - Dynamic Application Security Testing - DAST (OWASP ZAP)
+          
+          ---
+          
+          ## Dependency Scan Results (npm audit)
+          
+          EOF
+          
+          if [ -f npm-audit-report.txt ]; then
+            echo '```' >> security-report.md
+            cat npm-audit-report.txt >> security-report.md
+            echo '```' >> security-report.md
+          else
+            echo '*No npm audit report generated*' >> security-report.md
+          fi
+          
+          cat >> security-report.md << 'EOF'
+          
+          ---
+          
+          ## Filesystem Vulnerability Scan (Trivy - SAST)
+          
+          EOF
+          
+          if [ -f trivy-fs-report.txt ]; then
+            echo '```' >> security-report.md
+            cat trivy-fs-report.txt >> security-report.md
+            echo '```' >> security-report.md
+          else
+            echo '*No Trivy filesystem report generated*' >> security-report.md
+          fi
+          
+          cat >> security-report.md << 'EOF'
+          
+          ---
+          
+          ## Configuration Scan (Trivy)
+          
+          EOF
+          
+          if [ -f trivy-config-report.txt ]; then
+            echo '```' >> security-report.md
+            cat trivy-config-report.txt >> security-report.md
+            echo '```' >> security-report.md
+          else
+            echo '*No Trivy config report generated*' >> security-report.md
+          fi
+          
+          cat >> security-report.md << 'EOF'
+          
+          ---
+          
+          ## DAST Scan Results (OWASP ZAP)
+          
+          EOF
+          
+          if [ -f report_html.html ]; then
+            echo '*ZAP HTML report available in artifacts*' >> security-report.md
+          else
+            echo '*No DAST scan performed*' >> security-report.md
+          fi
+
+      - name: Install Pandoc for PDF Generation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-latex-extra
+
+      - name: Convert Report to PDF
+        run: |
+          pandoc security-report.md -o security-report.pdf \
+            --pdf-engine=pdflatex \
+            -V geometry:margin=1in \
+            -V colorlinks=true
+
+      - name: Display Reports in Logs
+        run: |
+          echo "=== Security Report Summary ==="
+          cat security-report.md
+
+      - name: Upload Security Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            npm-audit-report.json
+            npm-audit-report.txt
+            trivy-fs-report.txt
+            trivy-config-report.txt
+            security-report.md
+            security-report.pdf
+            report_html.html
+          if-no-files-found: ignore

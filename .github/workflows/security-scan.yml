@@ -6,63 +6,19 @@ on:
   pull_request:
     branches: [ "main", "master", "devops3" ]
   workflow_dispatch:
+    inputs:
+      dast_url:
+        description: 'Target URL for DAST scan (optional)'
+        required: false
+        type: string
+        default: ''
 
 jobs:
-  security-scan:
-    name: Vulnerability Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run npm audit (Dependency Scan)
-        # Run audit, save to json, and don't fail the build immediately so we can see other reports
-        run: npm audit --json > npm-audit-report.json || true
-        continue-on-error: true
-
-      - name: Run Trivy Vulnerability Scanner (Filesystem)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'table'
-          output: 'trivy-fs-report.txt'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-        continue-on-error: true
-
-      - name: Run Trivy Config Scanner (Misconfiguration)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'config'
-          scan-ref: '.'
-          format: 'table'
-          output: 'trivy-config-report.txt'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-        continue-on-error: true
-
-      - name: Upload Scan Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-reports
-          path: |
-            npm-audit-report.json
-            trivy-fs-report.txt
-            trivy-config-report.txt
-
-      - name: Display Reports in Logs
-        run: |
-          echo "=== NPM Audit Report ==="
-          cat npm-audit-report.json || echo "No npm audit report found"
-          echo -e "\n=== Trivy FS Report ==="
-          cat trivy-fs-report.txt || echo "No Trivy FS report found"
-          echo -e "\n=== Trivy Config Report ==="
-          cat trivy-config-report.txt || echo "No Trivy Config report found"
-
+  call-security-scan:
+    name: Run Security Scan
+    uses: ./.github/workflows/reusable-security.yml
+    with:
+      project_type: 'node'
+      run_trivy: true
+      run_npm_audit: true
+      dast_url: ${{ inputs.dast_url || '' }}
