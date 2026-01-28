@@ -101,12 +101,13 @@ jobs:
 
       - name: Run OWASP ZAP Baseline Scan (DAST)
         if: ${{ inputs.dast_url != '' }}
-        uses: zaproxy/action-baseline@v0.12.0
+        uses: zaproxy/action-baseline@v0.13.0
         with:
           target: ${{ inputs.dast_url }}
           cmd_options: '-T 300 -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5"'
           fail_action: false
           allow_issue_writing: false
+          artifact_name: ''
         continue-on-error: true
         env:
           ZAP_AUTH_HEADER: ${{ secrets.ZAP_AUTH_HEADER }}
@@ -204,10 +205,10 @@ jobs:
             CURRENT_TOTAL=$((NPM_CRIT + NPM_HIGH + NPM_MED + NPM_LOW))
             DIFF=$((CURRENT_TOTAL - PREV_TOTAL))
             
-            cat >> security-report.md << EOF
+            cat >> security-report.md << 'DIFFEOF'
           ## 📈 Change Since Last Scan
           
-          EOF
+          DIFFEOF
             
             if [ $DIFF -lt 0 ]; then
               echo "✅ **Improved!** Fixed $((DIFF * -1)) vulnerabilities since last scan." >> security-report.md
