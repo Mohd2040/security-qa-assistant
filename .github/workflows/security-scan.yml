@@ -16,6 +16,11 @@ on:
         type: string
         default: 'https://security-qa-assistant.onrender.com'
 
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
 jobs:
   call-security-scan:
     name: Run Security Scan
