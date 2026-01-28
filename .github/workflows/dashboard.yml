@@ -1,0 +1,144 @@
+name: Update Security Dashboard
+
+on:
+  workflow_run:
+    workflows: ["Security Vulnerability Test"]
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  update-dashboard:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download security reports
+        uses: actions/download-artifact@v4
+        with:
+          name: security-reports
+          path: ./reports
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Generate Dashboard Data
+        run: |
+          # Create security-data.json from reports
+          cat > docs/dashboard/security-data.json << 'EOF'
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "summary": {
+              "critical": 0,
+              "high": 0,
+              "medium": 0,
+              "low": 0
+            },
+            "vulnerabilities": [],
+            "trends": []
+          }
+          EOF
+          
+          # Parse npm audit if available
+          if [ -f reports/npm-audit-report.json ]; then
+            echo "Processing npm audit data..."
+            
+            CRITICAL=$(jq '.metadata.vulnerabilities.critical // 0' reports/npm-audit-report.json)
+            HIGH=$(jq '.metadata.vulnerabilities.high // 0' reports/npm-audit-report.json)
+            MEDIUM=$(jq '.metadata.vulnerabilities.moderate // 0' reports/npm-audit-report.json)
+            LOW=$(jq '.metadata.vulnerabilities.low // 0' reports/npm-audit-report.json)
+            
+            # Update summary
+            jq --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+               --argjson c "$CRITICAL" \
+               --argjson h "$HIGH" \
+               --argjson m "$MEDIUM" \
+               --argjson l "$LOW" \
+               '.timestamp = $ts | .summary.critical = $c | .summary.high = $h | .summary.medium = $m | .summary.low = $l' \
+               docs/dashboard/security-data.json > temp.json && mv temp.json docs/dashboard/security-data.json
+            
+            # Extract top vulnerabilities
+            jq '[.vulnerabilities | to_entries | .[0:10] | .[] | {
+              id: .value.name,
+              severity: (.value.severity | ascii_upcase),
+              title: .value.title,
+              description: (.value.overview // "No description"),
+              package: .value.name,
+              source: "npm audit"
+            }]' reports/npm-audit-report.json > vulns.json
+            
+            jq --slurpfile vulns vulns.json '.vulnerabilities = $vulns[0]' docs/dashboard/security-data.json > temp.json && mv temp.json docs/dashboard/security-data.json
+            rm -f vulns.json
+          fi
+          
+          # Parse Trivy if available
+          if [ -f reports/trivy-fs-report.json ]; then
+            echo "Processing Trivy data..."
+            
+            TRIVY_CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' reports/trivy-fs-report.json)
+            TRIVY_HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' reports/trivy-fs-report.json)
+            TRIVY_MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' reports/trivy-fs-report.json)
+            TRIVY_LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' reports/trivy-fs-report.json)
+            
+            # Add to existing counts
+            CURRENT_CRITICAL=$(jq '.summary.critical' docs/dashboard/security-data.json)
+            CURRENT_HIGH=$(jq '.summary.high' docs/dashboard/security-data.json)
+            CURRENT_MEDIUM=$(jq '.summary.medium' docs/dashboard/security-data.json)
+            CURRENT_LOW=$(jq '.summary.low' docs/dashboard/security-data.json)
+            
+            TOTAL_CRITICAL=$((CURRENT_CRITICAL + TRIVY_CRITICAL))
+            TOTAL_HIGH=$((CURRENT_HIGH + TRIVY_HIGH))
+            TOTAL_MEDIUM=$((CURRENT_MEDIUM + TRIVY_MEDIUM))
+            TOTAL_LOW=$((CURRENT_LOW + TRIVY_LOW))
+            
+            jq --argjson c "$TOTAL_CRITICAL" \
+               --argjson h "$TOTAL_HIGH" \
+               --argjson m "$TOTAL_MEDIUM" \
+               --argjson l "$TOTAL_LOW" \
+               '.summary.critical = $c | .summary.high = $h | .summary.medium = $m | .summary.low = $l' \
+               docs/dashboard/security-data.json > temp.json && mv temp.json docs/dashboard/security-data.json
+          fi
+          
+          echo "Dashboard data updated successfully!"
+          cat docs/dashboard/security-data.json
+
+      - name: Commit Dashboard Updates
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add docs/dashboard/security-data.json
+          git diff --quiet && git diff --staged --quiet || git commit -m "📊 Update security dashboard data [skip ci]"
+          git push
+        continue-on-error: true
+
+  deploy-pages:
+    needs: update-dashboard
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './docs/dashboard'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

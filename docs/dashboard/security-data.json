@@ -1,0 +1,35 @@
+{
+    "timestamp": "2026-01-28T12:00:00Z",
+    "summary": {
+        "critical": 0,
+        "high": 2,
+        "medium": 5,
+        "low": 3
+    },
+    "vulnerabilities": [
+        {
+            "id": "CVE-2024-XXXXX",
+            "severity": "HIGH",
+            "title": "Sample Vulnerability",
+            "description": "This is a sample vulnerability. Real data will be populated by the workflow.",
+            "package": "example-package",
+            "source": "npm audit"
+        }
+    ],
+    "trends": [
+        {
+            "date": "2026-01-21",
+            "critical": 1,
+            "high": 3,
+            "medium": 7,
+            "low": 4
+        },
+        {
+            "date": "2026-01-28",
+            "critical": 0,
+            "high": 2,
+            "medium": 5,
+            "low": 3
+        }
+    ]
+}
