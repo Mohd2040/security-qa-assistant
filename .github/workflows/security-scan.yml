@@ -56,3 +56,13 @@ jobs:
             npm-audit-report.json
             trivy-fs-report.txt
             trivy-config-report.txt
+
+      - name: Display Reports in Logs
+        run: |
+          echo "=== NPM Audit Report ==="
+          cat npm-audit-report.json || echo "No npm audit report found"
+          echo -e "\n=== Trivy FS Report ==="
+          cat trivy-fs-report.txt || echo "No Trivy FS report found"
+          echo -e "\n=== Trivy Config Report ==="
+          cat trivy-config-report.txt || echo "No Trivy Config report found"
+
