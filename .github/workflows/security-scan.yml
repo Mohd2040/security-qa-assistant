@@ -24,4 +24,5 @@ jobs:
       project_type: 'node'
       run_trivy: true
       run_npm_audit: true
+      run_codeql: true
       dast_url: ${{ github.event.inputs.dast_url || 'https://security-qa-assistant.onrender.com' }}

@@ -18,6 +18,11 @@ on:
         required: false
         type: boolean
         default: true
+      run_codeql:
+        description: 'Run CodeQL analysis'
+        required: false
+        type: boolean
+        default: true
       dast_url:
         description: 'Target URL for DAST scan (optional)'
         required: false
@@ -96,171 +101,277 @@ jobs:
           ZAP_AUTH_HEADER: ${{ secrets.ZAP_AUTH_HEADER }}
           ZAP_AUTH_HEADER_VALUE: ${{ secrets.ZAP_AUTH_HEADER_VALUE }}
 
-      - name: Generate Security Report Summary
+      - name: Initialize CodeQL
+        if: ${{ inputs.run_codeql }}
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+          queries: security-and-quality
+
+      - name: Perform CodeQL Analysis
+        if: ${{ inputs.run_codeql }}
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript"
+          output: codeql-results.sarif
+        continue-on-error: true
+
+      - name: Upload CodeQL Results
+        if: ${{ inputs.run_codeql }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-results
+          path: codeql-results.sarif
+        continue-on-error: true
+
+      - name: Download Previous Scan Results
+        uses: actions/download-artifact@v4
+        with:
+          name: security-reports-previous
+          path: ./previous-reports
+        continue-on-error: true
+
+      - name: Generate Enhanced Security Report
         run: |
-          # Create summary report
+          # Create enhanced developer-friendly report
           cat > security-report.md << 'EOF'
-          # Security Vulnerability Report
+          # 🛡️ Security Vulnerability Report
           
           EOF
           
           echo "**Generated:** $(date)" >> security-report.md
-          echo "**Project Type:** ${{ inputs.project_type }}" >> security-report.md
+          echo "**Project:** ${{ inputs.project_type }}" >> security-report.md
           echo "**DAST Target:** ${{ inputs.dast_url || 'N/A' }}" >> security-report.md
           echo "" >> security-report.md
-          echo "---" >> security-report.md
+          
+          # Summary Table
+          cat >> security-report.md << 'EOF'
+          ## 📊 Executive Summary Table
+          
+          | Category | Critical | High | Medium | Low | Total | Status |
+          |----------|----------|------|--------|-----|-------|--------|
+          EOF
+          
+          # Calculate totals
+          NPM_CRIT=0
+          NPM_HIGH=0
+          NPM_MED=0
+          NPM_LOW=0
+          TRIVY_CRIT=0
+          TRIVY_HIGH=0
+          TRIVY_MED=0
+          TRIVY_LOW=0
+          
+          if [ -f npm-audit-report.json ] && jq -e '.metadata' npm-audit-report.json > /dev/null 2>&1; then
+            NPM_CRIT=$(jq '.metadata.vulnerabilities.critical // 0' npm-audit-report.json)
+            NPM_HIGH=$(jq '.metadata.vulnerabilities.high // 0' npm-audit-report.json)
+            NPM_MED=$(jq '.metadata.vulnerabilities.moderate // 0' npm-audit-report.json)
+            NPM_LOW=$(jq '.metadata.vulnerabilities.low // 0' npm-audit-report.json)
+            NPM_TOTAL=$((NPM_CRIT + NPM_HIGH + NPM_MED + NPM_LOW))
+            NPM_STATUS="⚠️"
+            [ "$NPM_TOTAL" -eq 0 ] && NPM_STATUS="✅"
+            echo "| Dependencies (npm) | $NPM_CRIT | $NPM_HIGH | $NPM_MED | $NPM_LOW | $NPM_TOTAL | $NPM_STATUS |" >> security-report.md
+          fi
+          
+          if [ -f trivy-fs-report.json ]; then
+            TRIVY_CRIT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs-report.json)
+            TRIVY_HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs-report.json)
+            TRIVY_MED=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-fs-report.json)
+            TRIVY_LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-fs-report.json)
+            TRIVY_TOTAL=$((TRIVY_CRIT + TRIVY_HIGH + TRIVY_MED + TRIVY_LOW))
+            TRIVY_STATUS="⚠️"
+            [ "$TRIVY_TOTAL" -eq 0 ] && TRIVY_STATUS="✅"
+            echo "| Code (Trivy SAST) | $TRIVY_CRIT | $TRIVY_HIGH | $TRIVY_MED | $TRIVY_LOW | $TRIVY_TOTAL | $TRIVY_STATUS |" >> security-report.md
+          fi
+          
+          GRAND_TOTAL=$((NPM_CRIT + NPM_HIGH + NPM_MED + NPM_LOW + TRIVY_CRIT + TRIVY_HIGH + TRIVY_MED + TRIVY_LOW))
+          GRAND_CRIT=$((NPM_CRIT + TRIVY_CRIT))
+          GRAND_HIGH=$((NPM_HIGH + TRIVY_HIGH))
+          GRAND_MED=$((NPM_MED + TRIVY_MED))
+          GRAND_LOW=$((NPM_LOW + TRIVY_LOW))
+          GRAND_STATUS="⚠️"
+          [ "$GRAND_TOTAL" -eq 0 ] && GRAND_STATUS="✅"
+          
+          echo "| **TOTAL** | **$GRAND_CRIT** | **$GRAND_HIGH** | **$GRAND_MED** | **$GRAND_LOW** | **$GRAND_TOTAL** | **$GRAND_STATUS** |" >> security-report.md
           echo "" >> security-report.md
           
-          cat >> security-report.md << 'EOF'
-          ## Executive Summary
-          
-          This report contains automated security scan results:
-          
-          - **SCA (Software Composition Analysis)**: npm audit + OWASP Dependency-Check
-          - **SAST (Static Application Security Testing)**: Trivy filesystem scan
-          - **Configuration Analysis**: Trivy config scan
-          - **DAST (Dynamic Application Security Testing)**: OWASP ZAP
-          
-          ---
-          
-          ## SCA: Dependency Vulnerabilities (npm audit)
+          # Diff Report
+          if [ -f previous-reports/npm-audit-report.json ]; then
+            PREV_TOTAL=$(jq '.metadata.vulnerabilities.total // 0' previous-reports/npm-audit-report.json 2>/dev/null || echo 0)
+            CURRENT_TOTAL=$((NPM_CRIT + NPM_HIGH + NPM_MED + NPM_LOW))
+            DIFF=$((CURRENT_TOTAL - PREV_TOTAL))
+            
+            cat >> security-report.md << EOF
+          ## 📈 Change Since Last Scan
           
           EOF
-          
-          if [ -f npm-audit-report.json ]; then
-            echo "**Summary:**" >> security-report.md
-            echo "" >> security-report.md
             
-            # Check if metadata exists
-            if jq -e '.metadata' npm-audit-report.json > /dev/null 2>&1; then
-              jq -r '.metadata | "- Total Dependencies: \(.dependencies // 0)\n- Vulnerabilities: \(.vulnerabilities.total // 0)\n- Critical: \(.vulnerabilities.critical // 0)\n- High: \(.vulnerabilities.high // 0)\n- Medium: \(.vulnerabilities.moderate // 0)\n- Low: \(.vulnerabilities.low // 0)"' npm-audit-report.json >> security-report.md
-              
-              # Add detailed vulnerabilities if any exist
-              VULN_COUNT=$(jq '.metadata.vulnerabilities.total // 0' npm-audit-report.json)
-              if [ "$VULN_COUNT" -gt 0 ]; then
-                echo "" >> security-report.md
-                echo "**Top Vulnerabilities:**" >> security-report.md
-                echo "" >> security-report.md
-                jq -r '.vulnerabilities | to_entries | .[0:5] | .[] | "- **\(.value.name)** (\(.value.severity)): \(.value.title // "No title")"' npm-audit-report.json >> security-report.md 2>/dev/null || echo "Details not available" >> security-report.md
-              fi
+            if [ $DIFF -lt 0 ]; then
+              echo "✅ **Improved!** Fixed $((DIFF * -1)) vulnerabilities since last scan." >> security-report.md
+            elif [ $DIFF -gt 0 ]; then
+              echo "⚠️ **New Issues!** $DIFF new vulnerabilities detected since last scan." >> security-report.md
             else
-              echo "No vulnerabilities found or audit passed successfully" >> security-report.md
+              echo "➡️ **No Change** - Same vulnerability count as last scan." >> security-report.md
             fi
-          else
-            echo '*No npm audit report generated*' >> security-report.md
+            echo "" >> security-report.md
           fi
           
           cat >> security-report.md << 'EOF'
           
           ---
           
-          ## SCA: OWASP Dependency-Check
+          ## 🔍 Detailed Findings
+          
+          ### Production Dependencies (npm audit)
           
           EOF
           
-          if [ -d dependency-check-report ]; then
-            echo '*Detailed HTML report available in artifacts*' >> security-report.md
-            echo "" >> security-report.md
+          if [ -f npm-audit-report.json ] && jq -e '.metadata' npm-audit-report.json > /dev/null 2>&1; then
+            VULN_COUNT=$(jq '.metadata.vulnerabilities.total // 0' npm-audit-report.json)
             
-            # Try to extract summary from HTML report
-            if [ -f dependency-check-report/dependency-check-report.html ]; then
-              echo "Report generated successfully. Download artifacts for full details." >> security-report.md
+            if [ "$VULN_COUNT" -gt 0 ]; then
+              echo "| Package | Severity | Title | Fix Available | Dependency Path | Links |" >> security-report.md
+              echo "|---------|----------|-------|---------------|-----------------|-------|" >> security-report.md
+              
+              # Extract vulnerabilities with dependency paths and fix info
+              jq -r '
+                .vulnerabilities | to_entries | .[0:10] | .[] | 
+                {
+                  name: .value.name,
+                  severity: (.value.severity | ascii_upcase),
+                  title: (.value.title // "No title"),
+                  fixAvailable: (if .value.fixAvailable then "✅ Yes" else "❌ No" end),
+                  via: (.value.via | if type == "array" then .[0].name else . end),
+                  url: (.value.url // "")
+                } |
+                "| `\(.name)` | \(.severity) | \(.title) | \(.fixAvailable) | \(.via) | [\(.name)](\(.url)) |"
+              ' npm-audit-report.json >> security-report.md 2>/dev/null || echo "| Error parsing | - | - | - | - | - |" >> security-report.md
+              
+              echo "" >> security-report.md
+              echo "**💡 How to Fix:**" >> security-report.md
+              echo '```bash' >> security-report.md
+              echo "npm audit fix" >> security-report.md
+              echo "# Or for breaking changes:" >> security-report.md
+              echo "npm audit fix --force" >> security-report.md
+              echo '```' >> security-report.md
+            else
+              echo "✅ **No vulnerabilities found in production dependencies!**" >> security-report.md
             fi
           else
-            echo '*No Dependency-Check report generated*' >> security-report.md
+            echo "*No npm audit data available*" >> security-report.md
           fi
           
           cat >> security-report.md << 'EOF'
           
           ---
           
-          ## SAST: Trivy Filesystem Scan
+          ### Development Dependencies
+          
+          EOF
+          
+          # Check for dev dependencies vulnerabilities
+          if [ -f npm-audit-report.json ]; then
+            DEV_VULNS=$(jq '[.vulnerabilities | to_entries[] | select(.value.isDirect == false)] | length' npm-audit-report.json 2>/dev/null || echo 0)
+            echo "ℹ️ Found $DEV_VULNS vulnerabilities in development dependencies (lower priority)" >> security-report.md
+            echo "" >> security-report.md
+          fi
+          
+          cat >> security-report.md << 'EOF'
+          
+          ---
+          
+          ### Code Vulnerabilities (Trivy SAST)
           
           EOF
           
           if [ -f trivy-fs-report.json ]; then
-            # Check if there are any results
             RESULTS_COUNT=$(jq '[.Results[]?] | length' trivy-fs-report.json)
             
             if [ "$RESULTS_COUNT" -gt 0 ]; then
-              echo "**Vulnerabilities Found:**" >> security-report.md
-              echo "" >> security-report.md
+              echo "| CVE ID | Severity | Package | Installed | Fixed In | Description | Link |" >> security-report.md
+              echo "|--------|----------|---------|-----------|----------|-------------|------|" >> security-report.md
               
-              # Group by severity
-              jq -r '.Results[]? | select(.Vulnerabilities) | .Vulnerabilities | group_by(.Severity) | map({Severity: .[0].Severity, Count: length}) | .[] | "- \(.Severity): \(.Count)"' trivy-fs-report.json >> security-report.md 2>/dev/null || echo "No vulnerabilities found" >> security-report.md
-              
-              # Add top 5 critical/high vulnerabilities
-              echo "" >> security-report.md
-              echo "**Top Critical/High Vulnerabilities:**" >> security-report.md
-              echo "" >> security-report.md
-              jq -r '.Results[]? | select(.Vulnerabilities) | .Vulnerabilities[] | select(.Severity == "CRITICAL" or .Severity == "HIGH") | "- **\(.VulnerabilityID)** (\(.Severity)): \(.Title // .Description // "No description") - Package: \(.PkgName)"' trivy-fs-report.json | head -10 >> security-report.md 2>/dev/null || echo "No critical/high vulnerabilities" >> security-report.md
+              jq -r '
+                .Results[]? | select(.Vulnerabilities) | .Vulnerabilities[] | 
+                select(.Severity == "CRITICAL" or .Severity == "HIGH") |
+                "| [\(.VulnerabilityID)](https://nvd.nist.gov/vuln/detail/\(.VulnerabilityID)) | \(.Severity) | `\(.PkgName)` | \(.InstalledVersion) | \(.FixedVersion // "N/A") | \(.Title // .Description // "No description")[0:50]... | [Details](\(.PrimaryURL // "")) |"
+              ' trivy-fs-report.json | head -15 >> security-report.md 2>/dev/null || echo "| No data | - | - | - | - | - | - |" >> security-report.md
             else
-              echo "✅ No vulnerabilities found in filesystem scan" >> security-report.md
+              echo "✅ **No code vulnerabilities found!**" >> security-report.md
             fi
-          else
-            echo '*No Trivy filesystem report generated*' >> security-report.md
           fi
           
           cat >> security-report.md << 'EOF'
           
           ---
           
-          ## Configuration Scan
-          
-          EOF
-          
-          if [ -f trivy-config-report.json ]; then
-            RESULTS_COUNT=$(jq '[.Results[]?] | length' trivy-config-report.json)
-            
-            if [ "$RESULTS_COUNT" -gt 0 ]; then
-              echo "**Misconfigurations Found:**" >> security-report.md
-              echo "" >> security-report.md
-              
-              # Group by severity
-              jq -r '.Results[]? | select(.Misconfigurations) | .Misconfigurations | group_by(.Severity) | map({Severity: .[0].Severity, Count: length}) | .[] | "- \(.Severity): \(.Count)"' trivy-config-report.json >> security-report.md 2>/dev/null || echo "No misconfigurations found" >> security-report.md
-              
-              # Add details
-              echo "" >> security-report.md
-              echo "**Details:**" >> security-report.md
-              echo "" >> security-report.md
-              jq -r '.Results[]? | select(.Misconfigurations) | .Misconfigurations[] | select(.Severity == "CRITICAL" or .Severity == "HIGH" or .Severity == "MEDIUM") | "- **\(.ID)** (\(.Severity)): \(.Title) - File: \(.CauseMetadata.Resource // "N/A")"' trivy-config-report.json | head -10 >> security-report.md 2>/dev/null || echo "No significant misconfigurations" >> security-report.md
-            else
-              echo "✅ No misconfigurations found" >> security-report.md
-            fi
-          else
-            echo '*No Trivy config report generated*' >> security-report.md
-          fi
-          
-          cat >> security-report.md << 'EOF'
-          
-          ---
-          
-          ## DAST: OWASP ZAP Scan
+          ### DAST Findings (OWASP ZAP)
           
           EOF
           
           if [ -f report_html.html ]; then
-            echo "**ZAP Scan Completed**" >> security-report.md
+            echo "**Scan Completed:** ${{ inputs.dast_url }}" >> security-report.md
             echo "" >> security-report.md
-            echo "Target: ${{ inputs.dast_url }}" >> security-report.md
-            echo "" >> security-report.md
-            echo '*Full ZAP HTML report available in artifacts*' >> security-report.md
             
-            # Try to extract summary from ZAP report
-            if [ -f report_json.json ]; then
+            # Try to parse ZAP report for specific findings
+            if [ -f report_md.md ]; then
+              echo "**Key Findings:**" >> security-report.md
               echo "" >> security-report.md
-              echo "**Alert Summary:**" >> security-report.md
-              jq -r '.site[0].alerts[] | "- **\(.name)** (Risk: \(.riskdesc)): \(.desc[0:100])..."' report_json.json 2>/dev/null >> security-report.md || echo "See HTML report for details" >> security-report.md
+              
+              # Extract alerts from markdown report
+              grep -A 3 "##" report_md.md | head -20 >> security-report.md 2>/dev/null || echo "See full HTML report for details" >> security-report.md
+            else
+              echo "📄 Full HTML report available in artifacts" >> security-report.md
             fi
           else
-            echo '*No DAST scan performed*' >> security-report.md
-            echo "" >> security-report.md
-            if [ -z "${{ inputs.dast_url }}" ]; then
-              echo "ℹ️ To enable DAST scanning, provide a target URL when running the workflow manually." >> security-report.md
-            else
-              echo "⚠️ DAST scan was requested but did not complete. Check workflow logs for errors." >> security-report.md
-            fi
+            echo "ℹ️ No DAST scan performed. To enable, provide target URL when running workflow." >> security-report.md
           fi
+          
+          cat >> security-report.md << 'EOF'
+          
+          ---
+          
+          ## 🎯 Action Items for Developers
+          
+          ### Immediate (Critical/High - Production)
+          
+          EOF
+          
+          # Generate action items
+          if [ "$GRAND_CRIT" -gt 0 ] || [ "$GRAND_HIGH" -gt 0 ]; then
+            echo "1. **Run:** \`npm audit fix\`" >> security-report.md
+            echo "2. **Review:** Check the detailed table above for packages that need manual updates" >> security-report.md
+            echo "3. **Test:** Verify application works after updates" >> security-report.md
+            echo "4. **Deploy:** Push fixes to production within 24-48 hours" >> security-report.md
+          else
+            echo "✅ No immediate action required!" >> security-report.md
+          fi
+          
+          echo "" >> security-report.md
+          echo "### This Week (Medium)" >> security-report.md
+          echo "" >> security-report.md
+          
+          if [ "$GRAND_MED" -gt 0 ]; then
+            echo "- Schedule updates for medium-severity issues" >> security-report.md
+            echo "- Review dependency tree for transitive dependencies" >> security-report.md
+          else
+            echo "✅ No medium-severity issues" >> security-report.md
+          fi
+          
+          echo "" >> security-report.md
+          echo "---" >> security-report.md
+          echo "" >> security-report.md
+          fi
+
+      - name: Save Current Reports for Next Diff
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports-previous
+          path: |
+            npm-audit-report.json
+            trivy-fs-report.json
+          if-no-files-found: ignore
+        continue-on-error: true
 
       - name: Install Pandoc for PDF Generation
         run: |
