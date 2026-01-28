@@ -101,16 +101,20 @@ jobs:
 
       - name: Run OWASP ZAP Baseline Scan (DAST)
         if: ${{ inputs.dast_url != '' }}
-        uses: zaproxy/action-baseline@v0.13.0
-        with:
-          target: ${{ inputs.dast_url }}
-          cmd_options: '-T 300 -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5"'
-          fail_action: false
-          allow_issue_writing: false
+        run: |
+          docker pull ghcr.io/zaproxy/zaproxy:stable
+          docker run --rm \
+            -v ${{ github.workspace }}:/zap/wrk:rw \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+            -t "${{ inputs.dast_url }}" \
+            -r zap-report.html \
+            -J zap-report.json \
+            -w zap-report.md \
+            -T 300 \
+            -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" \
+            || true
         continue-on-error: true
-        env:
-          ZAP_AUTH_HEADER: ${{ secrets.ZAP_AUTH_HEADER }}
-          ZAP_AUTH_HEADER_VALUE: ${{ secrets.ZAP_AUTH_HEADER_VALUE }}
 
       - name: Upload ZAP Reports
         if: ${{ inputs.dast_url != '' }}
@@ -118,9 +122,9 @@ jobs:
         with:
           name: zap-scan-reports
           path: |
-            report_html.html
-            report_json.json
-            report_md.md
+            zap-report.html
+            zap-report.json
+            zap-report.md
           if-no-files-found: warn
         continue-on-error: true
 
@@ -324,17 +328,17 @@ jobs:
           
           EOF
           
-          if [ -f report_html.html ]; then
+          if [ -f zap-report.html ]; then
             echo "**Scan Completed:** ${{ inputs.dast_url }}" >> security-report.md
             echo "" >> security-report.md
             
             # Try to parse ZAP report for specific findings
-            if [ -f report_md.md ]; then
+            if [ -f zap-report.md ]; then
               echo "**Key Findings:**" >> security-report.md
               echo "" >> security-report.md
               
               # Extract alerts from markdown report
-              grep -A 3 "##" report_md.md | head -20 >> security-report.md 2>/dev/null || echo "See full HTML report for details" >> security-report.md
+              grep -A 3 "##" zap-report.md | head -20 >> security-report.md 2>/dev/null || echo "See full HTML report for details" >> security-report.md
             else
               echo "📄 Full HTML report available in artifacts" >> security-report.md
             fi
