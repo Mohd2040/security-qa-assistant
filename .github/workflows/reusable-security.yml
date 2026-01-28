@@ -123,7 +123,22 @@ jobs:
           if [ -f npm-audit-report.json ]; then
             echo "**Summary:**" >> security-report.md
             echo "" >> security-report.md
-            jq -r '.metadata | "- Total Dependencies: \(.dependencies // 0)\n- Vulnerabilities: \(.vulnerabilities.total // 0)\n- Critical: \(.vulnerabilities.critical // 0)\n- High: \(.vulnerabilities.high // 0)\n- Medium: \(.vulnerabilities.moderate // 0)\n- Low: \(.vulnerabilities.low // 0)"' npm-audit-report.json >> security-report.md || echo "Could not parse npm audit data" >> security-report.md
+            
+            # Check if metadata exists
+            if jq -e '.metadata' npm-audit-report.json > /dev/null 2>&1; then
+              jq -r '.metadata | "- Total Dependencies: \(.dependencies // 0)\n- Vulnerabilities: \(.vulnerabilities.total // 0)\n- Critical: \(.vulnerabilities.critical // 0)\n- High: \(.vulnerabilities.high // 0)\n- Medium: \(.vulnerabilities.moderate // 0)\n- Low: \(.vulnerabilities.low // 0)"' npm-audit-report.json >> security-report.md
+              
+              # Add detailed vulnerabilities if any exist
+              VULN_COUNT=$(jq '.metadata.vulnerabilities.total // 0' npm-audit-report.json)
+              if [ "$VULN_COUNT" -gt 0 ]; then
+                echo "" >> security-report.md
+                echo "**Top Vulnerabilities:**" >> security-report.md
+                echo "" >> security-report.md
+                jq -r '.vulnerabilities | to_entries | .[0:5] | .[] | "- **\(.value.name)** (\(.value.severity)): \(.value.title // "No title")"' npm-audit-report.json >> security-report.md 2>/dev/null || echo "Details not available" >> security-report.md
+              fi
+            else
+              echo "No vulnerabilities found or audit passed successfully" >> security-report.md
+            fi
           else
             echo '*No npm audit report generated*' >> security-report.md
           fi
@@ -138,6 +153,12 @@ jobs:
           
           if [ -d dependency-check-report ]; then
             echo '*Detailed HTML report available in artifacts*' >> security-report.md
+            echo "" >> security-report.md
+            
+            # Try to extract summary from HTML report
+            if [ -f dependency-check-report/dependency-check-report.html ]; then
+              echo "Report generated successfully. Download artifacts for full details." >> security-report.md
+            fi
           else
             echo '*No Dependency-Check report generated*' >> security-report.md
           fi
@@ -151,9 +172,24 @@ jobs:
           EOF
           
           if [ -f trivy-fs-report.json ]; then
-            echo "**Vulnerabilities Found:**" >> security-report.md
-            echo "" >> security-report.md
-            jq -r '.Results[]? | select(.Vulnerabilities) | .Vulnerabilities | group_by(.Severity) | map({Severity: .[0].Severity, Count: length}) | .[] | "- \(.Severity): \(.Count)"' trivy-fs-report.json >> security-report.md || echo "No vulnerabilities or parsing error" >> security-report.md
+            # Check if there are any results
+            RESULTS_COUNT=$(jq '[.Results[]?] | length' trivy-fs-report.json)
+            
+            if [ "$RESULTS_COUNT" -gt 0 ]; then
+              echo "**Vulnerabilities Found:**" >> security-report.md
+              echo "" >> security-report.md
+              
+              # Group by severity
+              jq -r '.Results[]? | select(.Vulnerabilities) | .Vulnerabilities | group_by(.Severity) | map({Severity: .[0].Severity, Count: length}) | .[] | "- \(.Severity): \(.Count)"' trivy-fs-report.json >> security-report.md 2>/dev/null || echo "No vulnerabilities found" >> security-report.md
+              
+              # Add top 5 critical/high vulnerabilities
+              echo "" >> security-report.md
+              echo "**Top Critical/High Vulnerabilities:**" >> security-report.md
+              echo "" >> security-report.md
+              jq -r '.Results[]? | select(.Vulnerabilities) | .Vulnerabilities[] | select(.Severity == "CRITICAL" or .Severity == "HIGH") | "- **\(.VulnerabilityID)** (\(.Severity)): \(.Title // .Description // "No description") - Package: \(.PkgName)"' trivy-fs-report.json | head -10 >> security-report.md 2>/dev/null || echo "No critical/high vulnerabilities" >> security-report.md
+            else
+              echo "✅ No vulnerabilities found in filesystem scan" >> security-report.md
+            fi
           else
             echo '*No Trivy filesystem report generated*' >> security-report.md
           fi
@@ -167,9 +203,23 @@ jobs:
           EOF
           
           if [ -f trivy-config-report.json ]; then
-            echo "**Misconfigurations Found:**" >> security-report.md
-            echo "" >> security-report.md
-            jq -r '.Results[]? | select(.Misconfigurations) | .Misconfigurations | group_by(.Severity) | map({Severity: .[0].Severity, Count: length}) | .[] | "- \(.Severity): \(.Count)"' trivy-config-report.json >> security-report.md || echo "No misconfigurations or parsing error" >> security-report.md
+            RESULTS_COUNT=$(jq '[.Results[]?] | length' trivy-config-report.json)
+            
+            if [ "$RESULTS_COUNT" -gt 0 ]; then
+              echo "**Misconfigurations Found:**" >> security-report.md
+              echo "" >> security-report.md
+              
+              # Group by severity
+              jq -r '.Results[]? | select(.Misconfigurations) | .Misconfigurations | group_by(.Severity) | map({Severity: .[0].Severity, Count: length}) | .[] | "- \(.Severity): \(.Count)"' trivy-config-report.json >> security-report.md 2>/dev/null || echo "No misconfigurations found" >> security-report.md
+              
+              # Add details
+              echo "" >> security-report.md
+              echo "**Details:**" >> security-report.md
+              echo "" >> security-report.md
+              jq -r '.Results[]? | select(.Misconfigurations) | .Misconfigurations[] | select(.Severity == "CRITICAL" or .Severity == "HIGH" or .Severity == "MEDIUM") | "- **\(.ID)** (\(.Severity)): \(.Title) - File: \(.CauseMetadata.Resource // "N/A")"' trivy-config-report.json | head -10 >> security-report.md 2>/dev/null || echo "No significant misconfigurations" >> security-report.md
+            else
+              echo "✅ No misconfigurations found" >> security-report.md
+            fi
           else
             echo '*No Trivy config report generated*' >> security-report.md
           fi
@@ -183,9 +233,26 @@ jobs:
           EOF
           
           if [ -f report_html.html ]; then
-            echo '*ZAP HTML report available in artifacts*' >> security-report.md
+            echo "**ZAP Scan Completed**" >> security-report.md
+            echo "" >> security-report.md
+            echo "Target: ${{ inputs.dast_url }}" >> security-report.md
+            echo "" >> security-report.md
+            echo '*Full ZAP HTML report available in artifacts*' >> security-report.md
+            
+            # Try to extract summary from ZAP report
+            if [ -f report_json.json ]; then
+              echo "" >> security-report.md
+              echo "**Alert Summary:**" >> security-report.md
+              jq -r '.site[0].alerts[] | "- **\(.name)** (Risk: \(.riskdesc)): \(.desc[0:100])..."' report_json.json 2>/dev/null >> security-report.md || echo "See HTML report for details" >> security-report.md
+            fi
           else
-            echo '*No DAST scan performed (requires target URL)*' >> security-report.md
+            echo '*No DAST scan performed*' >> security-report.md
+            echo "" >> security-report.md
+            if [ -z "${{ inputs.dast_url }}" ]; then
+              echo "ℹ️ To enable DAST scanning, provide a target URL when running the workflow manually." >> security-report.md
+            else
+              echo "⚠️ DAST scan was requested but did not complete. Check workflow logs for errors." >> security-report.md
+            fi
           fi
 
       - name: Install Pandoc for PDF Generation
