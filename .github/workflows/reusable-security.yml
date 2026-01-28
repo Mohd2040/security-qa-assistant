@@ -202,6 +202,46 @@ jobs:
             -V mainfont="DejaVu Sans"
         continue-on-error: true
 
+      - name: Enforce Security Policy (CRITICAL Vulnerabilities)
+        run: |
+          echo "=== Security Policy Enforcement ==="
+          
+          # Check npm audit for CRITICAL vulnerabilities
+          if [ -f npm-audit-report.json ]; then
+            NPM_CRITICAL=$(jq '.metadata.vulnerabilities.critical // 0' npm-audit-report.json)
+            echo "npm audit - CRITICAL: $NPM_CRITICAL"
+          else
+            NPM_CRITICAL=0
+          fi
+          
+          # Check Trivy for CRITICAL vulnerabilities
+          if [ -f trivy-fs-report.json ]; then
+            TRIVY_CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs-report.json)
+            echo "Trivy - CRITICAL: $TRIVY_CRITICAL"
+          else
+            TRIVY_CRITICAL=0
+          fi
+          
+          TOTAL_CRITICAL=$((NPM_CRITICAL + TRIVY_CRITICAL))
+          
+          echo ""
+          echo "📊 Security Summary:"
+          echo "  - npm audit CRITICAL: $NPM_CRITICAL"
+          echo "  - Trivy CRITICAL: $TRIVY_CRITICAL"
+          echo "  - TOTAL CRITICAL: $TOTAL_CRITICAL"
+          echo ""
+          
+          if [ $TOTAL_CRITICAL -gt 0 ]; then
+            echo "❌ SECURITY POLICY VIOLATION"
+            echo "Found $TOTAL_CRITICAL CRITICAL vulnerabilities"
+            echo "Deployment BLOCKED per security policy"
+            echo "Required action: Fix CRITICAL vulnerabilities within 24 hours"
+            exit 1
+          else
+            echo "✅ No CRITICAL vulnerabilities found"
+            echo "Security policy compliance: PASS"
+          fi
+
       - name: Display Reports in Logs
         run: |
           echo "=== Security Report Summary ==="

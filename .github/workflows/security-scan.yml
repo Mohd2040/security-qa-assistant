@@ -5,13 +5,16 @@ on:
     branches: [ "devops3" ]
   pull_request:
     branches: [ "devops3" ]
+  schedule:
+    # Run every Monday at 2 AM UTC for periodic assessment
+    #- cron: '0 2 * * 1'
   workflow_dispatch:
     inputs:
       dast_url:
         description: 'Target URL for DAST scan (optional)'
         required: false
         type: string
-        default: ''
+        default: 'https://security-qa-assistant.onrender.com'
 
 jobs:
   call-security-scan:
