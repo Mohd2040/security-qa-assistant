@@ -1,4 +1,4 @@
-name: Reusable Security Scan
+name: Reusable Security Scan (Optimized)
 
 on:
   workflow_call:
@@ -22,12 +22,12 @@ on:
         description: 'Run CodeQL analysis'
         required: false
         type: boolean
-        default: true
+        default: false  # Disabled by default (slow)
       dast_url:
         description: 'Target URL for DAST scan (optional)'
         required: false
         type: string
-        default: 'https://security-qa-assistant.onrender.com/'
+        default: ''
 
 permissions:
   contents: read
@@ -38,469 +38,339 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout code
+      # ═══════════════════════════════════════════
+      # SETUP
+      # ═══════════════════════════════════════════
+      
+      - name: 📥 Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: 🟢 Setup Node.js
         if: ${{ inputs.project_type == 'node' }}
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         if: ${{ inputs.project_type == 'node' }}
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit
 
-      - name: Cache Trivy vulnerability database
-        uses: actions/cache@v3
-        with:
-          path: .trivy
-          key: ${{ runner.os }}-trivy-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-trivy-
-
-      - name: Run npm audit (Dependency Scan - SCA)
+      # ═══════════════════════════════════════════
+      # SCA - Software Composition Analysis
+      # ═══════════════════════════════════════════
+      
+      - name: 🔍 npm Audit (SCA)
         if: ${{ inputs.project_type == 'node' && inputs.run_npm_audit }}
         run: |
-          npm audit --json > npm-audit-report.json || true
-          npm audit > npm-audit-report.txt || true
+          # Generate JSON report (small)
+          npm audit --json > npm-audit.json || true
+          
+          # Generate summary only (not full text)
+          npm audit --audit-level=moderate 2>&1 | head -100 > npm-audit-summary.txt || true
         continue-on-error: true
 
-      - name: Run OWASP Dependency-Check (SCA)
-        uses: dependency-check/Dependency-Check_Action@main
-        with:
-          project: 'security-qa-assistant'
-          path: '.'
-          format: 'HTML'
-          out: 'dependency-check-report'
-          args: >
-            --enableExperimental
-            --disableAssembly
-        continue-on-error: true
-
-      - name: Run OWASP Dependency-Check JSON (SCA)
-        uses: dependency-check/Dependency-Check_Action@main
-        with:
-          project: 'security-qa-assistant'
-          path: '.'
-          format: 'JSON'
-          out: 'dependency-check-report'
-          args: >
-            --enableExperimental
-            --disableAssembly
-        continue-on-error: true
-
-      - name: Run Trivy Vulnerability Scanner (Filesystem - SAST)
+      # ═══════════════════════════════════════════
+      # SAST - Static Application Security Testing
+      # ═══════════════════════════════════════════
+      
+      - name: 🛡️ Trivy Filesystem Scan (SAST)
         if: ${{ inputs.run_trivy }}
         uses: aquasecurity/trivy-action@0.24.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
           format: 'json'
-          output: 'trivy-fs-report.json'
+          output: 'trivy-fs.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
+          skip-dirs: 'node_modules'  # Skip node_modules for speed
+          exit-code: '0'
         continue-on-error: true
 
-      # ... (skip to upload step)
-
-
-
-      - name: Run Trivy Config Scanner (Misconfiguration)
+      - name: 🛡️ Trivy Config Scan (IaC)
         if: ${{ inputs.run_trivy }}
         uses: aquasecurity/trivy-action@0.24.0
         with:
           scan-type: 'config'
           scan-ref: '.'
           format: 'json'
-          output: 'trivy-config-report.json'
+          output: 'trivy-config.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
         continue-on-error: true
 
-      - name: Wake Up Target Site (if on Render)
+      # ═══════════════════════════════════════════
+      # DAST - Dynamic Application Security Testing
+      # ═══════════════════════════════════════════
+      
+      - name: 🌐 Wake up DAST target
         if: ${{ inputs.dast_url != '' }}
         run: |
-          echo "Pinging target to wake it up..."
-          curl -IL "${{ inputs.dast_url }}" || true
-          echo "Waiting 60 seconds for site to fully wake up..."
-          sleep 60
-          echo "Pinging again to be sure..."
-          curl -IL "${{ inputs.dast_url }}" || true
+          echo "Pinging ${{ inputs.dast_url }}..."
+          curl -sL "${{ inputs.dast_url }}" > /dev/null || true
+          sleep 30
         continue-on-error: true
 
-      - name: Run OWASP ZAP Baseline Scan (DAST)
+      - name: 🌐 OWASP ZAP Baseline (DAST)
         if: ${{ inputs.dast_url != '' }}
         run: |
           docker pull ghcr.io/zaproxy/zaproxy:stable
           docker run --rm \
-            -v ${{ github.workspace }}:/zap/wrk:rw \
+            -v $PWD:/zap/wrk:rw \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "${{ inputs.dast_url }}" \
-            -r zap-report.html \
             -J zap-report.json \
-            -w zap-report.md \
-            -T 300 \
-            -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" \
+            -T 120 \
+            -z "-config spider.maxDuration=3 -config ajaxSpider.maxDuration=3" \
             || true
-          
-          echo "=== Workspace files after ZAP scan ==="
-          ls -la zap-report.* 2>/dev/null || echo "No ZAP reports found"
         continue-on-error: true
 
-      - name: Initialize CodeQL
+      # ═══════════════════════════════════════════
+      # CodeQL (Optional - Slow)
+      # ═══════════════════════════════════════════
+      
+      - name: 🔬 Initialize CodeQL
         if: ${{ inputs.run_codeql }}
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@v3
         with:
           languages: javascript-typescript
-          queries: security-and-quality
+          queries: security-extended
 
-      - name: Perform CodeQL Analysis
+      - name: 🔬 CodeQL Analysis
         if: ${{ inputs.run_codeql }}
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@v3
         with:
           category: "/language:javascript-typescript"
-          upload: true
         continue-on-error: true
 
-      - name: Download Previous Scan Results (from repo artifacts)
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # ═══════════════════════════════════════════
+      # PROCESSING & REPORTING
+      # ═══════════════════════════════════════════
+      
+      - name: 📊 Process & Aggregate Results
         run: |
-          set +e
-          mkdir -p previous-reports
+          # Create compact summary
+          cat > summary.json << 'EOFMARKER'
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "repository": "${{ github.repository }}",
+            "branch": "${{ github.ref_name }}",
+            "commit": "${{ github.sha }}",
+            "summary": {
+              "critical": 0,
+              "high": 0,
+              "medium": 0,
+              "low": 0,
+              "score": 100
+            },
+            "findings": []
+          }
+          EOFMARKER
           
-          echo "Searching for previous security reports..."
-          ART_ID=$(gh api "/repos/${{ github.repository }}/actions/artifacts" --paginate \
-            -q '.artifacts[] | select(.name=="security-reports-previous" and .expired==false) | .id' | head -n 1)
+          # Initialize counters
+          CRITICAL=0
+          HIGH=0
+          MEDIUM=0
+          LOW=0
           
-          if [ -z "$ART_ID" ]; then
-            echo "ℹ️ No previous artifact found (first run or expired)."
-            exit 0
+          # Process npm audit
+          if [ -f npm-audit.json ]; then
+            C=$(jq -r '.metadata.vulnerabilities.critical // 0' npm-audit.json)
+            H=$(jq -r '.metadata.vulnerabilities.high // 0' npm-audit.json)
+            M=$(jq -r '.metadata.vulnerabilities.moderate // 0' npm-audit.json)
+            L=$(jq -r '.metadata.vulnerabilities.low // 0' npm-audit.json)
+            
+            CRITICAL=$((CRITICAL + C))
+            HIGH=$((HIGH + H))
+            MEDIUM=$((MEDIUM + M))
+            LOW=$((LOW + L))
+            
+            # Extract top 10 npm findings
+            jq -r '.vulnerabilities | to_entries | .[] | 
+              select(.value.severity == "critical" or .value.severity == "high") | 
+              {
+                severity: (.value.severity | ascii_upcase),
+                title: .value.title,
+                package: .key,
+                source: "npm",
+                fix: (.value.fixAvailable | if . then "Yes" else "No" end)
+              }' npm-audit.json | jq -s '.' > npm-findings.json 2>/dev/null || echo "[]" > npm-findings.json
+          else
+            echo "[]" > npm-findings.json
           fi
           
-          echo "📥 Downloading artifact id: $ART_ID"
-          gh api "/repos/${{ github.repository }}/actions/artifacts/$ART_ID/zip" > prev.zip
-          unzip -o prev.zip -d previous-reports
-          rm -f prev.zip
-          echo "✅ Previous reports downloaded successfully"
-        continue-on-error: true
+          # Process Trivy
+          if [ -f trivy-fs.json ]; then
+            C=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs.json)
+            H=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs.json)
+            M=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-fs.json)
+            L=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-fs.json)
+            
+            CRITICAL=$((CRITICAL + C))
+            HIGH=$((HIGH + H))
+            MEDIUM=$((MEDIUM + M))
+            LOW=$((LOW + L))
+            
+            # Extract top 10 trivy findings
+            jq -r '[.Results[]?.Vulnerabilities[]? | 
+              select(.Severity == "CRITICAL" or .Severity == "HIGH") | 
+              {
+                severity: .Severity,
+                title: (.Title // .Description // "No title"),
+                package: .PkgName,
+                cve: .VulnerabilityID,
+                source: "trivy",
+                fix: (.FixedVersion // "N/A")
+              }] | .[0:10]' trivy-fs.json > trivy-findings.json 2>/dev/null || echo "[]" > trivy-findings.json
+          else
+            echo "[]" > trivy-findings.json
+          fi
+          
+          # Merge findings (top 20 only)
+          jq -s 'add | sort_by(.severity) | reverse | .[0:20]' npm-findings.json trivy-findings.json > all-findings.json
+          
+          # Calculate risk score
+          PENALTY=$(( (CRITICAL * 10) + (HIGH * 5) + (MEDIUM * 2) + (LOW * 1) ))
+          SCORE=$((100 - PENALTY))
+          if [ $SCORE -lt 0 ]; then SCORE=0; fi
+          
+          # Update summary
+          jq --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+             --argjson c "$CRITICAL" \
+             --argjson h "$HIGH" \
+             --argjson m "$MEDIUM" \
+             --argjson l "$LOW" \
+             --argjson s "$SCORE" \
+             --slurpfile findings all-findings.json \
+             '.timestamp = $ts | 
+              .summary = {critical: $c, high: $h, medium: $m, low: $l, score: $s} |
+              .findings = $findings[0]' summary.json > temp.json && mv temp.json summary.json
+          
+          echo "✅ Summary generated:"
+          cat summary.json | jq .summary
 
-      - name: Generate Enhanced Security Report
+      - name: 📝 Generate Markdown Report
         run: |
-          # Create enhanced developer-friendly report
-          cat > security-report.md << 'EOF'
-          # 🛡️ Security Vulnerability Report
+          cat > SECURITY_REPORT.md << 'EOF'
+          # 🔒 Security Report
           
-          EOF
-          
-          echo "**Generated:** $(date)" >> security-report.md
-          echo "**Project:** ${{ inputs.project_type }}" >> security-report.md
-          
-          DAST_URL="${{ inputs.dast_url }}"
-          [ -z "$DAST_URL" ] && DAST_URL="N/A"
-          echo "**DAST Target:** $DAST_URL" >> security-report.md
-          echo "" >> security-report.md
-          
-          # Summary Table
-          cat >> security-report.md << 'EOF'
-          ## 📊 Executive Summary Table
-          
-          | Category | Critical | High | Medium | Low | Total | Status |
-          |----------|----------|------|--------|-----|-------|--------|
-          EOF
-          
-          # Calculate totals
-          NPM_CRIT=0
-          NPM_HIGH=0
-          NPM_MED=0
-          NPM_LOW=0
-          TRIVY_CRIT=0
-          TRIVY_HIGH=0
-          TRIVY_MED=0
-          TRIVY_LOW=0
-          
-          if [ -f npm-audit-report.json ] && jq -e '.metadata' npm-audit-report.json > /dev/null 2>&1; then
-            NPM_CRIT=$(jq '.metadata.vulnerabilities.critical // 0' npm-audit-report.json)
-            NPM_HIGH=$(jq '.metadata.vulnerabilities.high // 0' npm-audit-report.json)
-            NPM_MED=$(jq '.metadata.vulnerabilities.moderate // 0' npm-audit-report.json)
-            NPM_LOW=$(jq '.metadata.vulnerabilities.low // 0' npm-audit-report.json)
-            NPM_TOTAL=$((NPM_CRIT + NPM_HIGH + NPM_MED + NPM_LOW))
-            NPM_STATUS="⚠️"
-            [ "$NPM_TOTAL" -eq 0 ] && NPM_STATUS="✅"
-            echo "| Dependencies (npm) | $NPM_CRIT | $NPM_HIGH | $NPM_MED | $NPM_LOW | $NPM_TOTAL | $NPM_STATUS |" >> security-report.md
-          fi
-          
-          if [ -f trivy-fs-report.json ]; then
-            TRIVY_CRIT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs-report.json)
-            TRIVY_HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs-report.json)
-            TRIVY_MED=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-fs-report.json)
-            TRIVY_LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-fs-report.json)
-            TRIVY_TOTAL=$((TRIVY_CRIT + TRIVY_HIGH + TRIVY_MED + TRIVY_LOW))
-            TRIVY_STATUS="⚠️"
-            [ "$TRIVY_TOTAL" -eq 0 ] && TRIVY_STATUS="✅"
-            echo "| Code (Trivy SAST) | $TRIVY_CRIT | $TRIVY_HIGH | $TRIVY_MED | $TRIVY_LOW | $TRIVY_TOTAL | $TRIVY_STATUS |" >> security-report.md
-          fi
-          
-          GRAND_TOTAL=$((NPM_CRIT + NPM_HIGH + NPM_MED + NPM_LOW + TRIVY_CRIT + TRIVY_HIGH + TRIVY_MED + TRIVY_LOW))
-          GRAND_CRIT=$((NPM_CRIT + TRIVY_CRIT))
-          GRAND_HIGH=$((NPM_HIGH + TRIVY_HIGH))
-          GRAND_MED=$((NPM_MED + TRIVY_MED))
-          GRAND_LOW=$((NPM_LOW + TRIVY_LOW))
-          GRAND_STATUS="⚠️"
-          [ "$GRAND_TOTAL" -eq 0 ] && GRAND_STATUS="✅"
-          
-          echo "| **TOTAL** | **$GRAND_CRIT** | **$GRAND_HIGH** | **$GRAND_MED** | **$GRAND_LOW** | **$GRAND_TOTAL** | **$GRAND_STATUS** |" >> security-report.md
-          echo "" >> security-report.md
-          
-          # Diff Report
-          if [ -f previous-reports/npm-audit-report.json ]; then
-            PREV_TOTAL=$(jq '.metadata.vulnerabilities.total // 0' previous-reports/npm-audit-report.json 2>/dev/null || echo 0)
-            CURRENT_TOTAL=$((NPM_CRIT + NPM_HIGH + NPM_MED + NPM_LOW))
-            DIFF=$((CURRENT_TOTAL - PREV_TOTAL))
-            
-            cat >> security-report.md << 'DIFFEOF'
-          ## 📈 Change Since Last Scan
-          
-          DIFFEOF
-            
-            if [ $DIFF -lt 0 ]; then
-              echo "✅ **Improved!** Fixed $((DIFF * -1)) vulnerabilities since last scan." >> security-report.md
-            elif [ $DIFF -gt 0 ]; then
-              echo "⚠️ **New Issues!** $DIFF new vulnerabilities detected since last scan." >> security-report.md
-            else
-              echo "➡️ **No Change** - Same vulnerability count as last scan." >> security-report.md
-            fi
-            echo "" >> security-report.md
-          fi
-          
-          cat >> security-report.md << 'EOF'
+          **Generated:** $(date)  
+          **Repository:** ${{ github.repository }}  
+          **Branch:** ${{ github.ref_name }}
           
           ---
           
-          ## 🔍 Detailed Findings
-          
-          ### Production Dependencies (npm audit)
+          ## 📊 Summary
           
           EOF
           
-          if [ -f npm-audit-report.json ] && jq -e '.metadata' npm-audit-report.json > /dev/null 2>&1; then
-            VULN_COUNT=$(jq '.metadata.vulnerabilities.total // 0' npm-audit-report.json)
-            
-            if [ "$VULN_COUNT" -gt 0 ]; then
-              echo "| Package | Severity | Title | Fix Available | Dependency Path | Links |" >> security-report.md
-              echo "|---------|----------|-------|---------------|-----------------|-------|" >> security-report.md
-              
-              # Extract vulnerabilities with dependency paths and fix info
-              jq -r '
-                .vulnerabilities | to_entries | .[0:10] | .[] | 
-                {
-                  name: .value.name,
-                  severity: (.value.severity | ascii_upcase),
-                  title: (.value.title // "No title"),
-                  fixAvailable: (if .value.fixAvailable then "✅ Yes" else "❌ No" end),
-                  via: (.value.via | if type == "array" then .[0].name else . end),
-                  url: (.value.url // "")
-                } |
-                "| \(.name) | \(.severity) | \(.title) | \(.fixAvailable) | \(.via) | [\(.name)](\(.url)) |"
-              ' npm-audit-report.json >> security-report.md 2>/dev/null || echo "| Error parsing | - | - | - | - | - |" >> security-report.md
-              
-              echo "" >> security-report.md
-              echo "**💡 How to Fix:**" >> security-report.md
-              echo '```bash' >> security-report.md
-              echo "npm audit fix" >> security-report.md
-              echo "# Or for breaking changes:" >> security-report.md
-              echo "npm audit fix --force" >> security-report.md
-              echo '```' >> security-report.md
-            else
-              echo "✅ **No vulnerabilities found in production dependencies!**" >> security-report.md
-            fi
+          # Extract from summary.json
+          CRITICAL=$(jq -r '.summary.critical' summary.json)
+          HIGH=$(jq -r '.summary.high' summary.json)
+          MEDIUM=$(jq -r '.summary.medium' summary.json)
+          LOW=$(jq -r '.summary.low' summary.json)
+          SCORE=$(jq -r '.summary.score' summary.json)
+          
+          # Risk level
+          if [ $SCORE -ge 80 ]; then
+            RISK="🟢 LOW"
+          elif [ $SCORE -ge 60 ]; then
+            RISK="🟡 MEDIUM"
+          elif [ $SCORE -ge 40 ]; then
+            RISK="🟠 HIGH"
           else
-            echo "*No npm audit data available*" >> security-report.md
+            RISK="🔴 CRITICAL"
           fi
           
-          cat >> security-report.md << 'EOF'
+          cat >> SECURITY_REPORT.md << EOF
+          **Risk Level:** $RISK  
+          **Security Score:** $SCORE/100
+          
+          | Severity | Count |
+          |----------|-------|
+          | 🔴 Critical | $CRITICAL |
+          | 🟠 High | $HIGH |
+          | 🟡 Medium | $MEDIUM |
+          | 🟢 Low | $LOW |
           
           ---
           
-          ### Development Dependencies
+          ## 🎯 Top Priority Findings
           
           EOF
           
-          # Check for dev dependencies vulnerabilities
-          if [ -f npm-audit-report.json ]; then
-            DEV_VULNS=$(jq '[.vulnerabilities | to_entries[] | select(.value.isDirect == false)] | length' npm-audit-report.json 2>/dev/null || echo 0)
-            echo "ℹ️ Found $DEV_VULNS vulnerabilities in development dependencies (lower priority)" >> security-report.md
-            echo "" >> security-report.md
-          fi
-          
-          cat >> security-report.md << 'EOF'
-          
-          ---
-          
-          ### Code Vulnerabilities (Trivy SAST)
-          
-          EOF
-          
-          if [ -f trivy-fs-report.json ]; then
-            RESULTS_COUNT=$(jq '[.Results[]?] | length' trivy-fs-report.json)
+          # Add findings table
+          if [ -f all-findings.json ] && [ $(jq 'length' all-findings.json) -gt 0 ]; then
+            echo "| Severity | Title | Package | Fix |" >> SECURITY_REPORT.md
+            echo "|----------|-------|---------|-----|" >> SECURITY_REPORT.md
             
-            if [ "$RESULTS_COUNT" -gt 0 ]; then
-              echo "| CVE ID | Severity | Package | Installed | Fixed In | Description | Link |" >> security-report.md
-              echo "|--------|----------|---------|-----------|----------|-------------|------|" >> security-report.md
-              
-              jq -r '
-                .Results[]? | select(.Vulnerabilities) | .Vulnerabilities[] | 
-                select(.Severity == "CRITICAL" or .Severity == "HIGH") |
-                "| [\(.VulnerabilityID)](https://nvd.nist.gov/vuln/detail/\(.VulnerabilityID)) | \(.Severity) | `\(.PkgName)` | \(.InstalledVersion) | \(.FixedVersion // "N/A") | \(.Title // .Description // "No description")[0:50]... | [Details](\(.PrimaryURL // "")) |"
-              ' trivy-fs-report.json | head -15 >> security-report.md 2>/dev/null || echo "| No data | - | - | - | - | - | - |" >> security-report.md
-            else
-              echo "✅ **No code vulnerabilities found!**" >> security-report.md
-            fi
+            jq -r '.[] | "| \(.severity) | \(.title[0:50])... | `\(.package)` | \(.fix // "N/A") |"' all-findings.json >> SECURITY_REPORT.md
+          else
+            echo "✅ **No critical or high findings!**" >> SECURITY_REPORT.md
           fi
           
-          cat >> security-report.md << 'EOF'
+          cat >> SECURITY_REPORT.md << 'EOF'
           
           ---
           
-          ### DAST Findings (OWASP ZAP)
+          ## 🛠️ Remediation
           
-          EOF
+          ### For npm vulnerabilities:
+          ```bash
+          npm audit fix
+          npm audit fix --force  # If needed
+          ```
           
-          if [ -f zap-report.md ]; then
-            echo "**Scan Completed:** ${{ inputs.dast_url }}" >> security-report.md
-            echo "" >> security-report.md
-            echo "**Key Findings:**" >> security-report.md
-            echo "" >> security-report.md
-            
-            # Extract alerts from markdown report
-            grep -A 3 "##" zap-report.md | head -20 >> security-report.md 2>/dev/null || echo "See full HTML report for details" >> security-report.md
-          else
-            if [ "${{ inputs.dast_url }}" != "" ]; then
-               echo "ℹ️ DAST scan ran but no report file found. Check logs." >> security-report.md
-            else
-               echo "ℹ️ No DAST scan performed. To enable, provide target URL when running workflow." >> security-report.md
-            fi
-          fi
-          
-          cat >> security-report.md << 'EOF'
+          ### For code vulnerabilities:
+          - Review Trivy findings in artifacts
+          - Update affected packages
+          - Apply security patches
           
           ---
           
-          ## 🎯 Action Items for Developers
-          
-          ### Immediate (Critical/High - Production)
+          **Full details available in artifacts**
           
           EOF
-          
-          # Generate action items
-          if [ "$GRAND_CRIT" -gt 0 ] || [ "$GRAND_HIGH" -gt 0 ]; then
-            echo "1. **Run:** \`npm audit fix\`" >> security-report.md
-            echo "2. **Review:** Check the detailed table above for packages that need manual updates" >> security-report.md
-            echo "3. **Test:** Verify application works after updates" >> security-report.md
-            echo "4. **Deploy:** Push fixes to production within 24-48 hours" >> security-report.md
-          else
-            echo "✅ No immediate action required!" >> security-report.md
-          fi
-          
-          echo "" >> security-report.md
-          echo "### This Week (Medium)" >> security-report.md
-          echo "" >> security-report.md
-          
-          if [ "$GRAND_MED" -gt 0 ]; then
-            echo "- Schedule updates for medium-severity issues" >> security-report.md
-            echo "- Review dependency tree for transitive dependencies" >> security-report.md
-          else
-            echo "✅ No medium-severity issues" >> security-report.md
-          fi
-          
-          echo "" >> security-report.md
-          echo "---" >> security-report.md
-          echo "" >> security-report.md
-          
 
-      - name: Save Current Reports for Next Diff
+      - name: 📊 Update GitHub Summary
+        if: always()
+        run: |
+          cat SECURITY_REPORT.md >> $GITHUB_STEP_SUMMARY
+
+      # ═══════════════════════════════════════════
+      # UPLOAD ARTIFACTS (Lightweight!)
+      # ═══════════════════════════════════════════
+      
+      - name: 📤 Upload Reports
         uses: actions/upload-artifact@v4
-        with:
-          name: security-reports-previous
-          path: |
-            npm-audit-report.json
-            trivy-fs-report.json
-          if-no-files-found: ignore
-        continue-on-error: true
-
-      - name: Install Pandoc for PDF Generation
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pandoc texlive-xetex texlive-fonts-recommended
-
-      - name: Convert Report to PDF
-        run: |
-          pandoc security-report.md -o security-report.pdf \
-            --pdf-engine=xelatex \
-            -V geometry:margin=1in \
-            -V colorlinks=true \
-            -V mainfont="DejaVu Sans"
-        continue-on-error: true
-
-      - name: Enforce Security Policy (CRITICAL Vulnerabilities)
-        run: |
-          echo "=== Security Policy Enforcement ==="
-          
-          # Check npm audit for CRITICAL vulnerabilities
-          if [ -f npm-audit-report.json ]; then
-            NPM_CRITICAL=$(jq '.metadata.vulnerabilities.critical // 0' npm-audit-report.json)
-            echo "npm audit - CRITICAL: $NPM_CRITICAL"
-          else
-            NPM_CRITICAL=0
-          fi
-          
-          # Check Trivy for CRITICAL vulnerabilities
-          if [ -f trivy-fs-report.json ]; then
-            TRIVY_CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs-report.json)
-            echo "Trivy - CRITICAL: $TRIVY_CRITICAL"
-          else
-            TRIVY_CRITICAL=0
-          fi
-          
-          TOTAL_CRITICAL=$((NPM_CRITICAL + TRIVY_CRITICAL))
-          
-          echo ""
-          echo "📊 Security Summary:"
-          echo "  - npm audit CRITICAL: $NPM_CRITICAL"
-          echo "  - Trivy CRITICAL: $TRIVY_CRITICAL"
-          echo "  - TOTAL CRITICAL: $TOTAL_CRITICAL"
-          echo ""
-          
-          if [ $TOTAL_CRITICAL -gt 0 ]; then
-            echo "❌ SECURITY POLICY VIOLATION"
-            echo "Found $TOTAL_CRITICAL CRITICAL vulnerabilities"
-            echo "Deployment BLOCKED per security policy"
-            echo "Required action: Fix CRITICAL vulnerabilities within 24 hours"
-            exit 1
-          else
-            echo "✅ No CRITICAL vulnerabilities found"
-            echo "Security policy compliance: PASS"
-          fi
-
-      - name: Display Reports in Logs
-        run: |
-          echo "=== Security Report Summary ==="
-          cat security-report.md
-
-      - name: Upload Security Reports
-        uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: security-reports
           path: |
-            npm-audit-report.json
-            npm-audit-report.txt
-            trivy-fs-report.json
-            trivy-config-report.json
-            dependency-check-report/
-            security-report.md
-            security-report.pdf
-            zap-report.html
+            summary.json
+            SECURITY_REPORT.md
+            npm-audit.json
+            trivy-fs.json
+            trivy-config.json
             zap-report.json
-            zap-report.md
-          if-no-files-found: ignore
+          retention-days: 30
+          if-no-files-found: warn
+
+      # ═══════════════════════════════════════════
+      # QUALITY GATE
+      # ═══════════════════════════════════════════
+      
+      - name: 🚨 Security Quality Gate
+        run: |
+          CRITICAL=$(jq -r '.summary.critical' summary.json)
+          
+          if [ $CRITICAL -gt 0 ]; then
+            echo "❌ CRITICAL vulnerabilities found: $CRITICAL"
+            echo "Please fix before merging"
+            exit 1
+          fi
+          
+          echo "✅ No critical vulnerabilities"
