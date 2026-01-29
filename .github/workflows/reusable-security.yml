@@ -72,8 +72,23 @@ jobs:
         with:
           project: 'security-qa-assistant'
           path: '.'
-          format: 'ALL'
+          format: 'HTML'
           out: 'dependency-check-report'
+          args: >
+            --enableExperimental
+            --disableAssembly
+        continue-on-error: true
+
+      - name: Run OWASP Dependency-Check JSON (SCA)
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'security-qa-assistant'
+          path: '.'
+          format: 'JSON'
+          out: 'dependency-check-report'
+          args: >
+            --enableExperimental
+            --disableAssembly
         continue-on-error: true
 
       - name: Run Trivy Vulnerability Scanner (Filesystem - SAST)
@@ -352,22 +367,20 @@ jobs:
           
           EOF
           
-          if [ -f zap-report.html ]; then
+          if [ -f zap-report.md ]; then
             echo "**Scan Completed:** ${{ inputs.dast_url }}" >> security-report.md
             echo "" >> security-report.md
+            echo "**Key Findings:**" >> security-report.md
+            echo "" >> security-report.md
             
-            # Try to parse ZAP report for specific findings
-            if [ -f zap-report.md ]; then
-              echo "**Key Findings:**" >> security-report.md
-              echo "" >> security-report.md
-              
-              # Extract alerts from markdown report
-              grep -A 3 "##" zap-report.md | head -20 >> security-report.md 2>/dev/null || echo "See full HTML report for details" >> security-report.md
-            else
-              echo "📄 Full HTML report available in artifacts" >> security-report.md
-            fi
+            # Extract alerts from markdown report
+            grep -A 3 "##" zap-report.md | head -20 >> security-report.md 2>/dev/null || echo "See full HTML report for details" >> security-report.md
           else
-            echo "ℹ️ No DAST scan performed. To enable, provide target URL when running workflow." >> security-report.md
+            if [ "${{ inputs.dast_url }}" != "" ]; then
+               echo "ℹ️ DAST scan ran but no report file found. Check logs." >> security-report.md
+            else
+               echo "ℹ️ No DAST scan performed. To enable, provide target URL when running workflow." >> security-report.md
+            fi
           fi
           
           cat >> security-report.md << 'EOF'
