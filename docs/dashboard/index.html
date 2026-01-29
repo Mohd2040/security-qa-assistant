@@ -13,9 +13,10 @@
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             min-height: 100vh;
             padding: 2rem;
+            color: #333;
         }
 
         .container {
@@ -24,336 +25,358 @@
         }
 
         .header {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
+            background: white;
+            border-radius: 16px;
             padding: 2rem;
             margin-bottom: 2rem;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
-        .header h1 {
-            font-size: 2.5rem;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+        .header-content h1 {
+            font-size: 1.8rem;
+            color: #2d3748;
             margin-bottom: 0.5rem;
         }
 
-        .header p {
-            color: #666;
-            font-size: 1.1rem;
+        .header-content p {
+            color: #718096;
+        }
+
+        .score-card {
+            text-align: center;
+            padding: 1rem 2rem;
+            background: #f8f9fa;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .score-value {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: #2d3748;
+        }
+
+        .score-label {
+            font-size: 0.9rem;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
         }
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
         }
 
         .stat-card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
+            background: white;
+            border-radius: 12px;
             padding: 1.5rem;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            transition: transform 0.2s;
         }
 
         .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+            transform: translateY(-2px);
         }
 
-        .stat-card.critical {
-            border-left: 5px solid #dc3545;
-        }
-
-        .stat-card.high {
-            border-left: 5px solid #fd7e14;
-        }
-
-        .stat-card.medium {
-            border-left: 5px solid #ffc107;
-        }
-
-        .stat-card.low {
-            border-left: 5px solid #28a745;
-        }
+        .stat-card.critical { border-top: 4px solid #e53e3e; }
+        .stat-card.high { border-top: 4px solid #dd6b20; }
+        .stat-card.medium { border-top: 4px solid #d69e2e; }
+        .stat-card.low { border-top: 4px solid #38a169; }
 
         .stat-label {
-            font-size: 0.9rem;
-            color: #666;
+            font-size: 0.85rem;
+            color: #718096;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 0.5rem;
+            font-weight: 600;
         }
 
         .stat-value {
-            font-size: 2.5rem;
-            font-weight: bold;
-            color: #333;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-top: 0.5rem;
+            color: #2d3748;
         }
 
         .chart-container {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 2rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            background: white;
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            height: 400px;
         }
 
-        .chart-container h2 {
+        .table-container {
+            background: white;
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+        }
+
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 1.5rem;
-            color: #333;
         }
 
-        .vulnerability-list {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 2rem;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        table {
+            width: 100%;
+            border-collapse: collapse;
         }
 
-        .vulnerability-item {
-            border-left: 4px solid #667eea;
+        th {
+            text-align: left;
             padding: 1rem;
-            margin-bottom: 1rem;
-            background: #f8f9fa;
-            border-radius: 8px;
-            transition: background 0.3s ease;
-        }
-
-        .vulnerability-item:hover {
-            background: #e9ecef;
-        }
-
-        .vulnerability-item h3 {
-            color: #333;
-            margin-bottom: 0.5rem;
-        }
-
-        .vulnerability-item p {
-            color: #666;
+            background: #f7fafc;
+            color: #4a5568;
+            font-weight: 600;
             font-size: 0.9rem;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid #e2e8f0;
+            color: #2d3748;
+            font-size: 0.95rem;
+        }
+
+        tr:hover {
+            background-color: #f8f9fa;
         }
 
         .badge {
-            display: inline-block;
             padding: 0.25rem 0.75rem;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: bold;
-            margin-right: 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
         }
 
-        .badge.critical {
-            background: #dc3545;
-            color: white;
+        .badge.critical { background: #fed7d7; color: #c53030; }
+        .badge.high { background: #feebc8; color: #c05621; }
+        .badge.medium { background: #fefcbf; color: #b7791f; }
+        .badge.low { background: #c6f6d5; color: #2f855a; }
+
+        .source-badge {
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: #edf2f7;
+            color: #4a5568;
         }
 
-        .badge.high {
-            background: #fd7e14;
-            color: white;
+        .link-icon {
+            text-decoration: none;
+            color: #4299e1;
+            font-weight: 600;
         }
 
-        .badge.medium {
-            background: #ffc107;
-            color: #333;
+        .link-icon:hover {
+            text-decoration: underline;
         }
 
-        .badge.low {
-            background: #28a745;
-            color: white;
-        }
-
-        .last-updated {
-            text-align: center;
-            color: rgba(255, 255, 255, 0.8);
-            margin-top: 2rem;
-            font-size: 0.9rem;
-        }
-
-        canvas {
-            max-height: 400px;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 3rem;
-            color: white;
-            font-size: 1.2rem;
+        @media (max-width: 1024px) {
+            .grid-container {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🛡️ Security Dashboard</h1>
-            <p>Real-time Vulnerability Management & Compliance Tracking</p>
-        </div>
-
-        <div class="stats-grid" id="statsGrid">
-            <div class="stat-card critical">
-                <div class="stat-label">Critical</div>
-                <div class="stat-value" id="criticalCount">-</div>
+            <div class="header-content">
+                <h1>🛡️ Security Center</h1>
+                <p>Real-time Vulnerability Management Dashboard</p>
+                <div id="lastUpdated" style="font-size: 0.85rem; margin-top: 0.5rem; color: #a0aec0;"></div>
             </div>
-            <div class="stat-card high">
-                <div class="stat-label">High</div>
-                <div class="stat-value" id="highCount">-</div>
-            </div>
-            <div class="stat-card medium">
-                <div class="stat-label">Medium</div>
-                <div class="stat-value" id="mediumCount">-</div>
-            </div>
-            <div class="stat-card low">
-                <div class="stat-label">Low</div>
-                <div class="stat-value" id="lowCount">-</div>
+            <div class="score-card">
+                <div class="score-value" id="securityScore">-</div>
+                <div class="score-label">Security Score</div>
             </div>
         </div>
 
-        <div class="chart-container">
-            <h2>📊 Vulnerability Trends</h2>
-            <canvas id="trendChart"></canvas>
-        </div>
+        <div class="grid-container">
+            <div class="stats-grid">
+                <div class="stat-card critical">
+                    <div class="stat-label">Critical</div>
+                    <div class="stat-value" id="criticalCount">-</div>
+                </div>
+                <div class="stat-card high">
+                    <div class="stat-label">High</div>
+                    <div class="stat-value" id="highCount">-</div>
+                </div>
+                <div class="stat-card medium">
+                    <div class="stat-label">Medium</div>
+                    <div class="stat-value" id="mediumCount">-</div>
+                </div>
+                <div class="stat-card low">
+                    <div class="stat-label">Low</div>
+                    <div class="stat-value" id="lowCount">-</div>
+                </div>
+            </div>
 
-        <div class="vulnerability-list">
-            <h2>🔍 Recent Findings</h2>
-            <div id="vulnerabilityList" class="loading">
-                Loading vulnerability data...
+            <div class="chart-container">
+                <canvas id="trendChart"></canvas>
             </div>
         </div>
 
-        <div class="last-updated" id="lastUpdated">
-            Last updated: Loading...
+        <div class="table-container">
+            <div class="table-header">
+                <h2>🏆 Top 20 Findings</h2>
+            </div>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Severity</th>
+                            <th>Vulnerability</th>
+                            <th>Package</th>
+                            <th>Source</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vulnerabilityTable">
+                        <tr><td colspan="5" style="text-align: center;">Loading data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
-        // Load security data
-        async function loadSecurityData() {
+        async function loadData() {
             try {
                 const response = await fetch('security-data.json');
                 const data = await response.json();
                 
-                // Update stats
-                document.getElementById('criticalCount').textContent = data.summary.critical || 0;
-                document.getElementById('highCount').textContent = data.summary.high || 0;
-                document.getElementById('mediumCount').textContent = data.summary.medium || 0;
-                document.getElementById('lowCount').textContent = data.summary.low || 0;
-                
-                // Update vulnerability list
-                const listContainer = document.getElementById('vulnerabilityList');
+                // Update Score
+                const score = data.summary.score || 0;
+                const scoreEl = document.getElementById('securityScore');
+                scoreEl.textContent = score;
+                scoreEl.style.color = score >= 90 ? '#38a169' : (score >= 70 ? '#d69e2e' : '#e53e3e');
+
+                // Update Stats
+                document.getElementById('criticalCount').textContent = data.summary.critical;
+                document.getElementById('highCount').textContent = data.summary.high;
+                document.getElementById('mediumCount').textContent = data.summary.medium;
+                document.getElementById('lowCount').textContent = data.summary.low;
+                document.getElementById('lastUpdated').textContent = `Last updated: ${new Date(data.timestamp).toLocaleString()}`;
+
+                // Update Table
+                const tbody = document.getElementById('vulnerabilityTable');
                 if (data.vulnerabilities && data.vulnerabilities.length > 0) {
-                    listContainer.innerHTML = data.vulnerabilities.map(vuln => `
-                        <div class="vulnerability-item">
-                            <h3>
-                                <span class="badge ${vuln.severity.toLowerCase()}">${vuln.severity}</span>
-                                ${vuln.id || 'N/A'}
-                            </h3>
-                            <p><strong>${vuln.title}</strong></p>
-                            <p>${vuln.description || 'No description available'}</p>
-                            <p><small>Package: ${vuln.package || 'N/A'} | Source: ${vuln.source || 'N/A'}</small></p>
-                        </div>
+                    tbody.innerHTML = data.vulnerabilities.map(v => `
+                        <tr>
+                            <td><span class="badge ${v.severity.toLowerCase()}">${v.severity}</span></td>
+                            <td>${v.title}</td>
+                            <td><code>${v.package || 'N/A'}</code></td>
+                            <td><span class="source-badge">${v.source}</span></td>
+                            <td>${v.link ? `<a href="${v.link}" target="_blank" class="link-icon">Fix ↗</a>` : '-'}</td>
+                        </tr>
                     `).join('');
                 } else {
-                    listContainer.innerHTML = '<p style="text-align: center; color: #28a745; font-size: 1.2rem;">✅ No vulnerabilities found!</p>';
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem;">✅ No vulnerabilities found!</td></tr>';
                 }
-                
-                // Update chart
-                createTrendChart(data.trends || []);
-                
-                // Update timestamp
-                document.getElementById('lastUpdated').textContent = 
-                    `Last updated: ${new Date(data.timestamp || Date.now()).toLocaleString()}`;
-                    
-            } catch (error) {
-                console.error('Error loading security data:', error);
-                document.getElementById('vulnerabilityList').innerHTML = 
-                    '<p style="text-align: center; color: #dc3545;">❌ Error loading data. Please check security-data.json file.</p>';
+
+                // Update Chart
+                renderChart(data.trends || []);
+
+            } catch (e) {
+                console.error("Error loading data:", e);
+                document.getElementById('vulnerabilityTable').innerHTML = '<tr><td colspan="5" style="text-align: center; color: red;">Error loading data</td></tr>';
             }
         }
 
-        function createTrendChart(trends) {
+        function renderChart(trends) {
             const ctx = document.getElementById('trendChart').getContext('2d');
             
-            // Sample data if no trends provided
-            const defaultTrends = [
-                { date: 'Week 1', critical: 2, high: 5, medium: 8, low: 3 },
-                { date: 'Week 2', critical: 1, high: 4, medium: 6, low: 2 },
-                { date: 'Week 3', critical: 0, high: 3, medium: 5, low: 1 },
-                { date: 'Week 4', critical: 0, high: 2, medium: 3, low: 1 }
-            ];
-            
-            const data = trends.length > 0 ? trends : defaultTrends;
-            
+            // If no trends, use current data as single point or empty
+            const labels = trends.map(t => t.date);
+            const criticalData = trends.map(t => t.critical);
+            const highData = trends.map(t => t.high);
+            const scoreData = trends.map(t => t.score);
+
             new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: data.map(d => d.date),
+                    labels: labels,
                     datasets: [
                         {
+                            label: 'Security Score',
+                            data: scoreData,
+                            borderColor: '#4a5568',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            yAxisID: 'y1',
+                            tension: 0.4,
+                            pointRadius: 0
+                        },
+                        {
                             label: 'Critical',
-                            data: data.map(d => d.critical),
-                            borderColor: '#dc3545',
-                            backgroundColor: 'rgba(220, 53, 69, 0.1)',
-                            tension: 0.4
+                            data: criticalData,
+                            borderColor: '#e53e3e',
+                            backgroundColor: 'rgba(229, 62, 62, 0.1)',
+                            fill: true,
+                            tension: 0.4,
+                            yAxisID: 'y'
                         },
                         {
                             label: 'High',
-                            data: data.map(d => d.high),
-                            borderColor: '#fd7e14',
-                            backgroundColor: 'rgba(253, 126, 20, 0.1)',
-                            tension: 0.4
-                        },
-                        {
-                            label: 'Medium',
-                            data: data.map(d => d.medium),
-                            borderColor: '#ffc107',
-                            backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                            tension: 0.4
-                        },
-                        {
-                            label: 'Low',
-                            data: data.map(d => d.low),
-                            borderColor: '#28a745',
-                            backgroundColor: 'rgba(40, 167, 69, 0.1)',
-                            tension: 0.4
+                            data: highData,
+                            borderColor: '#dd6b20',
+                            backgroundColor: 'rgba(221, 107, 32, 0.1)',
+                            fill: true,
+                            tension: 0.4,
+                            yAxisID: 'y'
                         }
                     ]
                 },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
                     plugins: {
-                        legend: {
-                            position: 'top',
-                        },
-                        title: {
-                            display: false
-                        }
+                        legend: { position: 'top' },
+                        title: { display: true, text: 'Security Trend (Last 30 Scans)' }
                     },
                     scales: {
                         y: {
                             beginAtZero: true,
-                            ticks: {
-                                stepSize: 1
-                            }
+                            title: { display: true, text: 'Vulnerabilities' }
+                        },
+                        y1: {
+                            beginAtZero: true,
+                            max: 100,
+                            position: 'right',
+                            grid: { drawOnChartArea: false },
+                            title: { display: true, text: 'Score' }
                         }
                     }
                 }
             });
         }
 
-        // Load data on page load
-        loadSecurityData();
-        
-        // Refresh every 5 minutes
-        setInterval(loadSecurityData, 300000);
+        loadData();
     </script>
 </body>
 </html>

@@ -52,6 +52,14 @@ jobs:
         if: ${{ inputs.project_type == 'node' }}
         run: npm ci
 
+      - name: Cache Trivy vulnerability database
+        uses: actions/cache@v3
+        with:
+          path: .trivy
+          key: ${{ runner.os }}-trivy-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-trivy-
+
       - name: Run npm audit (Dependency Scan - SCA)
         if: ${{ inputs.project_type == 'node' && inputs.run_npm_audit }}
         run: |
@@ -60,7 +68,7 @@ jobs:
         continue-on-error: true
 
       - name: Run OWASP Dependency-Check (SCA)
-        uses: dependency-check/Dependency-Check_Action@main
+        uses: dependency-check/Dependency-Check_Action@v2.5.1
         with:
           project: 'security-qa-assistant'
           path: '.'
@@ -81,22 +89,7 @@ jobs:
 
       # ... (skip to upload step)
 
-      - name: Upload Security Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-reports
-          path: |
-            npm-audit-report.json
-            npm-audit-report.txt
-            trivy-fs-report.json
-            trivy-config-report.json
-            dependency-check-report/
-            security-report.md
-            security-report.pdf
-            zap-report.html
-            zap-report.json
-            zap-report.md
-          if-no-files-found: ignore
+
 
       - name: Run Trivy Config Scanner (Misconfiguration)
         if: ${{ inputs.run_trivy }}
@@ -113,9 +106,11 @@ jobs:
         if: ${{ inputs.dast_url != '' }}
         run: |
           echo "Pinging target to wake it up..."
-          curl -I "${{ inputs.dast_url }}" || true
-          echo "Waiting 30 seconds for site to fully wake up..."
-          sleep 30
+          curl -IL "${{ inputs.dast_url }}" || true
+          echo "Waiting 60 seconds for site to fully wake up..."
+          sleep 60
+          echo "Pinging again to be sure..."
+          curl -IL "${{ inputs.dast_url }}" || true
         continue-on-error: true
 
       - name: Run OWASP ZAP Baseline Scan (DAST)
@@ -127,27 +122,15 @@ jobs:
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "${{ inputs.dast_url }}" \
-            -r zap-report.html \
-            -J zap-report.json \
-            -w zap-report.md \
+            -r /zap/wrk/zap-report.html \
+            -J /zap/wrk/zap-report.json \
+            -w /zap/wrk/zap-report.md \
             -T 300 \
             -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" \
             || true
           
           echo "=== Workspace files after ZAP scan ==="
           ls -la zap-report.* 2>/dev/null || echo "No ZAP reports found"
-        continue-on-error: true
-
-      - name: Upload ZAP Reports
-        if: ${{ inputs.dast_url != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-scan-reports
-          path: |
-            zap-report.html
-            zap-report.json
-            zap-report.md
-          if-no-files-found: ignore
         continue-on-error: true
 
       - name: Initialize CodeQL

@@ -31,136 +31,150 @@ jobs:
 
       - name: Generate Dashboard Data
         run: |
-          # Create security-data.json from reports
-          cat > docs/dashboard/security-data.json << 'EOF'
-          {
-            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "summary": {
-              "critical": 0,
-              "high": 0,
-              "medium": 0,
-              "low": 0
-            },
-            "vulnerabilities": [],
-            "trends": []
-          }
-          EOF
-          
-          # Parse npm audit if available
-          if [ -f reports/npm-audit-report.json ]; then
-            echo "Processing npm audit data..."
-            
-            CRITICAL=$(jq '.metadata.vulnerabilities.critical // 0' reports/npm-audit-report.json)
-            HIGH=$(jq '.metadata.vulnerabilities.high // 0' reports/npm-audit-report.json)
-            MEDIUM=$(jq '.metadata.vulnerabilities.moderate // 0' reports/npm-audit-report.json)
-            LOW=$(jq '.metadata.vulnerabilities.low // 0' reports/npm-audit-report.json)
-            
-            # Update summary
-            jq --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-               --argjson c "$CRITICAL" \
-               --argjson h "$HIGH" \
-               --argjson m "$MEDIUM" \
-               --argjson l "$LOW" \
-               '.timestamp = $ts | .summary.critical = $c | .summary.high = $h | .summary.medium = $m | .summary.low = $l' \
-               docs/dashboard/security-data.json > temp.json && mv temp.json docs/dashboard/security-data.json
-            
-            # Extract top vulnerabilities
-            jq '[.vulnerabilities | to_entries | .[0:10] | .[] | {
-              id: .value.name,
-              severity: (.value.severity | ascii_upcase),
-              title: .value.title,
-              description: (.value.overview // "No description"),
-              package: .value.name,
-              source: "npm audit"
-            }]' reports/npm-audit-report.json > vulns.json
-            
-            jq --slurpfile vulns vulns.json '.vulnerabilities = $vulns[0]' docs/dashboard/security-data.json > temp.json && mv temp.json docs/dashboard/security-data.json
-            rm -f vulns.json
-          fi
-          
-          # Parse Trivy if available
-          if [ -f reports/trivy-fs-report.json ]; then
-            echo "Processing Trivy data..."
-            
-            TRIVY_CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' reports/trivy-fs-report.json)
-            TRIVY_HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' reports/trivy-fs-report.json)
-            TRIVY_MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' reports/trivy-fs-report.json)
-            TRIVY_LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' reports/trivy-fs-report.json)
-            
-            # Add to existing counts
-            CURRENT_CRITICAL=$(jq '.summary.critical' docs/dashboard/security-data.json)
-            CURRENT_HIGH=$(jq '.summary.high' docs/dashboard/security-data.json)
-            CURRENT_MEDIUM=$(jq '.summary.medium' docs/dashboard/security-data.json)
-            CURRENT_LOW=$(jq '.summary.low' docs/dashboard/security-data.json)
-            
-            TOTAL_CRITICAL=$((CURRENT_CRITICAL + TRIVY_CRITICAL))
-            TOTAL_HIGH=$((CURRENT_HIGH + TRIVY_HIGH))
-            TOTAL_MEDIUM=$((CURRENT_MEDIUM + TRIVY_MEDIUM))
-            TOTAL_LOW=$((CURRENT_LOW + TRIVY_LOW))
-            
-            jq --argjson c "$TOTAL_CRITICAL" \
-               --argjson h "$TOTAL_HIGH" \
-               --argjson m "$TOTAL_MEDIUM" \
-               --argjson l "$TOTAL_LOW" \
-               '.summary.critical = $c | .summary.high = $h | .summary.medium = $m | .summary.low = $l' \
-               docs/dashboard/security-data.json > temp.json && mv temp.json docs/dashboard/security-data.json
-          fi
+          # Create directory if not exists
+          mkdir -p docs/dashboard
 
-          # Parse ZAP (DAST) if available
+          # Initialize variables
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          DATE_SHORT=$(date -u +%Y-%m-%d)
+          
+          # Initialize counts
+          CRITICAL=0
+          HIGH=0
+          MEDIUM=0
+          LOW=0
+          
+          # Initialize findings array
+          echo "[]" > all_findings.json
+          
+          # --- 1. Process npm audit ---
+          if [ -f reports/npm-audit-report.json ]; then
+            echo "Processing npm audit..."
+            if jq -e '.metadata' reports/npm-audit-report.json >/dev/null 2>&1; then
+              C=$(jq '.metadata.vulnerabilities.critical // 0' reports/npm-audit-report.json)
+              H=$(jq '.metadata.vulnerabilities.high // 0' reports/npm-audit-report.json)
+              M=$(jq '.metadata.vulnerabilities.moderate // 0' reports/npm-audit-report.json)
+              L=$(jq '.metadata.vulnerabilities.low // 0' reports/npm-audit-report.json)
+              
+              CRITICAL=$((CRITICAL + C))
+              HIGH=$((HIGH + H))
+              MEDIUM=$((MEDIUM + M))
+              LOW=$((LOW + L))
+              
+              # Extract findings
+              jq '[.vulnerabilities | to_entries | .[] | {
+                severity: (.value.severity | ascii_upcase),
+                title: .value.title,
+                package: .value.name,
+                source: "npm audit",
+                link: (.value.url // "")
+              }]' reports/npm-audit-report.json > npm_vulns.json
+              
+              jq -s '.[0] + .[1]' all_findings.json npm_vulns.json > temp.json && mv temp.json all_findings.json
+            fi
+          fi
+          
+          # --- 2. Process Trivy ---
+          if [ -f reports/trivy-fs-report.json ]; then
+            echo "Processing Trivy..."
+            C=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' reports/trivy-fs-report.json)
+            H=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' reports/trivy-fs-report.json)
+            M=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' reports/trivy-fs-report.json)
+            L=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' reports/trivy-fs-report.json)
+            
+            CRITICAL=$((CRITICAL + C))
+            HIGH=$((HIGH + H))
+            MEDIUM=$((MEDIUM + M))
+            LOW=$((LOW + L))
+            
+            # Extract findings
+            jq '[.Results[]?.Vulnerabilities[]? | {
+              severity: .Severity,
+              title: (.Title // .Description // "No description"),
+              package: .PkgName,
+              source: "Trivy",
+              link: (.PrimaryURL // "")
+            }]' reports/trivy-fs-report.json > trivy_vulns.json
+            
+            jq -s '.[0] + .[1]' all_findings.json trivy_vulns.json > temp.json && mv temp.json all_findings.json
+          fi
+          
+          # --- 3. Process ZAP ---
           if [ -f reports/zap-report.json ]; then
-            echo "Processing ZAP data..."
+            echo "Processing ZAP..."
+            H=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("High"))] | length' reports/zap-report.json)
+            M=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Medium"))] | length' reports/zap-report.json)
+            L=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Low"))] | length' reports/zap-report.json)
             
-            # Count alerts by risk
-            ZAP_HIGH=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("High"))] | length' reports/zap-report.json)
-            ZAP_MEDIUM=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Medium"))] | length' reports/zap-report.json)
-            ZAP_LOW=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Low"))] | length' reports/zap-report.json)
+            HIGH=$((HIGH + H))
+            MEDIUM=$((MEDIUM + M))
+            LOW=$((LOW + L))
             
-            # Add to existing counts
-            CURRENT_HIGH=$(jq '.summary.high' docs/dashboard/security-data.json)
-            CURRENT_MEDIUM=$(jq '.summary.medium' docs/dashboard/security-data.json)
-            CURRENT_LOW=$(jq '.summary.low' docs/dashboard/security-data.json)
-            
-            TOTAL_HIGH=$((CURRENT_HIGH + ZAP_HIGH))
-            TOTAL_MEDIUM=$((CURRENT_MEDIUM + ZAP_MEDIUM))
-            TOTAL_LOW=$((CURRENT_LOW + ZAP_LOW))
-            
-            jq --argjson h "$TOTAL_HIGH" \
-               --argjson m "$TOTAL_MEDIUM" \
-               --argjson l "$TOTAL_LOW" \
-               '.summary.high = $h | .summary.medium = $m | .summary.low = $l' \
-               docs/dashboard/security-data.json > temp.json && mv temp.json docs/dashboard/security-data.json
-               
-            # Add ZAP findings to vulnerabilities list
+            # Extract findings
             jq '[.site[].alerts[] | {
-              id: .pluginid,
               severity: (.riskdesc | split(" ")[0] | ascii_upcase),
               title: .name,
-              description: (.desc // "No description"),
               package: "DAST Scan",
-              source: "OWASP ZAP"
+              source: "OWASP ZAP",
+              link: ""
             }]' reports/zap-report.json > zap_vulns.json
             
-            jq --slurpfile zap zap_vulns.json '.vulnerabilities += $zap[0]' docs/dashboard/security-data.json > temp.json && mv temp.json docs/dashboard/security-data.json
-            rm -f zap_vulns.json
-          fi
-
-          # Parse Dependency-Check if available
-          if [ -f reports/dependency-check-report/dependency-check-report.json ]; then
-            echo "Processing Dependency-Check data..."
-            
-            # This is complex as DC JSON structure is deep. Simplified extraction:
-            # We'll just count dependencies with vulnerabilities for now to avoid double counting with npm audit if they overlap
-            # But usually DC finds different things (Java, .NET, etc). For Node it overlaps.
-            # Let's just extract High/Critical to be safe.
-            
-            # For now, let's assume npm audit covers Node.js and skip adding counts to avoid duplicates,
-            # unless we want to be thorough. Let's skip adding counts for now to keep it clean, 
-            # or just add them if they are unique.
-            # A safer bet is just to rely on npm audit for Node.js projects.
-            echo "Skipping Dependency-Check count integration to avoid duplicates with npm audit."
+            jq -s '.[0] + .[1]' all_findings.json zap_vulns.json > temp.json && mv temp.json all_findings.json
           fi
           
-          echo "Dashboard data updated successfully!"
+          # --- 4. Calculate Score ---
+          # Formula: 100 - (Critical*10 + High*5 + Medium*2 + Low*1)
+          PENALTY=$(( (CRITICAL * 10) + (HIGH * 5) + (MEDIUM * 2) + (LOW * 1) ))
+          SCORE=$((100 - PENALTY))
+          if [ $SCORE -lt 0 ]; then SCORE=0; fi
+          
+          # --- 5. Update History ---
+          # Read existing history if available
+          if [ -f docs/dashboard/security-data.json ]; then
+            jq '.trends // []' docs/dashboard/security-data.json > history.json
+          else
+            echo "[]" > history.json
+          fi
+          
+          # Append current run
+          jq --arg date "$DATE_SHORT" \
+             --argjson c "$CRITICAL" \
+             --argjson h "$HIGH" \
+             --argjson m "$MEDIUM" \
+             --argjson l "$LOW" \
+             --argjson s "$SCORE" \
+             '. + [{date: $date, critical: $c, high: $h, medium: $m, low: $l, score: $s}] | .[-30:]' \
+             history.json > new_history.json
+             
+          # --- 6. Sort and Limit Findings ---
+          # Sort by severity (Critical > High > Medium > Low) and take top 20
+          # We use a simple mapping for sorting: Critical=4, High=3, Medium=2, Low=1
+          jq 'map(. + {weight: (if .severity=="CRITICAL" then 4 else (if .severity=="HIGH" then 3 else (if .severity=="MEDIUM" then 2 else 1 end) end) end)}) | sort_by(-.weight) | .[0:20] | map(del(.weight))' all_findings.json > top_findings.json
+          
+          # --- 7. Create Final JSON ---
+          jq -n \
+             --arg ts "$TIMESTAMP" \
+             --argjson c "$CRITICAL" \
+             --argjson h "$HIGH" \
+             --argjson m "$MEDIUM" \
+             --argjson l "$LOW" \
+             --argjson s "$SCORE" \
+             --slurpfile trends new_history.json \
+             --slurpfile vulns top_findings.json \
+             '{
+               timestamp: $ts,
+               summary: {
+                 critical: $c,
+                 high: $h,
+                 medium: $m,
+                 low: $l,
+                 score: $s
+               },
+               trends: $trends[0],
+               vulnerabilities: $vulns[0]
+             }' > docs/dashboard/security-data.json
+             
+          echo "✅ Dashboard data generated successfully!"
           cat docs/dashboard/security-data.json
 
       - name: Commit Dashboard Updates
