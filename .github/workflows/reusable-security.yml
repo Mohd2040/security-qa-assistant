@@ -122,9 +122,9 @@ jobs:
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "${{ inputs.dast_url }}" \
-            -r /zap/wrk/zap-report.html \
-            -J /zap/wrk/zap-report.json \
-            -w /zap/wrk/zap-report.md \
+            -r zap-report.html \
+            -J zap-report.json \
+            -w zap-report.md \
             -T 300 \
             -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" \
             || true
