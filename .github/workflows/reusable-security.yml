@@ -263,7 +263,7 @@ jobs:
                   via: (.value.via | if type == "array" then .[0].name else . end),
                   url: (.value.url // "")
                 } |
-                "| `\(.name)` | \(.severity) | \(.title) | \(.fixAvailable) | \(.via) | [\(.name)](\(.url)) |"
+                "| \(.name) | \(.severity) | \(.title) | \(.fixAvailable) | \(.via) | [\(.name)](\(.url)) |"
               ' npm-audit-report.json >> security-report.md 2>/dev/null || echo "| Error parsing | - | - | - | - | - |" >> security-report.md
               
               echo "" >> security-report.md
