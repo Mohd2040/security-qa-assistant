@@ -27,7 +27,7 @@ on:
         description: 'Target URL for DAST scan (optional)'
         required: false
         type: string
-        default: ''
+        default: 'https://security-qa-assistant.onrender.com'
 
 permissions:
   contents: read
@@ -114,6 +114,9 @@ jobs:
             -T 300 \
             -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" \
             || true
+          
+          echo "=== Workspace files after ZAP scan ==="
+          ls -la zap-report.* 2>/dev/null || echo "No ZAP reports found"
         continue-on-error: true
 
       - name: Upload ZAP Reports
@@ -125,7 +128,7 @@ jobs:
             zap-report.html
             zap-report.json
             zap-report.md
-          if-no-files-found: warn
+          if-no-files-found: ignore
         continue-on-error: true
 
       - name: Initialize CodeQL
@@ -143,11 +146,27 @@ jobs:
           upload: true
         continue-on-error: true
 
-      - name: Download Previous Scan Results
-        uses: actions/download-artifact@v4
-        with:
-          name: security-reports-previous
-          path: ./previous-reports
+      - name: Download Previous Scan Results (from repo artifacts)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          mkdir -p previous-reports
+          
+          echo "Searching for previous security reports..."
+          ART_ID=$(gh api "/repos/${{ github.repository }}/actions/artifacts" --paginate \
+            -q '.artifacts[] | select(.name=="security-reports-previous" and .expired==false) | .id' | head -n 1)
+          
+          if [ -z "$ART_ID" ]; then
+            echo "ℹ️ No previous artifact found (first run or expired)."
+            exit 0
+          fi
+          
+          echo "📥 Downloading artifact id: $ART_ID"
+          gh api "/repos/${{ github.repository }}/actions/artifacts/$ART_ID/zip" > prev.zip
+          unzip -o prev.zip -d previous-reports
+          rm -f prev.zip
+          echo "✅ Previous reports downloaded successfully"
         continue-on-error: true
 
       - name: Generate Enhanced Security Report
@@ -160,7 +179,10 @@ jobs:
           
           echo "**Generated:** $(date)" >> security-report.md
           echo "**Project:** ${{ inputs.project_type }}" >> security-report.md
-          echo "**DAST Target:** ${{ inputs.dast_url || 'N/A' }}" >> security-report.md
+          
+          DAST_URL="${{ inputs.dast_url }}"
+          [ -z "$DAST_URL" ] && DAST_URL="N/A"
+          echo "**DAST Target:** $DAST_URL" >> security-report.md
           echo "" >> security-report.md
           
           # Summary Table
