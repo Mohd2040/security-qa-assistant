@@ -105,6 +105,60 @@ jobs:
                '.summary.critical = $c | .summary.high = $h | .summary.medium = $m | .summary.low = $l' \
                docs/dashboard/security-data.json > temp.json && mv temp.json docs/dashboard/security-data.json
           fi
+
+          # Parse ZAP (DAST) if available
+          if [ -f reports/zap-report.json ]; then
+            echo "Processing ZAP data..."
+            
+            # Count alerts by risk
+            ZAP_HIGH=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("High"))] | length' reports/zap-report.json)
+            ZAP_MEDIUM=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Medium"))] | length' reports/zap-report.json)
+            ZAP_LOW=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Low"))] | length' reports/zap-report.json)
+            
+            # Add to existing counts
+            CURRENT_HIGH=$(jq '.summary.high' docs/dashboard/security-data.json)
+            CURRENT_MEDIUM=$(jq '.summary.medium' docs/dashboard/security-data.json)
+            CURRENT_LOW=$(jq '.summary.low' docs/dashboard/security-data.json)
+            
+            TOTAL_HIGH=$((CURRENT_HIGH + ZAP_HIGH))
+            TOTAL_MEDIUM=$((CURRENT_MEDIUM + ZAP_MEDIUM))
+            TOTAL_LOW=$((CURRENT_LOW + ZAP_LOW))
+            
+            jq --argjson h "$TOTAL_HIGH" \
+               --argjson m "$TOTAL_MEDIUM" \
+               --argjson l "$TOTAL_LOW" \
+               '.summary.high = $h | .summary.medium = $m | .summary.low = $l' \
+               docs/dashboard/security-data.json > temp.json && mv temp.json docs/dashboard/security-data.json
+               
+            # Add ZAP findings to vulnerabilities list
+            jq '[.site[].alerts[] | {
+              id: .pluginid,
+              severity: (.riskdesc | split(" ")[0] | ascii_upcase),
+              title: .name,
+              description: (.desc // "No description"),
+              package: "DAST Scan",
+              source: "OWASP ZAP"
+            }]' reports/zap-report.json > zap_vulns.json
+            
+            jq --slurpfile zap zap_vulns.json '.vulnerabilities += $zap[0]' docs/dashboard/security-data.json > temp.json && mv temp.json docs/dashboard/security-data.json
+            rm -f zap_vulns.json
+          fi
+
+          # Parse Dependency-Check if available
+          if [ -f reports/dependency-check-report/dependency-check-report.json ]; then
+            echo "Processing Dependency-Check data..."
+            
+            # This is complex as DC JSON structure is deep. Simplified extraction:
+            # We'll just count dependencies with vulnerabilities for now to avoid double counting with npm audit if they overlap
+            # But usually DC finds different things (Java, .NET, etc). For Node it overlaps.
+            # Let's just extract High/Critical to be safe.
+            
+            # For now, let's assume npm audit covers Node.js and skip adding counts to avoid duplicates,
+            # unless we want to be thorough. Let's skip adding counts for now to keep it clean, 
+            # or just add them if they are unique.
+            # A safer bet is just to rely on npm audit for Node.js projects.
+            echo "Skipping Dependency-Check count integration to avoid duplicates with npm audit."
+          fi
           
           echo "Dashboard data updated successfully!"
           cat docs/dashboard/security-data.json

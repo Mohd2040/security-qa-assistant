@@ -27,7 +27,7 @@ on:
         description: 'Target URL for DAST scan (optional)'
         required: false
         type: string
-        default: 'https://security-qa-assistant.onrender.com'
+        default: 'https://security-qa-assistant.onrender.com/'
 
 permissions:
   contents: read
@@ -64,7 +64,7 @@ jobs:
         with:
           project: 'security-qa-assistant'
           path: '.'
-          format: 'HTML'
+          format: 'ALL'
           out: 'dependency-check-report'
         continue-on-error: true
 
@@ -78,6 +78,25 @@ jobs:
           output: 'trivy-fs-report.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
         continue-on-error: true
+
+      # ... (skip to upload step)
+
+      - name: Upload Security Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            npm-audit-report.json
+            npm-audit-report.txt
+            trivy-fs-report.json
+            trivy-config-report.json
+            dependency-check-report/
+            security-report.md
+            security-report.pdf
+            zap-report.html
+            zap-report.json
+            zap-report.md
+          if-no-files-found: ignore
 
       - name: Run Trivy Config Scanner (Misconfiguration)
         if: ${{ inputs.run_trivy }}
@@ -485,5 +504,7 @@ jobs:
             dependency-check-report/
             security-report.md
             security-report.pdf
-            report_html.html
+            zap-report.html
+            zap-report.json
+            zap-report.md
           if-no-files-found: ignore
