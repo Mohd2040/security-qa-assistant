@@ -68,7 +68,7 @@ jobs:
         continue-on-error: true
 
       - name: Run OWASP Dependency-Check (SCA)
-        uses: dependency-check/Dependency-Check_Action@v2.5.1
+        uses: dependency-check/Dependency-Check_Action@main
         with:
           project: 'security-qa-assistant'
           path: '.'
