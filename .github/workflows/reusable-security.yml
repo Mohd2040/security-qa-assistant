@@ -342,7 +342,7 @@ jobs:
         if: ${{ inputs.run_codeql }}
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:${{ inputs.codeql_languages }}"
+          
           output: sarif-results
           upload: true
         continue-on-error: true
@@ -427,10 +427,13 @@ jobs:
         run: |
           mkdir -p zap-output
           docker pull ghcr.io/zaproxy/zaproxy:stable
-          
+
           docker run --rm \
             -u "$(id -u):$(id -g)" \
+            -e HOME=/home/zap \
             -v "$PWD/zap-output:/zap/wrk:rw" \
+            -v "$PWD/zap-output:/home/zap:rw" \
+            -w /zap/wrk \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "${{ inputs.dast_url }}" \
@@ -441,24 +444,20 @@ jobs:
             || true
         continue-on-error: true
 
+
       # ═══════════════════════════════════════════
       # CodeQL (Optional - Slow)
       # ═══════════════════════════════════════════
       
-      - name: 🔬 Initialize CodeQL
-        if: ${{ inputs.run_codeql }}
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript-typescript
-          queries: security-extended
-
-      - name: 🔬 CodeQL Analysis
+      - name: 🔬 CodeQL - Perform Analysis
         if: ${{ inputs.run_codeql }}
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:javascript-typescript"
+          # Let CodeQL choose distinct categories per run/language to avoid "only one run per tool/category" upload errors.
+          output: sarif-results
+          upload: true
         continue-on-error: true
-
+        
       # ═══════════════════════════════════════════
       # AGGREGATION & SUMMARY
       # ═══════════════════════════════════════════
