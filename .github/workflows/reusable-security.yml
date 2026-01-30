@@ -1,10 +1,10 @@
-name: Reusable Security Scan (Optimized)
+name: Reusable Security Scan (with CodeQL)
 
 on:
   workflow_call:
     inputs:
       project_type:
-        description: 'Project type (node, dotnet, etc.)'
+        description: 'Project type (node, dotnet, python, go, java)'
         required: false
         type: string
         default: 'node'
@@ -22,7 +22,17 @@ on:
         description: 'Run CodeQL analysis'
         required: false
         type: boolean
-        default: false  # Disabled by default (slow)
+        default: true  # Enabled by default
+      codeql_languages:
+        description: 'CodeQL languages (javascript-typescript, python, go, java, etc.)'
+        required: false
+        type: string
+        default: 'javascript-typescript'
+      codeql_queries:
+        description: 'CodeQL query suite (security-extended, security-and-quality)'
+        required: false
+        type: string
+        default: 'security-extended'
       dast_url:
         description: 'Target URL for DAST scan (optional)'
         required: false
@@ -59,24 +69,106 @@ jobs:
         run: npm ci --prefer-offline --no-audit
 
       # ═══════════════════════════════════════════
+      # CodeQL - Initialize FIRST (before builds)
+      # ═══════════════════════════════════════════
+      
+      - name: 🔬 Initialize CodeQL
+        if: ${{ inputs.run_codeql }}
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ inputs.codeql_languages }}
+          queries: ${{ inputs.codeql_queries }}
+          # For compiled languages, add build-mode
+          # build-mode: manual
+
+      # ═══════════════════════════════════════════
       # SCA - Software Composition Analysis
       # ═══════════════════════════════════════════
       
-      - name: 🔍 npm Audit (SCA)
+      - name: 🔍 SCA - npm Audit
+        id: sca
         if: ${{ inputs.project_type == 'node' && inputs.run_npm_audit }}
         run: |
-          # Generate JSON report (small)
+          echo "## 🔍 SCA - Software Composition Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Generate JSON report
           npm audit --json > npm-audit.json || true
           
-          # Generate summary only (not full text)
-          npm audit --audit-level=moderate 2>&1 | head -100 > npm-audit-summary.txt || true
+          # Extract metrics
+          if [ -f npm-audit.json ]; then
+            CRITICAL=$(jq -r '.metadata.vulnerabilities.critical // 0' npm-audit.json)
+            HIGH=$(jq -r '.metadata.vulnerabilities.high // 0' npm-audit.json)
+            MODERATE=$(jq -r '.metadata.vulnerabilities.moderate // 0' npm-audit.json)
+            LOW=$(jq -r '.metadata.vulnerabilities.low // 0' npm-audit.json)
+            TOTAL=$(jq -r '.metadata.vulnerabilities.total // 0' npm-audit.json)
+            
+            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Save to outputs
+            echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+            echo "high=$HIGH" >> $GITHUB_OUTPUT
+            echo "total=$TOTAL" >> $GITHUB_OUTPUT
+            
+            # Technology Used
+            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tool:** npm audit (built-in)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Database:** npm registry + GitHub Advisory Database" >> $GITHUB_STEP_SUMMARY
+            echo "- **Coverage:** JavaScript/Node.js dependencies" >> $GITHUB_STEP_SUMMARY
+            echo "- **Scan Scope:** Direct + Transitive dependencies" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Recommendations
+            echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+            if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
+              echo "**⚠️ Action Required:**" >> $GITHUB_STEP_SUMMARY
+              echo '```bash' >> $GITHUB_STEP_SUMMARY
+              echo "# Run automatic fix" >> $GITHUB_STEP_SUMMARY
+              echo "npm audit fix" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "# For breaking changes" >> $GITHUB_STEP_SUMMARY
+              echo "npm audit fix --force" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "# Manual update specific package" >> $GITHUB_STEP_SUMMARY
+              echo "npm update package-name@latest" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              
+              # Show top vulnerable packages
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Top Vulnerable Packages:**" >> $GITHUB_STEP_SUMMARY
+              jq -r '.vulnerabilities | to_entries | 
+                sort_by(.value.severity) | 
+                reverse | 
+                .[0:5] | 
+                .[] | 
+                "- `\(.key)` - \(.value.severity | ascii_upcase) - \(.value.via[0].title // "No title")"' \
+                npm-audit.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            else
+              echo "✅ No critical or high vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+              echo "- Continue monitoring for new vulnerabilities" >> $GITHUB_STEP_SUMMARY
+              echo "- Keep dependencies up to date" >> $GITHUB_STEP_SUMMARY
+              echo "- Run \`npm update\` regularly" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
         continue-on-error: true
 
       # ═══════════════════════════════════════════
       # SAST - Static Application Security Testing
       # ═══════════════════════════════════════════
       
-      - name: 🛡️ Trivy Filesystem Scan (SAST)
+      - name: 🛡️ SAST - Trivy Filesystem Scan
+        id: sast
         if: ${{ inputs.run_trivy }}
         uses: aquasecurity/trivy-action@0.24.0
         with:
@@ -85,11 +177,88 @@ jobs:
           format: 'json'
           output: 'trivy-fs.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          skip-dirs: 'node_modules'  # Skip node_modules for speed
+          skip-dirs: 'node_modules'
           exit-code: '0'
         continue-on-error: true
 
-      - name: 🛡️ Trivy Config Scan (IaC)
+      - name: 📊 SAST - Process Trivy Results
+        if: ${{ inputs.run_trivy }}
+        run: |
+          echo "## 🛡️ SAST - Static Application Security Testing (Trivy)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f trivy-fs.json ]; then
+            CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs.json)
+            HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs.json)
+            MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-fs.json)
+            LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-fs.json)
+            TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+            
+            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Technology Used
+            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tool:** Aquasecurity Trivy" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version:** 0.24.0" >> $GITHUB_STEP_SUMMARY
+            echo "- **Database:** Trivy DB (NVD, GitHub Advisories, etc.)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Scan Type:** Filesystem (code + dependencies)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Coverage:** Multi-language support" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "**Languages Detected:**" >> $GITHUB_STEP_SUMMARY
+            jq -r '.Results[]? | select(.Target) | "- \(.Type // "Unknown"): \(.Target)"' trivy-fs.json | sort -u >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Recommendations
+            echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+            if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
+              echo "**⚠️ Action Required:**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              # Show top vulnerabilities
+              echo "**Top Critical/High Vulnerabilities:**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "| CVE | Severity | Package | Installed | Fixed |" >> $GITHUB_STEP_SUMMARY
+              echo "|-----|----------|---------|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+              
+              jq -r '.Results[]?.Vulnerabilities[]? | 
+                select(.Severity == "CRITICAL" or .Severity == "HIGH") | 
+                "| [\(.VulnerabilityID)](https://nvd.nist.gov/vuln/detail/\(.VulnerabilityID)) | \(.Severity) | `\(.PkgName)` | \(.InstalledVersion) | \(.FixedVersion // "N/A") |"' \
+                trivy-fs.json | head -10 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+              
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Steps to Fix:**" >> $GITHUB_STEP_SUMMARY
+              echo "1. Review CVE details (click CVE links above)" >> $GITHUB_STEP_SUMMARY
+              echo "2. Update affected packages to fixed versions" >> $GITHUB_STEP_SUMMARY
+              echo "3. If no fix available, consider alternatives or apply workarounds" >> $GITHUB_STEP_SUMMARY
+              echo "4. Test application after updates" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ No critical or high SAST vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+              echo "- Code analysis shows no major security issues" >> $GITHUB_STEP_SUMMARY
+              echo "- Continue following secure coding practices" >> $GITHUB_STEP_SUMMARY
+              echo "- Regular security reviews recommended" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⚠️ Trivy scan did not produce results" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      # ═══════════════════════════════════════════
+      # IaC - Infrastructure as Code
+      # ═══════════════════════════════════════════
+      
+      - name: 🏗️ IaC - Trivy Config Scan
+        id: iac
         if: ${{ inputs.run_trivy }}
         uses: aquasecurity/trivy-action@0.24.0
         with:
@@ -100,6 +269,145 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
           exit-code: '0'
         continue-on-error: true
+
+      - name: 📊 IaC - Process Results
+        if: ${{ inputs.run_trivy }}
+        run: |
+          echo "## 🏗️ IaC - Infrastructure as Code Scan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f trivy-config.json ]; then
+            CRITICAL=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="CRITICAL")] | length' trivy-config.json)
+            HIGH=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="HIGH")] | length' trivy-config.json)
+            MEDIUM=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="MEDIUM")] | length' trivy-config.json)
+            LOW=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="LOW")] | length' trivy-config.json)
+            TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+            
+            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Technology Used
+            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tool:** Trivy Config Scanner" >> $GITHUB_STEP_SUMMARY
+            echo "- **Standards:** CIS Benchmarks, Best Practices" >> $GITHUB_STEP_SUMMARY
+            echo "- **Checks:** Security misconfigurations" >> $GITHUB_STEP_SUMMARY
+            echo "- **Supported Formats:**" >> $GITHUB_STEP_SUMMARY
+            echo "  - Dockerfile" >> $GITHUB_STEP_SUMMARY
+            echo "  - Kubernetes (YAML)" >> $GITHUB_STEP_SUMMARY
+            echo "  - Terraform" >> $GITHUB_STEP_SUMMARY
+            echo "  - Docker Compose" >> $GITHUB_STEP_SUMMARY
+            echo "  - Helm Charts" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Files scanned
+            echo "**Files Scanned:**" >> $GITHUB_STEP_SUMMARY
+            jq -r '.Results[]? | select(.Misconfigurations) | "- `\(.Target)`"' trivy-config.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "- No IaC files found" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Recommendations
+            echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+            if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
+              echo "**⚠️ Misconfigurations Found:**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              # Show top issues
+              jq -r '.Results[]?.Misconfigurations[]? | 
+                select(.Severity == "CRITICAL" or .Severity == "HIGH") | 
+                "**\(.Severity):** \(.Title)\n- File: `\(.CauseMetadata.Resource // "N/A")`\n- Fix: \(.Resolution)\n"' \
+                trivy-config.json | head -50 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            else
+              echo "✅ No critical IaC misconfigurations found!" >> $GITHUB_STEP_SUMMARY
+              echo "- Infrastructure configurations follow best practices" >> $GITHUB_STEP_SUMMARY
+              echo "- Continue reviewing configs during changes" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "ℹ️ No IaC files detected or scan not performed" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      # ═══════════════════════════════════════════
+      # CodeQL Analysis (Advanced SAST)
+      # ═══════════════════════════════════════════
+      
+      - name: 🔬 CodeQL - Perform Analysis
+        if: ${{ inputs.run_codeql }}
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ inputs.codeql_languages }}"
+          output: sarif-results
+          upload: true
+        continue-on-error: true
+
+      - name: 📊 CodeQL - Process Results
+        if: ${{ inputs.run_codeql }}
+        run: |
+          echo "## 🔬 CodeQL - Advanced Code Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 📊 Analysis Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Technology Used
+          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** GitHub CodeQL" >> $GITHUB_STEP_SUMMARY
+          echo "- **Engine:** Semantic code analysis" >> $GITHUB_STEP_SUMMARY
+          echo "- **Language:** ${{ inputs.codeql_languages }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Query Pack:** ${{ inputs.codeql_queries }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Database:** GitHub Security Lab queries" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🔍 What CodeQL Checks:" >> $GITHUB_STEP_SUMMARY
+          echo "- **SQL Injection** vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cross-Site Scripting (XSS)** issues" >> $GITHUB_STEP_SUMMARY
+          echo "- **Path Traversal** vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "- **Command Injection** risks" >> $GITHUB_STEP_SUMMARY
+          echo "- **Insecure Deserialization**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cryptographic Issues**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Authentication/Authorization** flaws" >> $GITHUB_STEP_SUMMARY
+          echo "- **Resource Leaks**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Code Quality** issues" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 📋 Results Location:" >> $GITHUB_STEP_SUMMARY
+          echo "CodeQL findings are uploaded to the **Security** tab:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **[View Code Scanning Alerts](../../security/code-scanning)**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 💡 How to Review:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Navigate to: **Security → Code scanning**" >> $GITHUB_STEP_SUMMARY
+          echo "2. Filter by severity (Critical, High, Medium, Low)" >> $GITHUB_STEP_SUMMARY
+          echo "3. Click on each alert for detailed information" >> $GITHUB_STEP_SUMMARY
+          echo "4. Review code location and suggested fix" >> $GITHUB_STEP_SUMMARY
+          echo "5. Dismiss false positives or fix issues" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🎯 CodeQL Advantages:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deep Analysis:** Understands code semantics, not just patterns" >> $GITHUB_STEP_SUMMARY
+          echo "- **Low False Positives:** High accuracy in findings" >> $GITHUB_STEP_SUMMARY
+          echo "- **Data Flow Analysis:** Tracks data through the entire codebase" >> $GITHUB_STEP_SUMMARY
+          echo "- **Custom Queries:** Can write organization-specific rules" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR Integration:** Alerts on new vulnerabilities in PRs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check if SARIF results exist
+          if [ -d sarif-results ]; then
+            echo "### 📁 SARIF Reports:" >> $GITHUB_STEP_SUMMARY
+            echo "CodeQL generated SARIF files for integration with other tools." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
       # ═══════════════════════════════════════════
       # DAST - Dynamic Application Security Testing
@@ -113,46 +421,110 @@ jobs:
           sleep 30
         continue-on-error: true
 
-      - name: 🌐 OWASP ZAP Baseline (DAST)
+      - name: 🌐 DAST - OWASP ZAP Baseline
+        id: dast
         if: ${{ inputs.dast_url != '' }}
         run: |
+          mkdir -p zap-output
           docker pull ghcr.io/zaproxy/zaproxy:stable
+          
           docker run --rm \
-            -v $PWD:/zap/wrk:rw \
+            -u "$(id -u):$(id -g)" \
+            -v "$PWD/zap-output:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "${{ inputs.dast_url }}" \
             -J zap-report.json \
+            -r zap-report.html \
             -T 120 \
             -z "-config spider.maxDuration=3 -config ajaxSpider.maxDuration=3" \
             || true
         continue-on-error: true
 
-      # ═══════════════════════════════════════════
-      # CodeQL (Optional - Slow)
-      # ═══════════════════════════════════════════
-      
-      - name: 🔬 Initialize CodeQL
-        if: ${{ inputs.run_codeql }}
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript-typescript
-          queries: security-extended
+      - name: 📊 DAST - Process Results
+        if: ${{ inputs.dast_url != '' }}
+        run: |
+          echo "## 🌐 DAST - Dynamic Application Security Testing" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "**Target:** ${{ inputs.dast_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          REPORT_JSON="zap-output/zap-report.json"
+          
+          if [ -f "$REPORT_JSON" ]; then
+            # Parse ZAP results
+            HIGH=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("High"))] | length' "$REPORT_JSON" 2>/dev/null || echo "0")
+            MEDIUM=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Medium"))] | length' "$REPORT_JSON" 2>/dev/null || echo "0")
+            LOW=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Low"))] | length' "$REPORT_JSON" 2>/dev/null || echo "0")
+            INFO=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Informational"))] | length' "$REPORT_JSON" 2>/dev/null || echo "0")
+            TOTAL=$((HIGH + MEDIUM + LOW + INFO))
+          
+            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| ℹ️ Info | $INFO |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          
+            # Technology Used
+            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tool:** OWASP ZAP (Zed Attack Proxy)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Scan Type:** Baseline (passive + active light)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Coverage:** OWASP Top 10 vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tests Performed:**" >> $GITHUB_STEP_SUMMARY
+            echo "  - XSS (Cross-Site Scripting)" >> $GITHUB_STEP_SUMMARY
+            echo "  - SQL Injection" >> $GITHUB_STEP_SUMMARY
+            echo "  - CSRF (Cross-Site Request Forgery)" >> $GITHUB_STEP_SUMMARY
+            echo "  - Security Headers" >> $GITHUB_STEP_SUMMARY
+            echo "  - Cookie Security" >> $GITHUB_STEP_SUMMARY
+            echo "  - SSL/TLS Configuration" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          
+            # Recommendations
+            echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+            if [ $HIGH -gt 0 ]; then
+              echo "**⚠️ High Risk Issues Found:**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+          
+              # Show high alerts
+              jq -r '.site[].alerts[] | 
+                select(.riskdesc | startswith("High")) | 
+                "**\(.name)**\n- Risk: \(.riskdesc)\n- Description: \(.desc[0:200])...\n- Solution: \(.solution[0:200])...\n"'       "$REPORT_JSON" | head -100 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+          
+              echo "**Action Items:**" >> $GITHUB_STEP_SUMMARY
+              echo "1. Download ZAP HTML report from artifacts for full details" >> $GITHUB_STEP_SUMMARY
+              echo "2. Prioritize fixing High severity issues" >> $GITHUB_STEP_SUMMARY
+              echo "3. Test fixes in staging before production" >> $GITHUB_STEP_SUMMARY
+              echo "4. Re-run DAST scan after fixes" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ No high-risk DAST issues found!" >> $GITHUB_STEP_SUMMARY
+              echo "- Application security posture is good" >> $GITHUB_STEP_SUMMARY
+              echo "- Review medium/low findings for improvements" >> $GITHUB_STEP_SUMMARY
+              echo "- Download full report for optimization suggestions" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⚠️ DAST scan did not produce results" >> $GITHUB_STEP_SUMMARY
+            echo "**Possible reasons:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Target URL is not accessible" >> $GITHUB_STEP_SUMMARY
+            echo "- Application is rate-limiting requests" >> $GITHUB_STEP_SUMMARY
+            echo "- Network connectivity issues" >> $GITHUB_STEP_SUMMARY
+            echo "- Report JSON not generated (permissions/container write failure)" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: 🔬 CodeQL Analysis
-        if: ${{ inputs.run_codeql }}
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:javascript-typescript"
-        continue-on-error: true
-
       # ═══════════════════════════════════════════
-      # PROCESSING & REPORTING
+      # AGGREGATION & SUMMARY
       # ═══════════════════════════════════════════
       
       - name: 📊 Process & Aggregate Results
         run: |
-          # Create compact summary
+          # Create summary.json with all scan data
           cat > summary.json << 'EOFMARKER'
           {
             "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -165,6 +537,13 @@ jobs:
               "medium": 0,
               "low": 0,
               "score": 100
+            },
+            "scans": {
+              "sca": { "enabled": ${{ inputs.run_npm_audit }}, "tool": "npm audit" },
+              "sast_trivy": { "enabled": ${{ inputs.run_trivy }}, "tool": "Trivy" },
+              "sast_codeql": { "enabled": ${{ inputs.run_codeql }}, "tool": "CodeQL" },
+              "iac": { "enabled": ${{ inputs.run_trivy }}, "tool": "Trivy Config" },
+              "dast": { "enabled": ${{ inputs.dast_url != '' }}, "tool": "OWASP ZAP" }
             },
             "findings": []
           }
@@ -188,14 +567,14 @@ jobs:
             MEDIUM=$((MEDIUM + M))
             LOW=$((LOW + L))
             
-            # Extract top 10 npm findings
+            # Extract top findings
             jq -r '.vulnerabilities | to_entries | .[] | 
               select(.value.severity == "critical" or .value.severity == "high") | 
               {
                 severity: (.value.severity | ascii_upcase),
                 title: .value.title,
                 package: .key,
-                source: "npm",
+                source: "SCA (npm audit)",
                 fix: (.value.fixAvailable | if . then "Yes" else "No" end)
               }' npm-audit.json | jq -s '.' > npm-findings.json 2>/dev/null || echo "[]" > npm-findings.json
           else
@@ -214,7 +593,7 @@ jobs:
             MEDIUM=$((MEDIUM + M))
             LOW=$((LOW + L))
             
-            # Extract top 10 trivy findings
+            # Extract top findings
             jq -r '[.Results[]?.Vulnerabilities[]? | 
               select(.Severity == "CRITICAL" or .Severity == "HIGH") | 
               {
@@ -222,22 +601,48 @@ jobs:
                 title: (.Title // .Description // "No title"),
                 package: .PkgName,
                 cve: .VulnerabilityID,
-                source: "trivy",
+                source: "SAST (Trivy)",
                 fix: (.FixedVersion // "N/A")
               }] | .[0:10]' trivy-fs.json > trivy-findings.json 2>/dev/null || echo "[]" > trivy-findings.json
           else
             echo "[]" > trivy-findings.json
+
+
+          fi          
+          # Process ZAP (DAST)
+          if [ -f zap-output/zap-report.json ]; then
+            ZH=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("High"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            ZM=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Medium"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            ZL=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Low"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+          
+            HIGH=$((HIGH + ZH))
+            MEDIUM=$((MEDIUM + ZM))
+            LOW=$((LOW + ZL))
+          
+            # Extract top findings (High/Medium)
+            jq -r '[.site[].alerts[] |
+              select((.riskdesc | startswith("High")) or (.riskdesc | startswith("Medium"))) |
+              {
+                severity: (.riskdesc | split(" ") | .[0] | ascii_upcase),
+                title: .name,
+                source: "DAST (OWASP ZAP)",
+                url: (.instances[0].uri // .instances[0].url // ""),
+                fix: (.solution[0:120] // "See ZAP report")
+              }] | .[0:10]' zap-output/zap-report.json > zap-findings.json 2>/dev/null || echo "[]" > zap-findings.json
+          else
+            echo "[]" > zap-findings.json
           fi
+
           
           # Merge findings (top 20 only)
-          jq -s 'add | sort_by(.severity) | reverse | .[0:20]' npm-findings.json trivy-findings.json > all-findings.json
+          jq -s 'add | sort_by(.severity) | reverse | .[0:20]' npm-findings.json trivy-findings.json zap-findings.json > all-findings.json
           
           # Calculate risk score
           PENALTY=$(( (CRITICAL * 10) + (HIGH * 5) + (MEDIUM * 2) + (LOW * 1) ))
           SCORE=$((100 - PENALTY))
           if [ $SCORE -lt 0 ]; then SCORE=0; fi
           
-          # Update summary
+          # Update summary.json
           jq --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
              --argjson c "$CRITICAL" \
              --argjson h "$HIGH" \
@@ -252,27 +657,17 @@ jobs:
           echo "✅ Summary generated:"
           cat summary.json | jq .summary
 
-      - name: 📝 Generate Markdown Report
+      - name: 📊 Final Summary
         run: |
-          cat > SECURITY_REPORT.md << 'EOF'
-          # 🔒 Security Report
+          echo "## 🎯 Overall Security Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           
-          **Generated:** $(date)  
-          **Repository:** ${{ github.repository }}  
-          **Branch:** ${{ github.ref_name }}
-          
-          ---
-          
-          ## 📊 Summary
-          
-          EOF
-          
-          # Extract from summary.json
+          # Read summary
+          SCORE=$(jq -r '.summary.score' summary.json)
           CRITICAL=$(jq -r '.summary.critical' summary.json)
           HIGH=$(jq -r '.summary.high' summary.json)
           MEDIUM=$(jq -r '.summary.medium' summary.json)
           LOW=$(jq -r '.summary.low' summary.json)
-          SCORE=$(jq -r '.summary.score' summary.json)
           
           # Risk level
           if [ $SCORE -ge 80 ]; then
@@ -285,63 +680,38 @@ jobs:
             RISK="🔴 CRITICAL"
           fi
           
-          cat >> SECURITY_REPORT.md << EOF
-          **Risk Level:** $RISK  
-          **Security Score:** $SCORE/100
+          echo "### Overall Risk: $RISK" >> $GITHUB_STEP_SUMMARY
+          echo "**Security Score:** $SCORE/100" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           
-          | Severity | Count |
-          |----------|-------|
-          | 🔴 Critical | $CRITICAL |
-          | 🟠 High | $HIGH |
-          | 🟡 Medium | $MEDIUM |
-          | 🟢 Low | $LOW |
+          echo "| Total Findings | Critical | High | Medium | Low |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------------|----------|------|--------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| $((CRITICAL + HIGH + MEDIUM + LOW)) | $CRITICAL | $HIGH | $MEDIUM | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           
-          ---
-          
-          ## 🎯 Top Priority Findings
-          
-          EOF
-          
-          # Add findings table
-          if [ -f all-findings.json ] && [ $(jq 'length' all-findings.json) -gt 0 ]; then
-            echo "| Severity | Title | Package | Fix |" >> SECURITY_REPORT.md
-            echo "|----------|-------|---------|-----|" >> SECURITY_REPORT.md
-            
-            jq -r '.[] | "| \(.severity) | \(.title[0:50])... | `\(.package)` | \(.fix // "N/A") |"' all-findings.json >> SECURITY_REPORT.md
-          else
-            echo "✅ **No critical or high findings!**" >> SECURITY_REPORT.md
+          echo "### 🔍 Scans Performed:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ SCA (Software Composition Analysis) - npm audit" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ SAST (Static Analysis) - Trivy" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.run_codeql }}" = "true" ]; then
+            echo "- ✅ SAST (Advanced) - CodeQL" >> $GITHUB_STEP_SUMMARY
           fi
+          echo "- ✅ IaC (Infrastructure) - Trivy Config" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.dast_url }}" != "" ]; then
+            echo "- ✅ DAST (Dynamic) - OWASP ZAP" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
           
-          cat >> SECURITY_REPORT.md << 'EOF'
-          
-          ---
-          
-          ## 🛠️ Remediation
-          
-          ### For npm vulnerabilities:
-          ```bash
-          npm audit fix
-          npm audit fix --force  # If needed
-          ```
-          
-          ### For code vulnerabilities:
-          - Review Trivy findings in artifacts
-          - Update affected packages
-          - Apply security patches
-          
-          ---
-          
-          **Full details available in artifacts**
-          
-          EOF
-
-      - name: 📊 Update GitHub Summary
-        if: always()
-        run: |
-          cat SECURITY_REPORT.md >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Review detailed findings above" >> $GITHUB_STEP_SUMMARY
+          echo "2. Download artifacts for full reports" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.run_codeql }}" = "true" ]; then
+            echo "3. Check Security tab for CodeQL alerts" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "4. Address Critical/High findings within 24-48 hours" >> $GITHUB_STEP_SUMMARY
+          echo "5. Check Security Dashboard for trends" >> $GITHUB_STEP_SUMMARY
 
       # ═══════════════════════════════════════════
-      # UPLOAD ARTIFACTS (Lightweight!)
+      # UPLOAD ARTIFACTS
       # ═══════════════════════════════════════════
       
       - name: 📤 Upload Reports
@@ -351,11 +721,12 @@ jobs:
           name: security-reports
           path: |
             summary.json
-            SECURITY_REPORT.md
             npm-audit.json
             trivy-fs.json
             trivy-config.json
-            zap-report.json
+            zap-output/zap-report.json
+            zap-output/zap-report.html
+            sarif-results/
           retention-days: 30
           if-no-files-found: warn
 
@@ -365,12 +736,14 @@ jobs:
       
       - name: 🚨 Security Quality Gate
         run: |
-          CRITICAL=$(jq -r '.summary.critical' summary.json)
-          
-          if [ $CRITICAL -gt 0 ]; then
-            echo "❌ CRITICAL vulnerabilities found: $CRITICAL"
-            echo "Please fix before merging"
-            exit 1
+          if [ -f summary.json ]; then
+            CRITICAL=$(jq -r '.summary.critical' summary.json)
+            
+            if [ $CRITICAL -gt 0 ]; then
+              echo "❌ CRITICAL vulnerabilities found: $CRITICAL"
+              echo "Please fix before merging"
+              exit 1
+            fi
           fi
           
-          echo "✅ No critical vulnerabilities"
+          echo "✅ No critical vulnerabilities - Quality gate passed"
