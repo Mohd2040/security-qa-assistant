@@ -441,82 +441,23 @@ jobs:
             || true
         continue-on-error: true
 
-      - name: 📊 DAST - Process Results
-        if: ${{ inputs.dast_url != '' }}
-        run: |
-          echo "## 🌐 DAST - Dynamic Application Security Testing" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "**Target:** ${{ inputs.dast_url }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          REPORT_JSON="zap-output/zap-report.json"
-          
-          if [ -f "$REPORT_JSON" ]; then
-            # Parse ZAP results
-            HIGH=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("High"))] | length' "$REPORT_JSON" 2>/dev/null || echo "0")
-            MEDIUM=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Medium"))] | length' "$REPORT_JSON" 2>/dev/null || echo "0")
-            LOW=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Low"))] | length' "$REPORT_JSON" 2>/dev/null || echo "0")
-            INFO=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Informational"))] | length' "$REPORT_JSON" 2>/dev/null || echo "0")
-            TOTAL=$((HIGH + MEDIUM + LOW + INFO))
-          
-            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
-            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
-            echo "| ℹ️ Info | $INFO |" >> $GITHUB_STEP_SUMMARY
-            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          
-            # Technology Used
-            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
-            echo "- **Tool:** OWASP ZAP (Zed Attack Proxy)" >> $GITHUB_STEP_SUMMARY
-            echo "- **Scan Type:** Baseline (passive + active light)" >> $GITHUB_STEP_SUMMARY
-            echo "- **Coverage:** OWASP Top 10 vulnerabilities" >> $GITHUB_STEP_SUMMARY
-            echo "- **Tests Performed:**" >> $GITHUB_STEP_SUMMARY
-            echo "  - XSS (Cross-Site Scripting)" >> $GITHUB_STEP_SUMMARY
-            echo "  - SQL Injection" >> $GITHUB_STEP_SUMMARY
-            echo "  - CSRF (Cross-Site Request Forgery)" >> $GITHUB_STEP_SUMMARY
-            echo "  - Security Headers" >> $GITHUB_STEP_SUMMARY
-            echo "  - Cookie Security" >> $GITHUB_STEP_SUMMARY
-            echo "  - SSL/TLS Configuration" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          
-            # Recommendations
-            echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
-            if [ $HIGH -gt 0 ]; then
-              echo "**⚠️ High Risk Issues Found:**" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-          
-              # Show high alerts
-              jq -r '.site[].alerts[] | 
-                select(.riskdesc | startswith("High")) | 
-                "**\(.name)**\n- Risk: \(.riskdesc)\n- Description: \(.desc[0:200])...\n- Solution: \(.solution[0:200])...\n"'       "$REPORT_JSON" | head -100 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
-          
-              echo "**Action Items:**" >> $GITHUB_STEP_SUMMARY
-              echo "1. Download ZAP HTML report from artifacts for full details" >> $GITHUB_STEP_SUMMARY
-              echo "2. Prioritize fixing High severity issues" >> $GITHUB_STEP_SUMMARY
-              echo "3. Test fixes in staging before production" >> $GITHUB_STEP_SUMMARY
-              echo "4. Re-run DAST scan after fixes" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "✅ No high-risk DAST issues found!" >> $GITHUB_STEP_SUMMARY
-              echo "- Application security posture is good" >> $GITHUB_STEP_SUMMARY
-              echo "- Review medium/low findings for improvements" >> $GITHUB_STEP_SUMMARY
-              echo "- Download full report for optimization suggestions" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "⚠️ DAST scan did not produce results" >> $GITHUB_STEP_SUMMARY
-            echo "**Possible reasons:**" >> $GITHUB_STEP_SUMMARY
-            echo "- Target URL is not accessible" >> $GITHUB_STEP_SUMMARY
-            echo "- Application is rate-limiting requests" >> $GITHUB_STEP_SUMMARY
-            echo "- Network connectivity issues" >> $GITHUB_STEP_SUMMARY
-            echo "- Report JSON not generated (permissions/container write failure)" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+      # ═══════════════════════════════════════════
+      # CodeQL (Optional - Slow)
+      # ═══════════════════════════════════════════
+      
+      - name: 🔬 Initialize CodeQL
+        if: ${{ inputs.run_codeql }}
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: 🔬 CodeQL Analysis
+        if: ${{ inputs.run_codeql }}
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
+        continue-on-error: true
 
       # ═══════════════════════════════════════════
       # AGGREGATION & SUMMARY
@@ -724,9 +665,7 @@ jobs:
             npm-audit.json
             trivy-fs.json
             trivy-config.json
-            zap-output/zap-report.json
-            zap-output/zap-report.html
-            sarif-results/
+            zap-report.json
           retention-days: 30
           if-no-files-found: warn
 
