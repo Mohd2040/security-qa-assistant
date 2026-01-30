@@ -455,12 +455,8 @@ jobs:
           docker pull ghcr.io/zaproxy/zaproxy:stable
 
           docker run --rm \
-            -u "$(id -u):$(id -g)" \
-            -e HOME=/home/zap \
             -v "$PWD/zap-output:/zap/wrk:rw" \
-            -v "$PWD/zap-output:/home/zap:rw" \
-            -w /zap/wrk \
-            ghcr.io/zaproxy/zaproxy:stable \
+            -t ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "${{ inputs.dast_url }}" \
             -J zap-report.json \
