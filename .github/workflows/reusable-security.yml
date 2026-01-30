@@ -704,12 +704,100 @@ jobs:
           echo "**Security Score:** $SCORE/100" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "| Total Findings | Critical | High | Medium | Low |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------------|----------|------|--------|-----|" >> $GITHUB_STEP_SUMMARY
-          echo "| $((CRITICAL + HIGH + MEDIUM + LOW)) | $CRITICAL | $HIGH | $MEDIUM | $LOW |" >> $GITHUB_STEP_SUMMARY
+          # Detailed breakdown by source
+          echo "### 📊 Findings by Source" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Scan Type | Tool | Critical | High | Medium | Low | Total |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|------|----------|------|--------|-----|-------|" >> $GITHUB_STEP_SUMMARY
+          
+          # SCA
+          if [ -f npm-audit.json ]; then
+            SCA_C=$(jq -r '.metadata.vulnerabilities.critical // 0' npm-audit.json)
+            SCA_H=$(jq -r '.metadata.vulnerabilities.high // 0' npm-audit.json)
+            SCA_M=$(jq -r '.metadata.vulnerabilities.moderate // 0' npm-audit.json)
+            SCA_L=$(jq -r '.metadata.vulnerabilities.low // 0' npm-audit.json)
+            SCA_T=$((SCA_C + SCA_H + SCA_M + SCA_L))
+            echo "| 🔍 SCA | npm audit | $SCA_C | $SCA_H | $SCA_M | $SCA_L | $SCA_T |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 🔍 SCA | npm audit | - | - | - | - | N/A |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # SAST (Trivy)
+          if [ -f trivy-fs.json ]; then
+            TRIVY_C=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs.json)
+            TRIVY_H=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs.json)
+            TRIVY_M=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-fs.json)
+            TRIVY_L=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-fs.json)
+            TRIVY_T=$((TRIVY_C + TRIVY_H + TRIVY_M + TRIVY_L))
+            echo "| 🛡️ SAST | Trivy | $TRIVY_C | $TRIVY_H | $TRIVY_M | $TRIVY_L | $TRIVY_T |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 🛡️ SAST | Trivy | - | - | - | - | N/A |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # CodeQL
+          if [ "${{ inputs.run_codeql }}" = "true" ]; then
+            echo "| 🔬 SAST | CodeQL | - | - | - | - | [View Security Tab](../../security/code-scanning) |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # DAST
+          if [ -f zap-output/zap-report.json ]; then
+            ZAP_H=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("High"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            ZAP_M=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Medium"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            ZAP_L=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Low"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            ZAP_T=$((ZAP_H + ZAP_M + ZAP_L))
+            echo "| 🌐 DAST | OWASP ZAP | - | $ZAP_H | $ZAP_M | $ZAP_L | $ZAP_T |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 🌐 DAST | OWASP ZAP | - | - | - | - | Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Total row
+          echo "| **TOTAL** | - | **$CRITICAL** | **$HIGH** | **$MEDIUM** | **$LOW** | **$((CRITICAL + HIGH + MEDIUM + LOW))** |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "### 🔍 Scans Performed:" >> $GITHUB_STEP_SUMMARY
+          # Top Critical/High Findings
+          if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
+            echo "### 🚨 Top Critical/High Findings" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [ -f all-findings.json ]; then
+              jq -r '.[] | select(.severity == "CRITICAL" or .severity == "HIGH") | 
+                "**\(.severity)** - \(.title // .name // "Unknown")\n- **Source:** \(.source)\n- **Package:** \(.package // "N/A")\n- **CVE:** \(.cve // "N/A")\n- **Fix:** \(.fix // "See detailed report")\n\n---\n"' \
+                all-findings.json | head -100 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            fi
+          fi
+          
+          # Quick Fixes Section
+          echo "### 🔧 Quick Fixes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f npm-audit.json ] && [ $SCA_C -gt 0 ] || [ $SCA_H -gt 0 ]; then
+            echo "**For Node.js/npm vulnerabilities:**" >> $GITHUB_STEP_SUMMARY
+            echo '```bash' >> $GITHUB_STEP_SUMMARY
+            echo "# Try automatic fix" >> $GITHUB_STEP_SUMMARY
+            echo "npm audit fix" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# For breaking changes (use with caution)" >> $GITHUB_STEP_SUMMARY
+            echo "npm audit fix --force" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Update specific packages" >> $GITHUB_STEP_SUMMARY
+            jq -r '.vulnerabilities | to_entries | 
+              sort_by(.value.severity) | reverse | .[0:3] | .[] | 
+              "npm install \(.key)@latest  # Fix: \(.value.via[0].title // \"vulnerability\")"' \
+              npm-audit.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f trivy-fs.json ] && [ $TRIVY_C -gt 0 ] || [ $TRIVY_H -gt 0 ]; then
+            echo "**For other vulnerabilities (Python, .NET, etc.):**" >> $GITHUB_STEP_SUMMARY
+            echo "- Review CVE links in detailed findings above" >> $GITHUB_STEP_SUMMARY
+            echo "- Update affected packages to fixed versions" >> $GITHUB_STEP_SUMMARY
+            echo "- Check package manager documentation for update commands" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Scans performed
+          echo "### 🔍 Scans Performed" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ SCA (Software Composition Analysis) - npm audit" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ SAST (Static Analysis) - Trivy" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.run_codeql }}" = "true" ]; then
@@ -721,14 +809,61 @@ jobs:
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "### 📥 Next Steps:" >> $GITHUB_STEP_SUMMARY
+          # Detailed Reports
+          echo "### 📥 Detailed Reports (Artifacts)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Download full JSON reports from the **Artifacts** section below:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Report | Description | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f npm-audit.json ]; then
+            SIZE=$(du -h npm-audit.json | cut -f1)
+            echo "| 📄 npm-audit.json | SCA findings (dependencies) | ✅ $SIZE |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 📄 npm-audit.json | SCA findings | ❌ N/A |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f trivy-fs.json ]; then
+            SIZE=$(du -h trivy-fs.json | cut -f1)
+            echo "| 📄 trivy-fs.json | SAST findings (code + deps) | ✅ $SIZE |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 📄 trivy-fs.json | SAST findings | ❌ N/A |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f trivy-config.json ]; then
+            SIZE=$(du -h trivy-config.json | cut -f1)
+            echo "| 📄 trivy-config.json | IaC misconfigurations | ✅ $SIZE |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 📄 trivy-config.json | IaC misconfigurations | ❌ N/A |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f zap-output/zap-report.json ]; then
+            SIZE=$(du -h zap-output/zap-report.json | cut -f1)
+            echo "| 📄 zap-report.json | DAST findings (runtime) | ✅ $SIZE |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 📄 zap-report.json | DAST findings | ❌ Skipped |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f summary.json ]; then
+            SIZE=$(du -h summary.json | cut -f1)
+            echo "| 📄 summary.json | Aggregated summary | ✅ $SIZE |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Next Steps
+          echo "### 📥 Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "1. Review detailed findings above" >> $GITHUB_STEP_SUMMARY
           echo "2. Download artifacts for full reports" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.run_codeql }}" = "true" ]; then
-            echo "3. Check Security tab for CodeQL alerts" >> $GITHUB_STEP_SUMMARY
+            echo "3. Check [Security tab](../../security/code-scanning) for CodeQL alerts" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "4. Address Critical/High findings within 24-48 hours" >> $GITHUB_STEP_SUMMARY
-          echo "5. Check Security Dashboard for trends" >> $GITHUB_STEP_SUMMARY
+          if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
+            echo "4. **⚠️ Address Critical/High findings within 24-48 hours**" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "5. Run suggested fix commands from Quick Fixes section" >> $GITHUB_STEP_SUMMARY
+
 
       # ═══════════════════════════════════════════
       # UPLOAD ARTIFACTS
