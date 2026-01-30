@@ -31,26 +31,3 @@ jobs:
       run_npm_audit: true
       run_codeql: true
       dast_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_url || 'https://security-qa-assistant.onrender.com/' }}
-  
-  notify-slack:
-    needs: call-security-scan
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Send Slack notification
-        uses: slackapi/slack-github-action@v1
-        with:
-          webhook: ${{ secrets.SLACK_WEBHOOK }}
-          payload: |
-            {
-              "text": "🔒 Security Scan Complete",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Repository:* ${{ github.repository }}\n*Status:* Completed\n*Dashboard:* https://YOUR-USERNAME.github.io/security-qa-assistant/"
-                  }
-                }
-              ]
-            }
