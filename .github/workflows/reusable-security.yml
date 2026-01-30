@@ -380,7 +380,7 @@ jobs:
           echo "### 📋 Results Location:" >> $GITHUB_STEP_SUMMARY
           echo "CodeQL findings are uploaded to the **Security** tab:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 **[View Code Scanning Alerts](../../security/code-scanning)**" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **[View Code Scanning Alerts](https://github.com/${{ github.repository }}/security/code-scanning)**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### 💡 How to Review:" >> $GITHUB_STEP_SUMMARY
@@ -439,6 +439,8 @@ jobs:
         if: ${{ inputs.dast_url != '' }}
         run: |
           mkdir -p zap-output
+          # Fix permissions for ZAP container to write reports
+          chmod 777 zap-output
           
           # Verify target is accessible before running ZAP
           echo "Verifying target accessibility..."
@@ -456,6 +458,7 @@ jobs:
 
           docker run --rm \
             -v "$PWD/zap-output:/zap/wrk:rw" \
+            -u zap \
             -t ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "${{ inputs.dast_url }}" \
@@ -468,8 +471,11 @@ jobs:
           # Check if report was generated
           if [ -f zap-output/zap-report.json ]; then
             echo "✅ ZAP scan completed successfully"
+            ls -lah zap-output/
           else
             echo "⚠️ ZAP scan did not produce results"
+            echo "Contents of zap-output:"
+            ls -lah zap-output/ || echo "Directory is empty or inaccessible"
           fi
         continue-on-error: true
 
@@ -732,7 +738,7 @@ jobs:
           
           # CodeQL
           if [ "${{ inputs.run_codeql }}" = "true" ]; then
-            echo "| 🔬 SAST | CodeQL | - | - | - | - | [View Security Tab](../../security/code-scanning) |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔬 SAST | CodeQL | - | - | - | - | [View Security Tab](https://github.com/${{ github.repository }}/security/code-scanning) |" >> $GITHUB_STEP_SUMMARY
           fi
           
           # DAST
@@ -853,7 +859,7 @@ jobs:
           echo "1. Review detailed findings above" >> $GITHUB_STEP_SUMMARY
           echo "2. Download artifacts for full reports" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.run_codeql }}" = "true" ]; then
-            echo "3. Check [Security tab](../../security/code-scanning) for CodeQL alerts" >> $GITHUB_STEP_SUMMARY
+            echo "3. Check [Security tab](https://github.com/${{ github.repository }}/security/code-scanning) for CodeQL alerts" >> $GITHUB_STEP_SUMMARY
           fi
           if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
             echo "4. **⚠️ Address Critical/High findings within 24-48 hours**" >> $GITHUB_STEP_SUMMARY
