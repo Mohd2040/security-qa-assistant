@@ -74,7 +74,7 @@ jobs:
       
       - name: 🔬 Initialize CodeQL
         if: ${{ inputs.run_codeql }}
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ inputs.codeql_languages }}
           queries: ${{ inputs.codeql_queries }}
@@ -340,9 +340,9 @@ jobs:
       
       - name: 🔬 CodeQL - Perform Analysis
         if: ${{ inputs.run_codeql }}
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
-          
+          category: "/language:${{ inputs.codeql_languages }}"
           output: sarif-results
           upload: true
         continue-on-error: true
@@ -416,8 +416,21 @@ jobs:
       - name: 🌐 Wake up DAST target
         if: ${{ inputs.dast_url != '' }}
         run: |
-          echo "Pinging ${{ inputs.dast_url }}..."
-          curl -sL "${{ inputs.dast_url }}" > /dev/null || true
+          echo "Attempting to wake up ${{ inputs.dast_url }}..."
+          
+          # Try multiple times to wake up the service (useful for Render free tier)
+          for i in {1..5}; do
+            echo "Attempt $i/5..."
+            if curl -sL -w "%{http_code}" "${{ inputs.dast_url }}" -o /dev/null | grep -q "200\|301\|302"; then
+              echo "✅ Target is responding!"
+              break
+            fi
+            echo "Waiting 15 seconds before retry..."
+            sleep 15
+          done
+          
+          # Final wait to ensure app is fully ready
+          echo "Waiting additional 30 seconds for app to stabilize..."
           sleep 30
         continue-on-error: true
 
@@ -426,6 +439,19 @@ jobs:
         if: ${{ inputs.dast_url != '' }}
         run: |
           mkdir -p zap-output
+          
+          # Verify target is accessible before running ZAP
+          echo "Verifying target accessibility..."
+          HTTP_CODE=$(curl -sL -w "%{http_code}" "${{ inputs.dast_url }}" -o /dev/null || echo "000")
+          
+          if [ "$HTTP_CODE" = "000" ] || [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "500" ]; then
+            echo "⚠️ Target URL returned HTTP $HTTP_CODE or is not accessible"
+            echo "Skipping DAST scan - target may be down or rate-limited"
+            echo "http_code=$HTTP_CODE" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "✅ Target is accessible (HTTP $HTTP_CODE), starting ZAP scan..."
           docker pull ghcr.io/zaproxy/zaproxy:stable
 
           docker run --rm \
@@ -439,25 +465,79 @@ jobs:
             -t "${{ inputs.dast_url }}" \
             -J zap-report.json \
             -r zap-report.html \
-            -T 120 \
-            -z "-config spider.maxDuration=3 -config ajaxSpider.maxDuration=3" \
+            -T 180 \
+            -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" \
             || true
+          
+          # Check if report was generated
+          if [ -f zap-output/zap-report.json ]; then
+            echo "✅ ZAP scan completed successfully"
+          else
+            echo "⚠️ ZAP scan did not produce results"
+          fi
         continue-on-error: true
 
 
-      # ═══════════════════════════════════════════
-      # CodeQL (Optional - Slow)
-      # ═══════════════════════════════════════════
-      
-      - name: 🔬 CodeQL - Perform Analysis
-        if: ${{ inputs.run_codeql }}
-        uses: github/codeql-action/analyze@v3
-        with:
-          # Let CodeQL choose distinct categories per run/language to avoid "only one run per tool/category" upload errors.
-          output: sarif-results
-          upload: true
-        continue-on-error: true
-        
+      - name: 📊 DAST - Process Results
+        if: ${{ inputs.dast_url != '' }}
+        run: |
+          echo "## 🌐 DAST - Dynamic Application Security Testing" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** ${{ inputs.dast_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f zap-output/zap-report.json ]; then
+            # Process ZAP results
+            HIGH=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("High"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            MEDIUM=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Medium"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            LOW=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Low"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            INFO=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Informational"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            
+            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| ℹ️ Info | $INFO |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tool:** OWASP ZAP (Zed Attack Proxy)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Scan Type:** Baseline (passive + spider)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Timeout:** 180 seconds" >> $GITHUB_STEP_SUMMARY
+            echo "- **Coverage:** Runtime vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [ $HIGH -gt 0 ] || [ $MEDIUM -gt 0 ]; then
+              echo "### ⚠️ Findings:" >> $GITHUB_STEP_SUMMARY
+              jq -r '.site[].alerts[] | 
+                select((.riskdesc | startswith("High")) or (.riskdesc | startswith("Medium"))) | 
+                "**\(.riskdesc):** \(.name)\n- **Description:** \(.desc[0:200])...\n- **Solution:** \(.solution[0:150])...\n"' \
+                zap-output/zap-report.json | head -50 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            else
+              echo "✅ No high or medium DAST vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ⚠️ DAST scan did not produce results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Possible reasons:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Target URL is not accessible" >> $GITHUB_STEP_SUMMARY
+            echo "- Application is rate-limiting requests" >> $GITHUB_STEP_SUMMARY
+            echo "- Network connectivity issues" >> $GITHUB_STEP_SUMMARY
+            echo "- Service is sleeping (Render free tier)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Troubleshooting:**" >> $GITHUB_STEP_SUMMARY
+            echo "1. Verify the target URL is publicly accessible" >> $GITHUB_STEP_SUMMARY
+            echo "2. Check if the service is running" >> $GITHUB_STEP_SUMMARY
+            echo "3. Review rate limiting settings" >> $GITHUB_STEP_SUMMARY
+            echo "4. Consider running DAST manually during active hours" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+
       # ═══════════════════════════════════════════
       # AGGREGATION & SUMMARY
       # ═══════════════════════════════════════════
