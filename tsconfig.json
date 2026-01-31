@@ -1,16 +1,13 @@
 {
   "compilerOptions": {
-<<<<<<< HEAD
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
-=======
     "target": "es6",
     "lib": [
       "dom",
       "dom.iterable",
       "esnext"
     ],
->>>>>>> devops3
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -21,41 +18,33 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-<<<<<<< HEAD
-=======
     "baseUrl": ".",
     "paths": {
       "@/*": [
         "./*"
       ]
     },
->>>>>>> devops3
     "incremental": true,
     "plugins": [
       {
         "name": "next"
       }
-<<<<<<< HEAD
     ],
     "paths": {
       "@/*": ["./*"]
     }
-=======
     ]
->>>>>>> devops3
   },
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-<<<<<<< HEAD
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
   "exclude": ["node_modules"]
 }
-=======
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
