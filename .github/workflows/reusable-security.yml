@@ -1049,43 +1049,43 @@ jobs:
         # Run only when explicitly enabled (avoids parsing issues with `secrets` in reusable workflows)
         if: ${{ inputs.defectdojo_enabled == true }}
         env:
-        DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
-        DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
-        DEFECTDOJO_PRODUCT_ID: ${{ secrets.DEFECTDOJO_PRODUCT_ID }}
-        BRANCH: ${{ github.ref_name }}
-        COMMIT: ${{ github.sha }}
-      run: |
-        set -e
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+          DEFECTDOJO_PRODUCT_ID: ${{ secrets.DEFECTDOJO_PRODUCT_ID }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -e
 
-        echo "## 📊 DefectDojo Integration" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 DefectDojo Integration" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
-        PRODUCT_ID="$DEFECTDOJO_PRODUCT_ID"
-        ENGAGEMENT_NAME="GitHub Actions - ${BRANCH}"
+          PRODUCT_ID="$DEFECTDOJO_PRODUCT_ID"
+          ENGAGEMENT_NAME="GitHub Actions - ${BRANCH}"
 
-        # Check secrets
-        if [ -z "$DEFECTDOJO_URL" ] || [ -z "$DEFECTDOJO_TOKEN" ] || [ -z "$PRODUCT_ID" ]; then
-          echo "⚠️ DefectDojo upload skipped: missing secrets" >> $GITHUB_STEP_SUMMARY
-          exit 0
-        fi
+          # Check secrets
+          if [ -z "$DEFECTDOJO_URL" ] || [ -z "$DEFECTDOJO_TOKEN" ] || [ -z "$PRODUCT_ID" ]; then
+            echo "⚠️ DefectDojo upload skipped: missing secrets" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
 
-        # Get PRODUCT_NAME from Product ID (API requires product_name)
-        echo "🔎 Resolving product_name from product_id=${PRODUCT_ID} ..."
-        PRODUCT_NAME=$(curl -sS -L --max-time 20 \
-          -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-          "${DEFECTDOJO_URL}/api/v2/products/${PRODUCT_ID}/" \
-          | python3 -c "import sys, json; print(json.load(sys.stdin).get('name',''))" 2>/dev/null || true)
+          # Get PRODUCT_NAME from Product ID (API requires product_name)
+          echo "🔎 Resolving product_name from product_id=${PRODUCT_ID} ..."
+          PRODUCT_NAME=$(curl -sS -L --max-time 20 \
+            -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+            "${DEFECTDOJO_URL}/api/v2/products/${PRODUCT_ID}/" \
+            | python3 -c "import sys, json; print(json.load(sys.stdin).get('name',''))" 2>/dev/null || true)
 
-        if [ -z "$PRODUCT_NAME" ]; then
-          echo "❌ Could not resolve product_name from product_id=${PRODUCT_ID}" >> $GITHUB_STEP_SUMMARY
-          echo "Check DEFECTDOJO_URL/TOKEN/PRODUCT_ID and that token has access to this product." >> $GITHUB_STEP_SUMMARY
-          exit 1
-        fi
+          if [ -z "$PRODUCT_NAME" ]; then
+            echo "❌ Could not resolve product_name from product_id=${PRODUCT_ID}" >> $GITHUB_STEP_SUMMARY
+            echo "Check DEFECTDOJO_URL/TOKEN/PRODUCT_ID and that token has access to this product." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
 
-        echo "🔗 DefectDojo Server: ${DEFECTDOJO_URL}" >> $GITHUB_STEP_SUMMARY
-        echo "📦 Product: ${PRODUCT_NAME} (ID: ${PRODUCT_ID})" >> $GITHUB_STEP_SUMMARY
-        echo "🌿 Branch: ${BRANCH}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 DefectDojo Server: ${DEFECTDOJO_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "📦 Product: ${PRODUCT_NAME} (ID: ${PRODUCT_ID})" >> $GITHUB_STEP_SUMMARY
+          echo "🌿 Branch: ${BRANCH}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
           UPLOAD_COUNT=0
           UPLOAD_ERRORS=0
