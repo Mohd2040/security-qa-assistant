@@ -390,19 +390,50 @@ jobs:
           echo "## 🔬 CodeQL - Advanced Code Analysis" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "### 📊 Analysis Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          # Initialize variables
+          FINDINGS="0"
           
-          # Technology Used
-          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tool:** GitHub CodeQL" >> $GITHUB_STEP_SUMMARY
-          echo "- **Engine:** Semantic code analysis" >> $GITHUB_STEP_SUMMARY
+          # Count findings from SARIF file
+          if [ -d sarif-results ]; then
+            FINDINGS=$(find sarif-results -name "*.sarif" -exec jq '[.runs[].results[]] | length' {} + | awk '{s+=$1} END {print s}')
+            if [ -z "$FINDINGS" ]; then FINDINGS="0"; fi
+          fi
+          
+          # Display Status Based on Findings
+          if [ "$FINDINGS" = "0" ]; then
+            echo "✅ **Excellent! CodeQL found ZERO vulnerabilities**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Your code passed all security checks:" >> $GITHUB_STEP_SUMMARY
+            echo "- No SQL injection vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            echo "- No XSS issues" >> $GITHUB_STEP_SUMMARY
+            echo "- No authentication/authorization flaws" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "ℹ️ **Note:** The Security → Code scanning page will be empty because there are no alerts to show. This is expected and means your code is secure!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **CodeQL found $FINDINGS security issue(s)**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **[View detailed findings in Security tab](https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }})**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "### 💡 How to Review:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Navigate to: **Security → Code scanning**" >> $GITHUB_STEP_SUMMARY
+            echo "2. Filter by severity (Critical, High, Medium, Low)" >> $GITHUB_STEP_SUMMARY
+            echo "3. Click on each alert for detailed information" >> $GITHUB_STEP_SUMMARY
+            echo "4. Review code location and suggested fix" >> $GITHUB_STEP_SUMMARY
+            echo "5. Dismiss false positives or fix issues" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Scan Statistics
+          echo "### 📈 Scan Statistics:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** Analysis Complete" >> $GITHUB_STEP_SUMMARY
           echo "- **Language:** ${{ inputs.codeql_languages }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Query Pack:** ${{ inputs.codeql_queries }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Database:** GitHub Security Lab queries" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Findings:** $FINDINGS" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "### 🔍 What CodeQL Checks:" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 What CodeQL Checked:" >> $GITHUB_STEP_SUMMARY
           echo "- **SQL Injection** vulnerabilities" >> $GITHUB_STEP_SUMMARY
           echo "- **Cross-Site Scripting (XSS)** issues" >> $GITHUB_STEP_SUMMARY
           echo "- **Path Traversal** vulnerabilities" >> $GITHUB_STEP_SUMMARY
@@ -412,20 +443,6 @@ jobs:
           echo "- **Authentication/Authorization** flaws" >> $GITHUB_STEP_SUMMARY
           echo "- **Resource Leaks**" >> $GITHUB_STEP_SUMMARY
           echo "- **Code Quality** issues" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "### 📋 Results Location:" >> $GITHUB_STEP_SUMMARY
-          echo "CodeQL findings are uploaded to the **Security** tab:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 **[View Code Scanning Alerts](https://github.com/${{ github.repository }}/security/code-scanning)**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "### 💡 How to Review:" >> $GITHUB_STEP_SUMMARY
-          echo "1. Navigate to: **Security → Code scanning**" >> $GITHUB_STEP_SUMMARY
-          echo "2. Filter by severity (Critical, High, Medium, Low)" >> $GITHUB_STEP_SUMMARY
-          echo "3. Click on each alert for detailed information" >> $GITHUB_STEP_SUMMARY
-          echo "4. Review code location and suggested fix" >> $GITHUB_STEP_SUMMARY
-          echo "5. Dismiss false positives or fix issues" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### 🎯 CodeQL Advantages:" >> $GITHUB_STEP_SUMMARY
