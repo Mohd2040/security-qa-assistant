@@ -1045,7 +1045,8 @@ jobs:
       # ═══════════════════════════════════════════
       
       - name: 📊 Upload to DefectDojo
-        if: ${{ inputs.defectdojo_enabled }}
+        # Enable if explicitly requested OR if DefectDojo secrets are present (so callers can stay minimal)
+        if: ${{ inputs.defectdojo_enabled || (secrets.defectdojo_url != '' && secrets.defectdojo_token != '' && secrets.defectdojo_product_id != '') }}
         run: |
           echo "## 📊 DefectDojo Integration" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -1095,7 +1096,7 @@ jobs:
               -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
               -F "scan_type=${SCAN_TYPE}" \
               -F "file=@${FILE_PATH}" \
-              -F "product_name=${PRODUCT_ID}" \
+              -F "product_id=${PRODUCT_ID}" \
               -F "engagement_name=${ENGAGEMENT_NAME}" \
               -F "test_title=${TEST_TITLE}" \
               -F "active=true" \

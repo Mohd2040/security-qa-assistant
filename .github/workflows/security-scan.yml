@@ -15,36 +15,6 @@ on:
         required: false
         type: string
         default: 'https://security-qa-assistant.onrender.com/'
-      dast_auth_enabled:
-        description: 'Enable authenticated DAST scanning'
-        required: false
-        type: boolean
-        default: false
-      dast_login_url:
-        description: 'Login page URL for authenticated scanning'
-        required: false
-        type: string
-        default: 'https://security-qa-assistant.onrender.com/api/auth/signin'
-      dast_username_field:
-        description: 'Username field name in login form'
-        required: false
-        type: string
-        default: 'username'
-      dast_password_field:
-        description: 'Password field name in login form'
-        required: false
-        type: string
-        default: 'password'
-      dast_success_indicator:
-        description: 'URL pattern or text indicating successful login'
-        required: false
-        type: string
-        default: 'dashboard'
-      defectdojo_enabled:
-        description: 'Enable DefectDojo integration'
-        required: false
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -61,15 +31,3 @@ jobs:
       run_npm_audit: true
       run_codeql: true
       dast_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_url || 'https://security-qa-assistant.onrender.com/' }}
-      dast_auth_enabled: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_auth_enabled || false }}
-      dast_login_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_login_url || 'https://security-qa-assistant.onrender.com/api/auth/signin' }}
-      dast_username_field: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_username_field || 'username' }}
-      dast_password_field: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_password_field || 'password' }}
-      dast_success_indicator: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_success_indicator || 'dashboard' }}
-      defectdojo_enabled: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.defectdojo_enabled || true }}
-    secrets:
-      dast_username: ${{ secrets.DAST_USERNAME }}
-      dast_password: ${{ secrets.DAST_PASSWORD }}
-      defectdojo_url: ${{ secrets.DEFECTDOJO_URL }}
-      defectdojo_token: ${{ secrets.DEFECTDOJO_TOKEN }}
-      defectdojo_product_id: ${{ secrets.DEFECTDOJO_PRODUCT_ID }}
