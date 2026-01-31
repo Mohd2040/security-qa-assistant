@@ -306,9 +306,31 @@ jobs:
             echo "  - Helm Charts" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             
+            # Scan statistics
+            SCANNED_COUNT=$(jq '[.Results[]? | select(.Target)] | length' trivy-config.json 2>/dev/null || echo "0")
+            echo "### 📁 Scan Coverage:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Files Scanned:** $SCANNED_COUNT" >> $GITHUB_STEP_SUMMARY
+            
+            # Count by type
+            if [ $SCANNED_COUNT -gt 0 ]; then
+              echo "- **By Type:**" >> $GITHUB_STEP_SUMMARY
+              jq -r '[.Results[]? | select(.Target) | .Type] | group_by(.) | .[] | "  - \(.[0]): \(length) file(s)"' trivy-config.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
             # Files scanned
-            echo "**Files Scanned:**" >> $GITHUB_STEP_SUMMARY
-            jq -r '.Results[]? | select(.Misconfigurations) | "- `\(.Target)`"' trivy-config.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "- No IaC files found" >> $GITHUB_STEP_SUMMARY
+            if [ $SCANNED_COUNT -gt 0 ]; then
+              echo "**Scanned Files:**" >> $GITHUB_STEP_SUMMARY
+              jq -r '.Results[]? | select(.Target) | "- `\(.Target)` - \(.Type // "unknown")"' trivy-config.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            else
+              echo "**No IaC files detected in repository**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "ℹ️ Trivy looks for:" >> $GITHUB_STEP_SUMMARY
+              echo "- Dockerfile, docker-compose.yml" >> $GITHUB_STEP_SUMMARY
+              echo "- Kubernetes manifests (*.yaml, *.yml)" >> $GITHUB_STEP_SUMMARY
+              echo "- Terraform files (*.tf)" >> $GITHUB_STEP_SUMMARY
+              echo "- Helm charts" >> $GITHUB_STEP_SUMMARY
+            fi
             echo "" >> $GITHUB_STEP_SUMMARY
             
             # Recommendations
@@ -323,9 +345,24 @@ jobs:
                 "**\(.Severity):** \(.Title)\n- File: `\(.CauseMetadata.Resource // "N/A")`\n- Fix: \(.Resolution)\n"' \
                 trivy-config.json | head -50 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
             else
-              echo "✅ No critical IaC misconfigurations found!" >> $GITHUB_STEP_SUMMARY
-              echo "- Infrastructure configurations follow best practices" >> $GITHUB_STEP_SUMMARY
-              echo "- Continue reviewing configs during changes" >> $GITHUB_STEP_SUMMARY
+              if [ $SCANNED_COUNT -gt 0 ]; then
+                echo "✅ **Excellent! No critical IaC misconfigurations found**" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "Your infrastructure configurations passed security checks for:" >> $GITHUB_STEP_SUMMARY
+                echo "- CIS Docker Benchmark compliance" >> $GITHUB_STEP_SUMMARY
+                echo "- Container security best practices" >> $GITHUB_STEP_SUMMARY
+                echo "- Common misconfigurations (exposed secrets, insecure defaults, etc.)" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "**Continue following best practices:**" >> $GITHUB_STEP_SUMMARY
+                echo "- Review IaC changes in pull requests" >> $GITHUB_STEP_SUMMARY
+                echo "- Keep base images updated" >> $GITHUB_STEP_SUMMARY
+                echo "- Use non-root users in containers" >> $GITHUB_STEP_SUMMARY
+                echo "- Scan regularly for new vulnerabilities" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "ℹ️ **No IaC files to scan**" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "If you have infrastructure code, ensure it's committed to the repository." >> $GITHUB_STEP_SUMMARY
+              fi
             fi
           else
             echo "ℹ️ No IaC files detected or scan not performed" >> $GITHUB_STEP_SUMMARY
