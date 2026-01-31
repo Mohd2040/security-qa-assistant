@@ -935,7 +935,7 @@ jobs:
             npm-audit.json
             trivy-fs.json
             trivy-config.json
-            zap-report.json
+            zap-output/zap-report.json
           retention-days: 30
           if-no-files-found: warn
 
