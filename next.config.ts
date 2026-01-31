@@ -1,16 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // ✅ المطلوب لـ GitHub Pages
-  output: 'export',
-
   // ✅ ضروري إذا كنت تستخدم الصور في Next.js
   images: {
     unoptimized: true,
   },
-
-  // ✅ تفعيل الكومبايلر الجديد
-  reactCompiler: true,
 
   /* ملاحظة أمنية: 
      دالة headers() لا تعمل مع output: 'export'. 
