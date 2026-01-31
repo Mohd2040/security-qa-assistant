@@ -13,7 +13,8 @@ export default nextConfig;
 
 >>>>>>> security-qa-assistance/devops3
   // 🚀 هذا الإعداد يحل مشكلة Dockerfile ويُنشئ مجلد .next/standalone
-  output: 'standalone',
+  #output: 'standalone',
+  output: 'export',
 
   // يُبقي إعداد React Compiler الذي أضفته
   reactCompiler: true,
