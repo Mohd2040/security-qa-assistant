@@ -38,6 +38,53 @@ on:
         required: false
         type: string
         default: ''
+      dast_auth_enabled:
+        description: 'Enable authenticated DAST scanning'
+        required: false
+        type: boolean
+        default: false
+      dast_login_url:
+        description: 'Login page URL for authenticated scanning'
+        required: false
+        type: string
+        default: ''
+      dast_username_field:
+        description: 'Username field name in login form'
+        required: false
+        type: string
+        default: 'username'
+      dast_password_field:
+        description: 'Password field name in login form'
+        required: false
+        type: string
+        default: 'password'
+      dast_success_indicator:
+        description: 'URL pattern or text indicating successful login'
+        required: false
+        type: string
+        default: ''
+      defectdojo_enabled:
+        description: 'Enable DefectDojo integration'
+        required: false
+        type: boolean
+        default: false
+
+    secrets:
+      dast_username:
+        description: 'Username for authenticated DAST scanning'
+        required: false
+      dast_password:
+        description: 'Password for authenticated DAST scanning'
+        required: false
+      defectdojo_url:
+        description: 'DefectDojo server URL'
+        required: false
+      defectdojo_token:
+        description: 'DefectDojo API token'
+        required: false
+      defectdojo_product_id:
+        description: 'DefectDojo product ID'
+        required: false
 
 permissions:
   contents: read
@@ -488,6 +535,39 @@ jobs:
           sleep 30
         continue-on-error: true
 
+      - name: 🔐 Configure ZAP Authentication
+        if: ${{ inputs.dast_url != '' && inputs.dast_auth_enabled }}
+        run: |
+          mkdir -p zap-config
+          
+          cat > zap-config/auth-config.yaml << 'EOF'
+          env:
+            contexts:
+            - name: "Authenticated Context"
+              urls:
+              - "${{ inputs.dast_url }}"
+              authentication:
+                method: "formBasedAuthentication"
+                parameters:
+                  loginUrl: "${{ inputs.dast_login_url }}"
+                  loginRequestData: "${{ inputs.dast_username_field }}={%username%}&${{ inputs.dast_password_field }}={%password%}"
+                verification:
+                  method: "response"
+                  loggedInRegex: "${{ inputs.dast_success_indicator }}"
+                  loggedOutRegex: "(?:Sign in|Login|log in)"
+              users:
+              - name: "test-user"
+                credentials:
+                  username: "${{ secrets.dast_username }}"
+                  password: "${{ secrets.dast_password }}"
+              sessionManagement:
+                method: "cookieBasedSessionManagement"
+          EOF
+          
+          echo "✅ ZAP authentication configuration created"
+          cat zap-config/auth-config.yaml
+        continue-on-error: true
+
       - name: 🌐 DAST - OWASP ZAP Baseline
         id: dast
         if: ${{ inputs.dast_url != '' }}
@@ -510,17 +590,37 @@ jobs:
           echo "✅ Target is accessible (HTTP $HTTP_CODE), starting ZAP scan..."
           docker pull ghcr.io/zaproxy/zaproxy:stable
 
-          docker run --rm \
-            -v "$PWD/zap-output:/zap/wrk:rw" \
-            -u zap \
-            -t ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py \
-            -t "${{ inputs.dast_url }}" \
-            -J zap-report.json \
-            -r zap-report.html \
-            -T 180 \
-            -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" \
-            || true
+          # Run ZAP scan (authenticated or baseline)
+          if [ "${{ inputs.dast_auth_enabled }}" = "true" ]; then
+            echo "🔐 Running authenticated ZAP scan..."
+            docker run --rm \
+              -v "$PWD/zap-output:/zap/wrk:rw" \
+              -v "$PWD/zap-config:/zap/config:ro" \
+              -u zap \
+              -t ghcr.io/zaproxy/zaproxy:stable \
+              zap-full-scan.py \
+              -t "${{ inputs.dast_url }}" \
+              -J zap-report.json \
+              -r zap-report.html \
+              -T 180 \
+              -n /zap/config/auth-config.yaml \
+              -U "test-user" \
+              -z "-config spider.maxDuration=10 -config ajaxSpider.maxDuration=10" \
+              || true
+          else
+            echo "🌐 Running baseline ZAP scan..."
+            docker run --rm \
+              -v "$PWD/zap-output:/zap/wrk:rw" \
+              -u zap \
+              -t ghcr.io/zaproxy/zaproxy:stable \
+              zap-baseline.py \
+              -t "${{ inputs.dast_url }}" \
+              -J zap-report.json \
+              -r zap-report.html \
+              -T 180 \
+              -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" \
+              || true
+          fi
           
           # Check if report was generated
           if [ -f zap-output/zap-report.json ]; then
@@ -540,6 +640,11 @@ jobs:
           echo "## 🌐 DAST - Dynamic Application Security Testing" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Target:** ${{ inputs.dast_url }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.dast_auth_enabled }}" = "true" ]; then
+            echo "**Mode:** 🔐 Authenticated Scan (Full)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Mode:** 🌐 Baseline Scan (Unauthenticated)" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [ -f zap-output/zap-report.json ]; then
@@ -560,7 +665,11 @@ jobs:
             
             echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
             echo "- **Tool:** OWASP ZAP (Zed Attack Proxy)" >> $GITHUB_STEP_SUMMARY
-            echo "- **Scan Type:** Baseline (passive + spider)" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ inputs.dast_auth_enabled }}" = "true" ]; then
+              echo "- **Scan Type:** Full scan with authentication" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- **Scan Type:** Baseline (passive + spider)" >> $GITHUB_STEP_SUMMARY
+            fi
             echo "- **Timeout:** 180 seconds" >> $GITHUB_STEP_SUMMARY
             echo "- **Coverage:** Runtime vulnerabilities" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -901,6 +1010,15 @@ jobs:
             echo "| 📄 zap-report.json | DAST findings | ❌ Skipped |" >> $GITHUB_STEP_SUMMARY
           fi
           
+          # Check for CodeQL SARIF files
+          if [ -d sarif-results ] && [ "$(ls -A sarif-results/*.sarif 2>/dev/null)" ]; then
+            SARIF_COUNT=$(ls -1 sarif-results/*.sarif 2>/dev/null | wc -l)
+            SARIF_SIZE=$(du -sh sarif-results | cut -f1)
+            echo "| 📄 sarif-results/*.sarif | CodeQL SARIF files | ✅ $SARIF_COUNT file(s), $SARIF_SIZE |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| 📄 sarif-results/*.sarif | CodeQL SARIF files | ❌ N/A |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
           if [ -f summary.json ]; then
             SIZE=$(du -h summary.json | cut -f1)
             echo "| 📄 summary.json | Aggregated summary | ✅ $SIZE |" >> $GITHUB_STEP_SUMMARY
@@ -921,6 +1039,121 @@ jobs:
           echo "5. Run suggested fix commands from Quick Fixes section" >> $GITHUB_STEP_SUMMARY
 
 
+
+      # ═══════════════════════════════════════════
+      # DEFECTDOJO INTEGRATION
+      # ═══════════════════════════════════════════
+      
+      - name: 📊 Upload to DefectDojo
+        if: ${{ inputs.defectdojo_enabled && secrets.defectdojo_url != '' && secrets.defectdojo_token != '' }}
+        run: |
+          echo "## 📊 DefectDojo Integration" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          DEFECTDOJO_URL="${{ secrets.defectdojo_url }}"
+          DEFECTDOJO_TOKEN="${{ secrets.defectdojo_token }}"
+          PRODUCT_ID="${{ secrets.defectdojo_product_id }}"
+          BRANCH="${{ github.ref_name }}"
+          COMMIT="${{ github.sha }}"
+          ENGAGEMENT_NAME="GitHub Actions - ${BRANCH}"
+          
+          echo "🔗 **DefectDojo Server:** ${DEFECTDOJO_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "📦 **Product ID:** ${PRODUCT_ID}" >> $GITHUB_STEP_SUMMARY
+          echo "🌿 **Branch:** ${BRANCH}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          UPLOAD_COUNT=0
+          UPLOAD_ERRORS=0
+          
+          # Function to upload scan results
+          upload_to_defectdojo() {
+            local SCAN_TYPE="$1"
+            local FILE_PATH="$2"
+            local TEST_TITLE="$3"
+            
+            if [ ! -f "$FILE_PATH" ]; then
+              echo "⚠️ Skipping $SCAN_TYPE - file not found: $FILE_PATH"
+              return 1
+            fi
+            
+            echo "📤 Uploading $SCAN_TYPE..."
+            
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
+              -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+              -F "scan_type=${SCAN_TYPE}" \
+              -F "file=@${FILE_PATH}" \
+              -F "product_name=${PRODUCT_ID}" \
+              -F "engagement_name=${ENGAGEMENT_NAME}" \
+              -F "test_title=${TEST_TITLE}" \
+              -F "active=true" \
+              -F "verified=false" \
+              -F "scan_date=$(date +%Y-%m-%d)" \
+              -F "tags=github-actions,${BRANCH},${COMMIT:0:7}" \
+              -F "close_old_findings=false" \
+              -F "push_to_jira=false")
+            
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+            
+            if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ $SCAN_TYPE uploaded successfully"
+              UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
+              return 0
+            else
+              echo "❌ Failed to upload $SCAN_TYPE (HTTP $HTTP_CODE)"
+              echo "Response: $BODY"
+              UPLOAD_ERRORS=$((UPLOAD_ERRORS + 1))
+              return 1
+            fi
+          }
+          
+          echo "### 📤 Upload Status:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Upload npm audit
+          if upload_to_defectdojo "NPM Audit Scan" "npm-audit.json" "npm audit - ${COMMIT:0:7}"; then
+            echo "- ✅ npm audit uploaded" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ⚠️ npm audit skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Upload Trivy
+          if upload_to_defectdojo "Trivy Scan" "trivy-fs.json" "Trivy FS - ${COMMIT:0:7}"; then
+            echo "- ✅ Trivy scan uploaded" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ⚠️ Trivy scan skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Upload CodeQL SARIF
+          if [ -d sarif-results ] && [ "$(ls -A sarif-results/*.sarif 2>/dev/null)" ]; then
+            for SARIF_FILE in sarif-results/*.sarif; do
+              LANG=$(basename "$SARIF_FILE" .sarif)
+              if upload_to_defectdojo "Github Vulnerability Scan" "$SARIF_FILE" "CodeQL ${LANG} - ${COMMIT:0:7}"; then
+                echo "- ✅ CodeQL SARIF (${LANG}) uploaded" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "- ⚠️ CodeQL SARIF (${LANG}) failed" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+          else
+            echo "- ⚠️ CodeQL SARIF skipped (no files)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Upload ZAP
+          if upload_to_defectdojo "ZAP Scan" "zap-output/zap-report.json" "OWASP ZAP - ${COMMIT:0:7}"; then
+            echo "- ✅ OWASP ZAP uploaded" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ⚠️ OWASP ZAP skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Summary:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Successful uploads:** $UPLOAD_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- **Failed/Skipped:** $UPLOAD_ERRORS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 [View findings in DefectDojo](${DEFECTDOJO_URL})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true
+
       # ═══════════════════════════════════════════
       # UPLOAD ARTIFACTS
       # ═══════════════════════════════════════════
@@ -936,6 +1169,8 @@ jobs:
             trivy-fs.json
             trivy-config.json
             zap-output/zap-report.json
+            zap-output/zap-report.html
+            sarif-results/*.sarif
           retention-days: 30
           if-no-files-found: warn
 
