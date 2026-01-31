@@ -94,7 +94,8 @@ permissions:
 jobs:
   security-scan:
     name: Security Scan
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ubuntudevops]
+    #runs-on: ubuntu-latest
     
     steps:
       # ═══════════════════════════════════════════
