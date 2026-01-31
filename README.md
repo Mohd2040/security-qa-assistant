@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-=======
+
 # 🛡️ Security Q&A Intelligence Hub
 
 <div align="center">
@@ -18,7 +17,7 @@
 </div>
 
 ---
->>>>>>> security-qa-assistance/devops3
+
 
 ## 📋 Overview
 
@@ -460,4 +459,4 @@ Built with cutting-edge technologies:
 ⭐ Star this repo if you find it useful!
 
 </div>
->>>>>>> devops3
+

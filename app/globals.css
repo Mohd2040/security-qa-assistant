@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-<<<<<<< HEAD
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -25,7 +25,7 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
-=======
+
 /* ============================================
    💎 NEO-GLASSMORPHISM DESIGN SYSTEM
    Premium Enterprise Security Style
@@ -263,4 +263,3 @@ body::before {
 ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
->>>>>>> devops3
