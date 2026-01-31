@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
 
+  // Required for GitHub Pages deployment
+  output: "export",
+
   /* ملاحظة أمنية: 
      دالة headers() لا تعمل مع output: 'export'. 
      لحماية موقعك على GitHub Pages، يفضل استخدام إضافة 
