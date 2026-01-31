@@ -1045,7 +1045,7 @@ jobs:
       # ═══════════════════════════════════════════
       
       - name: 📊 Upload to DefectDojo
-        if: ${{ inputs.defectdojo_enabled && secrets.defectdojo_url != '' && secrets.defectdojo_token != '' }}
+        if: ${{ inputs.defectdojo_enabled }}
         run: |
           echo "## 📊 DefectDojo Integration" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -1056,6 +1056,19 @@ jobs:
           BRANCH="${{ github.ref_name }}"
           COMMIT="${{ github.sha }}"
           ENGAGEMENT_NAME="GitHub Actions - ${BRANCH}"
+          
+          # Check if secrets are provided
+          if [ -z "$DEFECTDOJO_URL" ] || [ -z "$DEFECTDOJO_TOKEN" ] || [ -z "$PRODUCT_ID" ]; then
+            echo "⚠️ **DefectDojo secrets not configured**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please configure the following GitHub secrets:" >> $GITHUB_STEP_SUMMARY
+            echo "- \`DEFECTDOJO_URL\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`DEFECTDOJO_TOKEN\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`DEFECTDOJO_PRODUCT_ID\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+          
           
           echo "🔗 **DefectDojo Server:** ${DEFECTDOJO_URL}" >> $GITHUB_STEP_SUMMARY
           echo "📦 **Product ID:** ${PRODUCT_ID}" >> $GITHUB_STEP_SUMMARY
