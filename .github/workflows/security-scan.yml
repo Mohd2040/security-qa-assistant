@@ -30,5 +30,7 @@ jobs:
       run_trivy: true
       run_npm_audit: true
       run_codeql: true
+      defectdojo_enabled: true
+      #dast_auth_enabled: false
       dast_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_url || 'https://security-qa-assistant.onrender.com/' }}
     secrets: inherit
