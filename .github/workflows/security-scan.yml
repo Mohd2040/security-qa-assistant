@@ -31,3 +31,4 @@ jobs:
       run_npm_audit: true
       run_codeql: true
       dast_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_url || 'https://security-qa-assistant.onrender.com/' }}
+    secrets: inherit

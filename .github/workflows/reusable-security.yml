@@ -76,13 +76,13 @@ on:
       dast_password:
         description: 'Password for authenticated DAST scanning'
         required: false
-      defectdojo_url:
+      DEFECTDOJO_URL:
         description: 'DefectDojo server URL'
         required: false
-      defectdojo_token:
+      DEFECTDOJO_TOKEN:
         description: 'DefectDojo API token'
         required: false
-      defectdojo_product_id:
+      DEFECTDOJO_PRODUCT_ID:
         description: 'DefectDojo product ID'
         required: false
 
@@ -1043,24 +1043,26 @@ jobs:
       # ═══════════════════════════════════════════
       # DEFECTDOJO INTEGRATION
       # ═══════════════════════════════════════════
-      
+
       - name: 📊 Upload to DefectDojo
-        # Enable if explicitly requested OR if DefectDojo secrets are present (so callers can stay minimal)
-        if: ${{ inputs.defectdojo_enabled || (secrets.defectdojo_url != '' && secrets.defectdojo_token != '' && secrets.defectdojo_product_id != '') }}
+        # Run only when explicitly enabled (avoids parsing issues with `secrets` in reusable workflows)
+        if: ${{ inputs.defectdojo_enabled == true }}
+        env:
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+          DEFECTDOJO_PRODUCT_ID: ${{ secrets.DEFECTDOJO_PRODUCT_ID }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
         run: |
           echo "## 📊 DefectDojo Integration" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
-          DEFECTDOJO_URL="${{ secrets.defectdojo_url }}"
-          DEFECTDOJO_TOKEN="${{ secrets.defectdojo_token }}"
-          PRODUCT_ID="${{ secrets.defectdojo_product_id }}"
-          BRANCH="${{ github.ref_name }}"
-          COMMIT="${{ github.sha }}"
+
+          PRODUCT_ID="$DEFECTDOJO_PRODUCT_ID"
           ENGAGEMENT_NAME="GitHub Actions - ${BRANCH}"
-          
+
           # Check if secrets are provided
           if [ -z "$DEFECTDOJO_URL" ] || [ -z "$DEFECTDOJO_TOKEN" ] || [ -z "$PRODUCT_ID" ]; then
-            echo "⚠️ **DefectDojo secrets not configured**" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **DefectDojo upload skipped**: missing secrets" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "Please configure the following GitHub secrets:" >> $GITHUB_STEP_SUMMARY
             echo "- \`DEFECTDOJO_URL\`" >> $GITHUB_STEP_SUMMARY
@@ -1069,29 +1071,28 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
-          
-          
+
           echo "🔗 **DefectDojo Server:** ${DEFECTDOJO_URL}" >> $GITHUB_STEP_SUMMARY
           echo "📦 **Product ID:** ${PRODUCT_ID}" >> $GITHUB_STEP_SUMMARY
           echo "🌿 **Branch:** ${BRANCH}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           UPLOAD_COUNT=0
           UPLOAD_ERRORS=0
-          
+
           # Function to upload scan results
           upload_to_defectdojo() {
             local SCAN_TYPE="$1"
             local FILE_PATH="$2"
             local TEST_TITLE="$3"
-            
+
             if [ ! -f "$FILE_PATH" ]; then
               echo "⚠️ Skipping $SCAN_TYPE - file not found: $FILE_PATH"
               return 1
             fi
-            
+
             echo "📤 Uploading $SCAN_TYPE..."
-            
+
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
               -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
               -F "scan_type=${SCAN_TYPE}" \
@@ -1105,10 +1106,10 @@ jobs:
               -F "tags=github-actions,${BRANCH},${COMMIT:0:7}" \
               -F "close_old_findings=false" \
               -F "push_to_jira=false")
-            
+
             HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
             BODY=$(echo "$RESPONSE" | sed '$d')
-            
+
             if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
               echo "✅ $SCAN_TYPE uploaded successfully"
               UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
@@ -1120,24 +1121,24 @@ jobs:
               return 1
             fi
           }
-          
+
           echo "### 📤 Upload Status:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           # Upload npm audit
           if upload_to_defectdojo "NPM Audit Scan" "npm-audit.json" "npm audit - ${COMMIT:0:7}"; then
             echo "- ✅ npm audit uploaded" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ⚠️ npm audit skipped" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           # Upload Trivy
           if upload_to_defectdojo "Trivy Scan" "trivy-fs.json" "Trivy FS - ${COMMIT:0:7}"; then
             echo "- ✅ Trivy scan uploaded" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ⚠️ Trivy scan skipped" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           # Upload CodeQL SARIF
           if [ -d sarif-results ] && [ "$(ls -A sarif-results/*.sarif 2>/dev/null)" ]; then
             for SARIF_FILE in sarif-results/*.sarif; do
@@ -1151,14 +1152,14 @@ jobs:
           else
             echo "- ⚠️ CodeQL SARIF skipped (no files)" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           # Upload ZAP
           if upload_to_defectdojo "ZAP Scan" "zap-output/zap-report.json" "OWASP ZAP - ${COMMIT:0:7}"; then
             echo "- ✅ OWASP ZAP uploaded" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ⚠️ OWASP ZAP skipped" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📊 Summary:" >> $GITHUB_STEP_SUMMARY
           echo "- **Successful uploads:** $UPLOAD_COUNT" >> $GITHUB_STEP_SUMMARY
