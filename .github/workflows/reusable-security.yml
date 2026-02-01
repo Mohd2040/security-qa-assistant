@@ -204,12 +204,10 @@ jobs:
               echo "- Keep dependencies up to date" >> $GITHUB_STEP_SUMMARY
               echo "- Run \`npm update\` regularly" >> $GITHUB_STEP_SUMMARY
             fi
-          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-       continue-on-error: true
+          echo "" >> $GITHUB_STEP_SUMMARY         
+        #continue-on-error: true
       # ═══════════════════════════════════════════
       # SAST - Static Application Security Testing
       # ═══════════════════════════════════════════
