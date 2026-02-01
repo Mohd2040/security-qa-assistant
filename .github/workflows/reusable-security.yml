@@ -1110,7 +1110,7 @@ jobs:
               -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
               -F "scan_type=${SCAN_TYPE}" \
               -F "file=@${FILE_PATH}" \
-              -F "product_id=${PRODUCT_NAME}" \
+              -F "product_name=${PRODUCT_NAME}" \
               -F "engagement_name=${ENGAGEMENT_NAME}" \
               -F "test_title=${TEST_TITLE}" \
               -F "active=true" \
