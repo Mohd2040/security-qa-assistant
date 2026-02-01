@@ -1068,11 +1068,6 @@ jobs:
             echo "⚠️ DefectDojo upload skipped: missing secrets" >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
-          
-          ENGAGEMENT_NAME="GitHub Actions - ${BRANCH}"
-          echo "✅ Using engagement_id=${ENGAGEMENT_ID}" >> $GITHUB_STEP_SUMMARY
-          echo "Resolved product_name: ${PRODUCT_NAME}" >> $GITHUB_STEP_SUMMARY
-
           ENGAGEMENT_ID="$DEFECTDOJO_ENGAGEMENT_ID"
 
           # Resolve product_name (required by your Dojo)
@@ -1098,8 +1093,31 @@ jobs:
             exit 1
           fi
 
+          ENGAGEMENT_NAME="GitHub Actions - ${BRANCH}"
+          echo "✅ Using engagement_id=${ENGAGEMENT_ID}" >> $GITHUB_STEP_SUMMARY
+          echo "Resolved product_name: ${PRODUCT_NAME}" >> $GITHUB_STEP_SUMMARY
 
+          # 1) Check engagement exists
+          ENG_RES=$(curl -sS -L --max-time 20 \
+            -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+            -H "Accept: application/json" \
+            -w "\n%{http_code}" \
+            "${DEFECTDOJO_URL}/api/v2/engagements/${ENGAGEMENT_ID}/" || true)
 
+          E_HTTP=$(echo "$ENG_RES" | tail -n1)
+          if [ "$E_HTTP" != "200" ]; then
+            echo "❌ Engagement check failed (HTTP $E_HTTP) — check DEFECTDOJO_ENGAGEMENT_ID" >> $GITHUB_STEP_SUMMARY
+            echo "$(echo "$ENG_RES" | sed '$d' | head -c 300)" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          # 2) Quick API sanity
+          curl -sS -L --max-time 10 \
+            -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+            -H "Accept: application/json" \
+            "${DEFECTDOJO_URL}/api/v2/users/?limit=1" >/dev/null
+
+          echo "✅ API sanity checks passed" >> $GITHUB_STEP_SUMMARY
 
           echo "🔗 DefectDojo Server: ${DEFECTDOJO_URL}" >> $GITHUB_STEP_SUMMARY
           echo "📦 Product: ${PRODUCT_NAME} (ID: ${PRODUCT_ID})" >> $GITHUB_STEP_SUMMARY
