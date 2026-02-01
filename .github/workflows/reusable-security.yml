@@ -207,9 +207,8 @@ jobs:
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-       continue-on-error: true
+          echo "" >> $GITHUB_STEP_SUMMARY         
+        #continue-on-error: true
       # ═══════════════════════════════════════════
       # SAST - Static Application Security Testing
       # ═══════════════════════════════════════════
