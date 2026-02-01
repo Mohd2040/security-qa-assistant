@@ -1052,6 +1052,7 @@ jobs:
           DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
           DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
           DEFECTDOJO_PRODUCT_ID: ${{ secrets.DEFECTDOJO_PRODUCT_ID }}
+          DEFECTDOJO_ENGAGEMENT_ID: ${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}
           BRANCH: ${{ github.ref_name }}
           COMMIT: ${{ github.sha }}
         run: |
@@ -1067,63 +1068,38 @@ jobs:
             echo "⚠️ DefectDojo upload skipped: missing secrets" >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
-
+          
           ENGAGEMENT_NAME="GitHub Actions - ${BRANCH}"
+          echo "✅ Using engagement_id=${ENGAGEMENT_ID}" >> $GITHUB_STEP_SUMMARY
+          echo "Resolved product_name: ${PRODUCT_NAME}" >> $GITHUB_STEP_SUMMARY
 
-          echo "🔎 Resolving/creating engagement: ${ENGAGEMENT_NAME} ..."
+          ENGAGEMENT_ID="$DEFECTDOJO_ENGAGEMENT_ID"
 
-          # 1) حاول تلاقي engagement موجود
-          ENGAGEMENT_ID=$(curl -sS -L --max-time 20 \
+          # Resolve product_name (required by your Dojo)
+          PRODUCT_RES=$(curl -sS -L --max-time 20 \
             -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-            "${DEFECTDOJO_URL}/api/v2/engagements/?product=${PRODUCT_ID}" \
-            | python3 - <<PY
-          import sys, json, os
-          data=json.load(sys.stdin)
-          name=os.environ.get("ENGAGEMENT_NAME","")
-          for r in data.get("results",[]):
-              if r.get("name")==name:
-                  print(r.get("id",""))
-                  break
-          PY
-          )
+            -H "Accept: application/json" \
+            -w "\n%{http_code}" \
+            "${DEFECTDOJO_URL}/api/v2/products/${PRODUCT_ID}/" || true)
 
-          # 2) إذا مش موجود، أنشئه
-          if [ -z "$ENGAGEMENT_ID" ]; then
-            echo "➕ Engagement not found, creating..."
+          P_HTTP=$(echo "$PRODUCT_RES" | tail -n1)
+          P_BODY=$(echo "$PRODUCT_RES" | sed '$d')
 
-            TODAY=$(date +%Y-%m-%d)
-            END_DATE=$(date -d "+7 days" +%Y-%m-%d 2>/dev/null || python3 -c "import datetime; print((datetime.date.today()+datetime.timedelta(days=7)).isoformat())")
-
-            # ✅ لازم نصدرهم كـ env عشان Python يشوفهم
-            export ENGAGEMENT_NAME PRODUCT_ID TODAY END_DATE
-
-            CREATE_BODY=$(curl -sS -L --max-time 20 \
-              -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -X POST "${DEFECTDOJO_URL}/api/v2/engagements/" \
-              -d "$(python3 - <<'PY'
-          import json, os
-          print(json.dumps({
-            "name": os.environ["ENGAGEMENT_NAME"],
-            "product": int(os.environ["PRODUCT_ID"]),
-            "target_start": os.environ["TODAY"],
-            "target_end": os.environ["END_DATE"],
-            "status": "In Progress",
-            "engagement_type": "CI/CD"
-          }))
-          PY
-          )" )
-
-            ENGAGEMENT_ID=$(echo "$CREATE_BODY" | python3 -c "import sys, json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
-          fi
-
-          if [ -z "$ENGAGEMENT_ID" ]; then
-            echo "❌ Could not create/resolve engagement. Check token permissions (needs access to create engagements)." >> $GITHUB_STEP_SUMMARY
+          if [ "$P_HTTP" != "200" ]; then
+            echo "❌ Failed to fetch product (HTTP $P_HTTP)" >> $GITHUB_STEP_SUMMARY
+            echo "Response: ${P_BODY:0:200}" >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
 
-          echo "✅ Using engagement_id=${ENGAGEMENT_ID}" >> $GITHUB_STEP_SUMMARY
-          echo "Resolved product_name: ${PRODUCT_NAME}" >> $GITHUB_STEP_SUMMARY
+          PRODUCT_NAME=$(echo "$P_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('name',''))" 2>/dev/null || true)
+
+          if [ -z "$PRODUCT_NAME" ]; then
+            echo "❌ Could not resolve product_name from product_id=${PRODUCT_ID}" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+
+
 
           echo "🔗 DefectDojo Server: ${DEFECTDOJO_URL}" >> $GITHUB_STEP_SUMMARY
           echo "📦 Product: ${PRODUCT_NAME} (ID: ${PRODUCT_ID})" >> $GITHUB_STEP_SUMMARY
