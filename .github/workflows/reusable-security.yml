@@ -1062,6 +1062,46 @@ jobs:
 
           PRODUCT_ID="$DEFECTDOJO_PRODUCT_ID"
           ENGAGEMENT_NAME="GitHub Actions - ${BRANCH}"
+          # Create or get Engagement (some Dojo setups require an existing engagement)
+          echo "🔎 Resolving/creating engagement: ${ENGAGEMENT_NAME} ..."
+
+          ENGAGEMENT_ID=$(curl -sS -L --max-time 20 \
+            -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+            "${DEFECTDOJO_URL}/api/v2/engagements/?product=${PRODUCT_ID}&name=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''${ENGAGEMENT_NAME}'''))")" \
+            | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('results',[{}])[0].get('id',''))" 2>/dev/null || true)
+
+          if [ -z "$ENGAGEMENT_ID" ]; then
+            echo "➕ Engagement not found, creating..."
+
+            TODAY=$(date +%Y-%m-%d)
+            END_DATE=$(date -d "+7 days" +%Y-%m-%d 2>/dev/null || python3 -c "import datetime; print((datetime.date.today()+datetime.timedelta(days=7)).isoformat())")
+
+            CREATE_BODY=$(curl -sS -L --max-time 20 \
+              -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -X POST "${DEFECTDOJO_URL}/api/v2/engagements/" \
+              -d "$(python3 - <<'PY'
+          import json, os
+          print(json.dumps({
+            "name": os.environ["ENGAGEMENT_NAME"],
+            "product": int(os.environ["PRODUCT_ID"]),
+            "target_start": os.environ["TODAY"],
+            "target_end": os.environ["END_DATE"],
+            "status": "In Progress",
+            "engagement_type": "CI/CD"
+          }))
+          PY
+          )" )
+
+            ENGAGEMENT_ID=$(echo "$CREATE_BODY" | python3 -c "import sys, json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+          fi
+
+          if [ -z "$ENGAGEMENT_ID" ]; then
+            echo "❌ Could not create/resolve engagement. Check token permissions." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "✅ Using engagement_id=${ENGAGEMENT_ID}" >> $GITHUB_STEP_SUMMARY
 
           # Check secrets
           if [ -z "$DEFECTDOJO_URL" ] || [ -z "$DEFECTDOJO_TOKEN" ] || [ -z "$PRODUCT_ID" ]; then
@@ -1111,7 +1151,7 @@ jobs:
               -F "scan_type=${SCAN_TYPE}" \
               -F "file=@${FILE_PATH}" \
               -F "product_name=${PRODUCT_NAME}" \
-              -F "engagement_name=${ENGAGEMENT_NAME}" \
+              -F "engagement=${ENGAGEMENT_ID}"\
               -F "test_title=${TEST_TITLE}" \
               -F "active=true" \
               -F "verified=false" \
