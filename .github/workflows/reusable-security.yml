@@ -1081,6 +1081,7 @@ jobs:
             echo "Check DEFECTDOJO_URL/TOKEN/PRODUCT_ID and that token has access to this product." >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
+          echo "Resolved product_name: ${PRODUCT_NAME}" >> $GITHUB_STEP_SUMMARY
 
           echo "🔗 DefectDojo Server: ${DEFECTDOJO_URL}" >> $GITHUB_STEP_SUMMARY
           echo "📦 Product: ${PRODUCT_NAME} (ID: ${PRODUCT_ID})" >> $GITHUB_STEP_SUMMARY
@@ -1103,11 +1104,13 @@ jobs:
 
             echo "📤 Uploading $SCAN_TYPE..."
 
-            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
+            RESPONSE=$(curl -sS -L --max-time 60 --connect-timeout 15 \
+              -w "\n%{http_code}" \
+              -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
               -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
               -F "scan_type=${SCAN_TYPE}" \
               -F "file=@${FILE_PATH}" \
-              -F "product_id=${PRODUCT_ID}" \
+              -F "product_id=${PRODUCT_NAME}" \
               -F "engagement_name=${ENGAGEMENT_NAME}" \
               -F "test_title=${TEST_TITLE}" \
               -F "active=true" \
