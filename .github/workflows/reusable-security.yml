@@ -132,83 +132,85 @@ jobs:
       # ═══════════════════════════════════════════
       # SCA - Software Composition Analysis
       # ═══════════════════════════════════════════
+
       - name: 🔍 SCA - npm Audit
         id: sca
         if: ${{ inputs.project_type == 'node' && inputs.run_npm_audit }}
         run: |
-          export NO_COLOR=1
-          export TERM=dumb
-          set +e
-
-          # Generate JSON report
-          npm audit --json > npm-audit.json || true
-
-          # Defaults
-          CRITICAL=0
-          HIGH=0
-          MODERATE=0
-          LOW=0
-          TOTAL=0
-
-          # Extract metrics
-          if [ -f npm-audit.json ]; then
-            CRITICAL=$(jq -r '.metadata.vulnerabilities.critical // 0' npm-audit.json 2>/dev/null || echo 0)
-            HIGH=$(( $(jq -r '.metadata.vulnerabilities.high // 0' npm-audit.json 2>/dev/null || echo 0) + 0 ))
-            MODERATE=$(jq -r '.metadata.vulnerabilities.moderate // 0' npm-audit.json 2>/dev/null || echo 0)
-            LOW=$(jq -r '.metadata.vulnerabilities.low // 0' npm-audit.json 2>/dev/null || echo 0)
-            TOTAL=$(jq -r '.metadata.vulnerabilities.total // 0' npm-audit.json 2>/dev/null || echo 0)
-          fi
-
-          # Write summary
           echo "## 🔍 SCA - Software Composition Analysis" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
-          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🟡 Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          # Save to outputs
-          {
-            echo "critical=$CRITICAL"
-            echo "high=$HIGH"
-            echo "total=$TOTAL"
-          } >> "$GITHUB_OUTPUT"
-
-          # Technology
-          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tool:** npm audit (built-in)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Database:** npm registry + GitHub Advisory Database" >> $GITHUB_STEP_SUMMARY
-          echo "- **Coverage:** JavaScript/Node.js dependencies" >> $GITHUB_STEP_SUMMARY
-          echo "- **Scan Scope:** Direct + Transitive dependencies" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          # Recommendations
-          echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
-          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
-            echo "**⚠️ Action Required:** High-risk vulnerabilities detected." >> $GITHUB_STEP_SUMMARY
-            echo '```bash' >> $GITHUB_STEP_SUMMARY
-            echo "# Run automatic fix" >> $GITHUB_STEP_SUMMARY
-            echo "npm audit fix" >> $GITHUB_STEP_SUMMARY
+          
+          # Generate JSON report
+          npm audit --json > npm-audit.json || true
+          
+          # Extract metrics
+          if [ -f npm-audit.json ]; then
+            CRITICAL=$(jq -r '.metadata.vulnerabilities.critical // 0' npm-audit.json)
+            HIGH=$(jq -r '.metadata.vulnerabilities.high // 0' npm-audit.json)
+            MODERATE=$(jq -r '.metadata.vulnerabilities.moderate // 0' npm-audit.json)
+            LOW=$(jq -r '.metadata.vulnerabilities.low // 0' npm-audit.json)
+            TOTAL=$(jq -r '.metadata.vulnerabilities.total // 0' npm-audit.json)
+            
+            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "# For breaking changes" >> $GITHUB_STEP_SUMMARY
-            echo "npm audit fix --force" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
+            
+            # Save to outputs
+            echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+            echo "high=$HIGH" >> $GITHUB_OUTPUT
+            echo "total=$TOTAL" >> $GITHUB_OUTPUT
+            
+            # Technology Used
+            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tool:** npm audit (built-in)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Database:** npm registry + GitHub Advisory Database" >> $GITHUB_STEP_SUMMARY
+            echo "- **Coverage:** JavaScript/Node.js dependencies" >> $GITHUB_STEP_SUMMARY
+            echo "- **Scan Scope:** Direct + Transitive dependencies" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Top Vulnerable Packages:**" >> $GITHUB_STEP_SUMMARY
-            jq -r '.vulnerabilities | to_entries | sort_by(.value.severity) | reverse | .[0:5] | .[] | "- `\(.key)` - \(.value.severity | ascii_upcase) - \(.value.via[0].title // \"No title\")"' npm-audit.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
-          else
-            echo "✅ No critical or high vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+            
+            # Recommendations
+            echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+            if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
+              echo "**⚠️ Action Required:**" >> $GITHUB_STEP_SUMMARY
+              echo '```bash' >> $GITHUB_STEP_SUMMARY
+              echo "# Run automatic fix" >> $GITHUB_STEP_SUMMARY
+              echo "npm audit fix" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "# For breaking changes" >> $GITHUB_STEP_SUMMARY
+              echo "npm audit fix --force" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "# Manual update specific package" >> $GITHUB_STEP_SUMMARY
+              echo "npm update package-name@latest" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              
+              # Show top vulnerable packages
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Top Vulnerable Packages:**" >> $GITHUB_STEP_SUMMARY
+              jq -r '.vulnerabilities | to_entries | 
+                sort_by(.value.severity) | 
+                reverse | 
+                .[0:5] | 
+                .[] | 
+                "- `\(.key)` - \(.value.severity | ascii_upcase) - \(.value.via[0].title // "No title")"' \
+                npm-audit.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            else
+              echo "✅ No critical or high vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+              echo "- Continue monitoring for new vulnerabilities" >> $GITHUB_STEP_SUMMARY
+              echo "- Keep dependencies up to date" >> $GITHUB_STEP_SUMMARY
+              echo "- Run \`npm update\` regularly" >> $GITHUB_STEP_SUMMARY
+            fi
           fi
-
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-        #continue-on-error: true
+        continue-on-error: true
+
       # ═══════════════════════════════════════════
       # SAST - Static Application Security Testing
       # ═══════════════════════════════════════════
@@ -1146,7 +1148,7 @@ jobs:
 
             RESPONSE=$(curl -sS -L --max-time 60 --connect-timeout 15 \
               -w "\n%{http_code}" \
-              -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
+              -X POST "${DEFECTDOJO_URL}/api/v2/reimport-scan/" \
               -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
               -F "scan_type=${SCAN_TYPE}" \
               -F "file=@${FILE_PATH}" \
