@@ -132,85 +132,101 @@ jobs:
       # ═══════════════════════════════════════════
       # SCA - Software Composition Analysis
       # ═══════════════════════════════════════════
-      
+
       - name: 🔍 SCA - npm Audit
         id: sca
         if: ${{ inputs.project_type == 'node' && inputs.run_npm_audit }}
         run: |
-          echo "## 🔍 SCA - Software Composition Analysis" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
+          set +e
+
           # Generate JSON report
           npm audit --json > npm-audit.json || true
-          
-          # Extract metrics
-          if [ -f npm-audit.json ]; then
-            CRITICAL=$(jq -r '.metadata.vulnerabilities.critical // 0' npm-audit.json)
-            HIGH=$(jq -r '.metadata.vulnerabilities.high // 0' npm-audit.json)
-            MODERATE=$(jq -r '.metadata.vulnerabilities.moderate // 0' npm-audit.json)
-            LOW=$(jq -r '.metadata.vulnerabilities.low // 0' npm-audit.json)
-            TOTAL=$(jq -r '.metadata.vulnerabilities.total // 0' npm-audit.json)
-            
-            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
-            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟡 Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
-            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            
-            # Save to outputs
-            echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
-            echo "high=$HIGH" >> $GITHUB_OUTPUT
-            echo "total=$TOTAL" >> $GITHUB_OUTPUT
-            
-            # Technology Used
-            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
-            echo "- **Tool:** npm audit (built-in)" >> $GITHUB_STEP_SUMMARY
-            echo "- **Database:** npm registry + GitHub Advisory Database" >> $GITHUB_STEP_SUMMARY
-            echo "- **Coverage:** JavaScript/Node.js dependencies" >> $GITHUB_STEP_SUMMARY
-            echo "- **Scan Scope:** Direct + Transitive dependencies" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            
-            # Recommendations
-            echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
-            if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
-              echo "**⚠️ Action Required:**" >> $GITHUB_STEP_SUMMARY
-              echo '```bash' >> $GITHUB_STEP_SUMMARY
-              echo "# Run automatic fix" >> $GITHUB_STEP_SUMMARY
-              echo "npm audit fix" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "# For breaking changes" >> $GITHUB_STEP_SUMMARY
-              echo "npm audit fix --force" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "# Manual update specific package" >> $GITHUB_STEP_SUMMARY
-              echo "npm update package-name@latest" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              
-              # Show top vulnerable packages
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "**Top Vulnerable Packages:**" >> $GITHUB_STEP_SUMMARY
-              jq -r '.vulnerabilities | to_entries | 
-                sort_by(.value.severity) | 
-                reverse | 
-                .[0:5] | 
-                .[] | 
-                "- `\(.key)` - \(.value.severity | ascii_upcase) - \(.value.via[0].title // "No title")"' \
-                npm-audit.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
-            else
-              echo "✅ No critical or high vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
-              echo "- Continue monitoring for new vulnerabilities" >> $GITHUB_STEP_SUMMARY
-              echo "- Keep dependencies up to date" >> $GITHUB_STEP_SUMMARY
-              echo "- Run \`npm update\` regularly" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-        continue-on-error: true
 
+          # Defaults
+          CRITICAL=0
+          HIGH=0
+          MODERATE=0
+          LOW=0
+          TOTAL=0
+
+          # Extract metrics safely
+          if [ -f npm-audit.json ]; then
+            CRITICAL=$(jq -r '.metadata.vulnerabilities.critical // 0' npm-audit.json 2>/dev/null || echo 0)
+            HIGH=$(jq -r '.metadata.vulnerabilities.high // 0' npm-audit.json 2>/dev/null || echo 0)
+            MODERATE=$(jq -r '.metadata.vulnerabilities.moderate // 0' npm-audit.json 2>/dev/null || echo 0)
+            LOW=$(jq -r '.metadata.vulnerabilities.low // 0' npm-audit.json 2>/dev/null || echo 0)
+            TOTAL=$(jq -r '.metadata.vulnerabilities.total // 0' npm-audit.json 2>/dev/null || echo 0)
+          fi
+
+          # Save to outputs (same as your logic)
+          {
+            echo "critical=$CRITICAL"
+            echo "high=$HIGH"
+            echo "total=$TOTAL"
+          } >> "$GITHUB_OUTPUT"
+
+          # Summary header + results (clean)
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## 🔍 SCA - Software Composition Analysis
+
+          ### 📊 Results:
+          | Severity | Count |
+          |----------|-------|
+          | 🔴 Critical | $CRITICAL |
+          | 🟠 High | $HIGH |
+          | 🟡 Moderate | $MODERATE |
+          | 🟢 Low | $LOW |
+          | **Total** | **$TOTAL** |
+
+          ### 🛠️ Technology:
+          - **Tool:** npm audit (built-in)
+          - **Database:** npm registry + GitHub Advisory Database
+          - **Coverage:** JavaScript/Node.js dependencies
+          - **Scan Scope:** Direct + Transitive dependencies
+
+          ### 💡 Recommendations:
+          EOF
+
+          # Recommendations (same condition)
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          **⚠️ Action Required:**
+          ```bash
+          # Run automatic fix
+          npm audit fix
+
+          # For breaking changes
+          npm audit fix --force
+
+          # Manual update specific package
+          npm update package-name@latest
+          ```
+          EOF
+
+            # Top vulnerable packages (same idea, but protected)
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Top Vulnerable Packages:**" >> "$GITHUB_STEP_SUMMARY"
+            jq -r '.vulnerabilities | to_entries
+              | sort_by(.value.severity)
+              | reverse
+              | .[0:5]
+              | .[]
+              | "- `\(.key)` - \(.value.severity | ascii_upcase) - \(.value.via[0].title // "No title")"' \
+              npm-audit.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          else
+            cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ✅ No critical or high vulnerabilities found!
+          - Continue monitoring for new vulnerabilities
+          - Keep dependencies up to date
+          - Run `npm update` regularly
+          EOF
+          fi
+
+          # Footer (same)
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "---" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+        continue-on-error: true
       # ═══════════════════════════════════════════
       # SAST - Static Application Security Testing
       # ═══════════════════════════════════════════
@@ -591,7 +607,6 @@ jobs:
           echo "✅ Target is accessible (HTTP $HTTP_CODE), starting ZAP scan..."
           docker pull ghcr.io/zaproxy/zaproxy:stable
 
-          # Run ZAP scan (authenticated or baseline)
           if [ "${{ inputs.dast_auth_enabled }}" = "true" ]; then
             echo "🔐 Running authenticated ZAP scan..."
             docker run --rm \
@@ -602,6 +617,7 @@ jobs:
               zap-full-scan.py \
               -t "${{ inputs.dast_url }}" \
               -J zap-report.json \
+              -x zap-report.xml \
               -r zap-report.html \
               -T 180 \
               -n /zap/config/auth-config.yaml \
@@ -617,20 +633,26 @@ jobs:
               zap-baseline.py \
               -t "${{ inputs.dast_url }}" \
               -J zap-report.json \
+              -x zap-report.xml \
               -r zap-report.html \
               -T 180 \
               -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" \
               || true
           fi
-          
-          # Check if report was generated
+
+          echo "📄 Reports generated:"
+          ls -lah zap-output/ || true
+
           if [ -f zap-output/zap-report.json ]; then
-            echo "✅ ZAP scan completed successfully"
-            ls -lah zap-output/
+            echo "✅ JSON report exists"
           else
-            echo "⚠️ ZAP scan did not produce results"
-            echo "Contents of zap-output:"
-            ls -lah zap-output/ || echo "Directory is empty or inaccessible"
+            echo "⚠️ JSON report missing"
+          fi
+
+          if [ -f zap-output/zap-report.xml ]; then
+            echo "✅ XML report exists (for DefectDojo)"
+          else
+            echo "⚠️ XML report missing (DefectDojo needs XML)"
           fi
         continue-on-error: true
 
@@ -1203,12 +1225,17 @@ jobs:
           fi
 
           # Upload ZAP
-          if upload_to_defectdojo "ZAP Scan" "zap-output/zap-report.json" "OWASP ZAP - ${COMMIT:0:7}"; then
-            echo "- ✅ OWASP ZAP uploaded" >> $GITHUB_STEP_SUMMARY
+          if [ -f "zap-output/zap-report.xml" ]; then
+            if upload_to_defectdojo "ZAP Scan" "zap-output/zap-report.xml" "OWASP ZAP - ${COMMIT:0:7}"; then
+              echo "- ✅ OWASP ZAP uploaded" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- ⚠️ OWASP ZAP failed" >> $GITHUB_STEP_SUMMARY
+            fi
           else
-            echo "- ⚠️ OWASP ZAP skipped" >> $GITHUB_STEP_SUMMARY
+            echo "- ⚠️ OWASP ZAP skipped (missing zap-output/zap-report.xml)" >> $GITHUB_STEP_SUMMARY
+            ls -lah zap-output >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
           fi
-
+        
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📊 Summary:" >> $GITHUB_STEP_SUMMARY
           echo "- **Successful uploads:** $UPLOAD_COUNT" >> $GITHUB_STEP_SUMMARY
