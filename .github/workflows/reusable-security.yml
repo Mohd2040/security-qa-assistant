@@ -1175,7 +1175,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           # Upload npm audit
-          if upload_to_defectdojo "NPM Audit Scan" "npm-audit.json" "npm audit - ${COMMIT:0:7}"; then
+          if upload_to_defectdojo "Generic Findings Import" "npm-audit.json" "npm audit - ${COMMIT:0:7}"; then
             echo "- ✅ npm audit uploaded" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ⚠️ npm audit skipped" >> $GITHUB_STEP_SUMMARY
@@ -1192,7 +1192,7 @@ jobs:
           if [ -d sarif-results ] && [ "$(ls -A sarif-results/*.sarif 2>/dev/null)" ]; then
             for SARIF_FILE in sarif-results/*.sarif; do
               LANG=$(basename "$SARIF_FILE" .sarif)
-              if upload_to_defectdojo "Github Vulnerability Scan" "$SARIF_FILE" "CodeQL ${LANG} - ${COMMIT:0:7}"; then
+              if upload_to_defectdojo "SARIF" "$SARIF_FILE" "CodeQL ${LANG} - ${COMMIT:0:7}"; then
                 echo "- ✅ CodeQL SARIF (${LANG}) uploaded" >> $GITHUB_STEP_SUMMARY
               else
                 echo "- ⚠️ CodeQL SARIF (${LANG}) failed" >> $GITHUB_STEP_SUMMARY
