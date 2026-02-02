@@ -1203,7 +1203,7 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           # --- 5) Use stable test titles (critical to prevent duplicates) ---
-          if pload_to_defectdojo "NPM Audit Scan" "npm-audit.json" "NPM Audit - ${BRANCH}"; then
+          if upload_to_defectdojo "NPM Audit Scan" "npm-audit.json" "NPM Audit - ${BRANCH}"; then
             echo "- ✅ NPM Audit uploaded" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "- ❌ NPM Audit failed" >> "$GITHUB_STEP_SUMMARY"
@@ -1220,7 +1220,7 @@ jobs:
           if [ -d sarif-results ] && ls -1 sarif-results/*.sarif >/dev/null 2>&1; then
             for SARIF_FILE in sarif-results/*.sarif; do
               LANG="$(basename "$SARIF_FILE" .sarif)"
-              if upload_to_defectdojo "CodeQL Scan (SARIF)" "$SARIF_FILE" "CodeQL ${LANG} - ${BRANCH}"; then
+              if upload_to_defectdojo "SARIF" "$SARIF_FILE" "CodeQL ${LANG} - ${BRANCH}"; then
                 echo "- ✅ CodeQL SARIF (${LANG}) uploaded" >> "$GITHUB_STEP_SUMMARY"
               else
                 echo "- ❌ CodeQL SARIF (${LANG}) failed" >> "$GITHUB_STEP_SUMMARY"
