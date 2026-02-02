@@ -148,7 +148,7 @@ jobs:
       # ══════════════════════════════════════════
       - name: 🧪 SCA Run OWASP Dependency-Check
         if: ${{ inputs.run_dependency_check == true }}
-        uses: dependency-check/Dependency-Check_Action@v2.5.1
+        uses: dependency-check/Dependency-Check_Action@main
         with:
           project: "${{ github.repository }}-${{ github.ref_name }}"
           path: "."
