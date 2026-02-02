@@ -1046,9 +1046,8 @@ jobs:
           echo "5. Run suggested fix commands from Quick Fixes section" >> $GITHUB_STEP_SUMMARY
 
 
-
-# ═══════════════════════════════════════════
-      # DEFECTDOJO INTEGRATION (No-Duplicates Version)
+      # ═══════════════════════════════════════════
+      # DEFECTDOJO INTEGRATION
       # ═══════════════════════════════════════════
       - name: 📊 Upload to DefectDojo
         if: ${{ inputs.defectdojo_enabled == true }}
@@ -1060,25 +1059,80 @@ jobs:
           BRANCH: ${{ github.ref_name }}
           COMMIT: ${{ github.sha }}
         run: |
-          set -e
-          echo "## 📊 DefectDojo Integration" >> $GITHUB_STEP_SUMMARY
+          set -euo pipefail
 
-          # تنظيف المعرفات الرقمية (IDs) لضمان عدم حدوث Masking
+          echo "## 📊 DefectDojo Integration" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # --- 0) Validate required secrets early (avoid confusing API errors) ---
+          if [ -z "${DEFECTDOJO_URL:-}" ] || [ -z "${DEFECTDOJO_TOKEN:-}" ] || [ -z "${DEFECTDOJO_PRODUCT_ID:-}" ] || [ -z "${DEFECTDOJO_ENGAGEMENT_ID:-}" ]; then
+            echo "⚠️ DefectDojo upload skipped: missing required secrets (URL/TOKEN/PRODUCT_ID/ENGAGEMENT_ID)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # --- 1) Normalize IDs (handles cases where secrets might be masked or contain non-numeric prefixes) ---
+          # NOTE: This does not "unmask" secrets; it only strips a known prefix if present.
           PRODUCT_ID="id_${DEFECTDOJO_PRODUCT_ID}"
           PRODUCT_ID="${PRODUCT_ID#id_}"
           ENGAGEMENT_ID="id_${DEFECTDOJO_ENGAGEMENT_ID}"
           ENGAGEMENT_ID="${ENGAGEMENT_ID#id_}"
 
-          # استخراج اسم المنتج (مهم جداً للدمج الصحيح)
-          PRODUCT_RES=$(curl -sS -L -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+          echo "🔗 DefectDojo Server: ${DEFECTDOJO_URL}" >> "$GITHUB_STEP_SUMMARY"
+          echo "🌿 Branch: ${BRANCH}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # --- 2) Fetch product name (some Dojo setups require product context by name) ---
+          PRODUCT_RES="$(curl -sS -L --max-time 20 \
+            -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
             -H "Accept: application/json" \
-            "${DEFECTDOJO_URL}/api/v2/products/${PRODUCT_ID}/")
-          PRODUCT_NAME=$(echo "$PRODUCT_RES" | python3 -c "import sys,json; print(json.load(sys.stdin).get('name',''))")
+            -w "\n%{http_code}" \
+            "${DEFECTDOJO_URL}/api/v2/products/${PRODUCT_ID}/" || true)"
+
+          P_HTTP="$(echo "$PRODUCT_RES" | tail -n1)"
+          P_BODY="$(echo "$PRODUCT_RES" | sed '$d')"
+
+          if [ "$P_HTTP" != "200" ]; then
+            echo "❌ Failed to fetch product (HTTP $P_HTTP). Check DEFECTDOJO_PRODUCT_ID permissions." >> "$GITHUB_STEP_SUMMARY"
+            echo "Response (first 300 chars): $(echo "$P_BODY" | head -c 300)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          PRODUCT_NAME="$(echo "$P_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('name',''))" 2>/dev/null || true)"
+          if [ -z "$PRODUCT_NAME" ]; then
+            echo "❌ Could not resolve product_name from product_id=${PRODUCT_ID}" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          # --- 3) Fetch engagement name (required for reimport strategy by engagement_name) ---
+          ENG_RES="$(curl -sS -L --max-time 20 \
+            -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+            -H "Accept: application/json" \
+            -w "\n%{http_code}" \
+            "${DEFECTDOJO_URL}/api/v2/engagements/${ENGAGEMENT_ID}/" || true)"
+
+          E_HTTP="$(echo "$ENG_RES" | tail -n1)"
+          E_BODY="$(echo "$ENG_RES" | sed '$d')"
+
+          if [ "$E_HTTP" != "200" ]; then
+            echo "❌ Failed to fetch engagement (HTTP $E_HTTP). Check DEFECTDOJO_ENGAGEMENT_ID permissions." >> "$GITHUB_STEP_SUMMARY"
+            echo "Response (first 300 chars): $(echo "$E_BODY" | head -c 300)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          ENGAGEMENT_NAME="$(echo "$E_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('name',''))" 2>/dev/null || true)"
+          if [ -z "$ENGAGEMENT_NAME" ]; then
+            echo "❌ Could not resolve engagement_name from engagement_id=${ENGAGEMENT_ID}" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo "📦 Product: ${PRODUCT_NAME} (ID: ${PRODUCT_ID})" >> "$GITHUB_STEP_SUMMARY"
+          echo "🧩 Engagement: ${ENGAGEMENT_NAME} (ID: ${ENGAGEMENT_ID})" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
           UPLOAD_COUNT=0
           UPLOAD_ERRORS=0
 
-          # 🛠️ الدالة القياسية للرفع ومنع التكرار
+          # --- 4) Upload function: try reimport first, then fallback to import for first-time creation ---
           upload_to_defectdojo() {
             local SCAN_TYPE="$1"
             local FILE_PATH="$2"
@@ -1089,59 +1143,111 @@ jobs:
               return 0
             fi
 
-            echo "📤 Processing $SCAN_TYPE via Reimport (with auto-create)..."
+            do_upload() {
+              local ENDPOINT="$1"
+              curl -sS -L --max-time 120 --connect-timeout 20 \
+                -w "\n%{http_code}" \
+                -X POST "${DEFECTDOJO_URL}/api/v2/${ENDPOINT}/" \
+                -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+                -F "scan_type=${SCAN_TYPE}" \
+                -F "file=@${FILE_PATH}" \
+                -F "product_name=${PRODUCT_NAME}" \
+                -F "engagement_name=${ENGAGEMENT_NAME}" \
+                -F "test_title=${TEST_TITLE}" \
+                -F "scan_date=$(date +%Y-%m-%d)" \
+                -F "tags=github-actions,${BRANCH}" \
+                -F "close_old_findings=false"
+            }
 
-            # إضافة engagement_name ضرورية عند استخدام auto_create_context=true
-            RESPONSE=$(curl -sS -L --max-time 60 \
-              -w "\n%{http_code}" \
-              -X POST "${DEFECTDOJO_URL}/api/v2/reimport-scan/" \
-              -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-              -F "scan_type=${SCAN_TYPE}" \
-              -F "file=@${FILE_PATH}" \
-              -F "product_name=${PRODUCT_NAME}" \
-              -F "engagement=${ENGAGEMENT_ID}" \
-              -F "engagement_name=${ENGAGEMENT_NAME}" \
-              -F "test_title=${TEST_TITLE}" \
-              -F "auto_create_context=true" \
-              -F "close_old_findings=true" \
-              -F "active=true" \
-              -F "verified=false" \
-              -F "push_to_jira=false")
+            echo "📤 Uploading ${SCAN_TYPE} (reimport -> fallback import)..."
 
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
+            local RESPONSE HTTP_CODE BODY
+            RESPONSE="$(do_upload "reimport-scan")"
+            HTTP_CODE="$(echo "$RESPONSE" | tail -n1)"
+            BODY="$(echo "$RESPONSE" | sed '$d')"
 
             if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
-              echo "✅ $SCAN_TYPE processed successfully (HTTP $HTTP_CODE)"
+              echo "✅ ${SCAN_TYPE} reimported successfully"
               UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
               return 0
-            else
-              echo "❌ Failed $SCAN_TYPE (HTTP $HTTP_CODE)"
-              echo "Response: $BODY"
+            fi
+
+            # If reimport fails because the test does not exist yet, create it via import-scan
+            # NOTE: Some Dojo setups return 404/400 for "missing test"; we key off the message string.
+            if echo "$BODY" | grep -qi "test could not be found"; then
+              echo "ℹ️ No existing test found. Creating it via import-scan..."
+              local RESPONSE2 HTTP_CODE2 BODY2
+              RESPONSE2="$(do_upload "import-scan")"
+              HTTP_CODE2="$(echo "$RESPONSE2" | tail -n1)"
+              BODY2="$(echo "$RESPONSE2" | sed '$d')"
+
+              if [ "$HTTP_CODE2" = "201" ] || [ "$HTTP_CODE2" = "200" ]; then
+                echo "✅ ${SCAN_TYPE} imported successfully (initial create)"
+                UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
+                return 0
+              fi
+
+              echo "❌ Import failed (HTTP $HTTP_CODE2)"
+              echo "Response: $(echo "$BODY2" | head -c 400)"
               UPLOAD_ERRORS=$((UPLOAD_ERRORS + 1))
               return 1
             fi
+
+            echo "❌ Upload failed (HTTP $HTTP_CODE)"
+            echo "Response: $(echo "$BODY" | head -c 400)"
+            UPLOAD_ERRORS=$((UPLOAD_ERRORS + 1))
+            return 1
           }
 
-          # استدعاء الفحوصات بأسماء ثابتة (مهم لمنع التكرار)
-          upload_to_defectdojo "Generic Findings Import" "npm-audit.json" "NPM Audit - ${BRANCH}"
-          upload_to_defectdojo "Trivy Scan" "trivy-fs.json" "Trivy FS - ${BRANCH}"
-          
-          if [ -d sarif-results ]; then
+          echo "### 📤 Upload Status:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # --- 5) Use stable test titles (critical to prevent duplicates) ---
+          if upload_to_defectdojo "Generic Findings Import" "npm-audit.json" "NPM Audit - ${BRANCH}"; then
+            echo "- ✅ NPM Audit uploaded" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- ❌ NPM Audit failed" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if upload_to_defectdojo "Trivy Scan" "trivy-fs.json" "Trivy FS - ${BRANCH}"; then
+            echo "- ✅ Trivy uploaded" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- ❌ Trivy failed" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # NOTE: SARIF dedup may depend on the exact Dojo test type name.
+          # If you see dedup warnings, query /api/v2/test_types and use the exact SARIF test type name supported by your Dojo.
+          if [ -d sarif-results ] && ls -1 sarif-results/*.sarif >/dev/null 2>&1; then
             for SARIF_FILE in sarif-results/*.sarif; do
-              LANG=$(basename "$SARIF_FILE" .sarif)
-              upload_to_defectdojo "SARIF" "$SARIF_FILE" "CodeQL ${LANG} - ${BRANCH}"
+              LANG="$(basename "$SARIF_FILE" .sarif)"
+              if upload_to_defectdojo "SARIF" "$SARIF_FILE" "CodeQL ${LANG} - ${BRANCH}"; then
+                echo "- ✅ CodeQL SARIF (${LANG}) uploaded" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "- ❌ CodeQL SARIF (${LANG}) failed" >> "$GITHUB_STEP_SUMMARY"
+              fi
             done
+          else
+            echo "- ⚠️ CodeQL SARIF skipped (no files)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           if [ -f "zap-output/zap-report.xml" ]; then
-            upload_to_defectdojo "ZAP Scan" "zap-output/zap-report.xml" "OWASP ZAP - ${BRANCH}"
+            if upload_to_defectdojo "ZAP Scan" "zap-output/zap-report.xml" "OWASP ZAP - ${BRANCH}"; then
+              echo "- ✅ OWASP ZAP uploaded" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- ❌ OWASP ZAP failed" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "- ⚠️ OWASP ZAP skipped (missing report)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "### 📊 Summary:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Successful uploads:** $UPLOAD_COUNT" >> $GITHUB_STEP_SUMMARY
-          echo "- **Errors:** $UPLOAD_ERRORS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 📊 Summary:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Successful uploads:** $UPLOAD_COUNT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Errors:** $UPLOAD_ERRORS" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "🔗 View DefectDojo: ${DEFECTDOJO_URL}" >> "$GITHUB_STEP_SUMMARY"
         continue-on-error: true
+
 
       # ═══════════════════════════════════════════
       # UPLOAD ARTIFACTS
