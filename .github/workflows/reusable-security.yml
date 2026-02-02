@@ -128,8 +128,87 @@ jobs:
           queries: ${{ inputs.codeql_queries }}
           # For compiled languages, add build-mode
           # build-mode: manual
+      - name: 🔍 SCA - Trivy (Dependencies)
+        id: sca_trivy
+        if: ${{ inputs.run_trivy_sca == true }}
+        env:
+          ACTIONS_STEP_DEBUG: 'false'
+        run: |
+          set +x
+          set -e
 
-      # ═══════════════════════════════════════════
+          # Run Trivy filesystem scan (includes dependency vulnerabilities)
+          # NOTE: '--scanners vuln' keeps focus on SCA/vulnerabilities.
+          trivy fs --scanners vuln --format json --output trivy-sca.json . || true
+
+          # Defaults
+          CRITICAL=0
+          HIGH=0
+          MODERATE=0
+          LOW=0
+          TOTAL=0
+
+          # Extract metrics
+          if [ -f trivy-sca.json ]; then
+            CRITICAL=$(( $(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-sca.json 2>/dev/null || echo 0) ))
+            HIGH=$(( $(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-sca.json 2>/dev/null || echo 0) ))
+            MODERATE=$(( $(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-sca.json 2>/dev/null || echo 0) ))
+            LOW=$(( $(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-sca.json 2>/dev/null || echo 0) ))
+            TOTAL=$(( CRITICAL + HIGH + MODERATE + LOW ))
+          fi
+
+          # Write summary
+          echo "## 🔍 SCA - Software Composition Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Results (Trivy SCA):" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Save to outputs
+          {
+            echo "critical=$CRITICAL"
+            echo "high=$HIGH"
+            echo "total=$TOTAL"
+          } >> "$GITHUB_OUTPUT"
+
+          # Technology
+          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** Trivy (Aqua Security)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Database:** Trivy vulnerability DB" >> $GITHUB_STEP_SUMMARY
+          echo "- **Coverage:** OS packages + language dependencies (SCA)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Scope:** Direct + transitive dependencies where supported" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Recommendations
+          echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "**⚠️ Action Required:** High-risk vulnerabilities detected." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Top vulnerable packages (sample):**" >> $GITHUB_STEP_SUMMARY
+            jq -r '
+              [ .Results[]?.Vulnerabilities[]? 
+                | {PkgName, Severity} 
+              ] 
+              | group_by(.PkgName) 
+              | map({PkgName: .[0].PkgName, count: length}) 
+              | sort_by(.count) | reverse | .[0:5] 
+              | .[] | "- `\(.PkgName)` - \(.count) finding(s)"
+            ' trivy-sca.json 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
+          else
+            echo "✅ No critical or high vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true
+            # ═══════════════════════════════════════════
       # SCA - Software Composition Analysis
       # ═══════════════════════════════════════════
       - name: 🔍 SCA - npm Audit
