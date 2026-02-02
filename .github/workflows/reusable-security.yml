@@ -1141,40 +1141,61 @@ jobs:
 
             if [ ! -f "$FILE_PATH" ]; then
               echo "⚠️ Skipping $SCAN_TYPE - file not found: $FILE_PATH"
-              return 1
+              return 0
             fi
 
-            echo "📤 Uploading $SCAN_TYPE..."
+            do_upload() {
+              local ENDPOINT="$1"
+              curl -sS -L --max-time 60 --connect-timeout 15 \
+                -w "\n%{http_code}" \
+                -X POST "${DEFECTDOJO_URL}/api/v2/${ENDPOINT}/" \
+                -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+                -F "scan_type=${SCAN_TYPE}" \
+                -F "file=@${FILE_PATH}" \
+                -F "engagement=${ENGAGEMENT_ID}" \
+                -F "test_title=${TEST_TITLE}" \
+                -F "active=true" \
+                -F "verified=false" \
+                -F "scan_date=$(date +%Y-%m-%d)" \
+                -F "tags=github-actions,${BRANCH}" \
+                -F "close_old_findings=false" \
+                -F "push_to_jira=false"
+            }
 
-            RESPONSE=$(curl -sS -L --max-time 60 --connect-timeout 15 \
-              -w "\n%{http_code}" \
-              -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
-              -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-              -F "scan_type=${SCAN_TYPE}" \
-              -F "file=@${FILE_PATH}" \
-              -F "product_name=${PRODUCT_NAME}" \
-              -F "engagement=${ENGAGEMENT_ID}"\
-              -F "test_title=${TEST_TITLE}" \
-              -F "active=true" \
-              -F "verified=false" \
-              -F "scan_date=$(date +%Y-%m-%d)" \
-              -F "tags=github-actions,${BRANCH},${COMMIT:0:7}" \
-              -F "close_old_findings=false" \
-              -F "push_to_jira=false")
+            echo "📤 Uploading $SCAN_TYPE (reimport -> fallback import)..."
 
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
+            RESPONSE="$(do_upload "reimport-scan")"
+            HTTP_CODE="$(echo "$RESPONSE" | tail -n1)"
+            BODY="$(echo "$RESPONSE" | sed '$d')"
 
             if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
-              echo "✅ $SCAN_TYPE uploaded successfully"
+              echo "✅ $SCAN_TYPE reimported successfully"
               UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
               return 0
-            else
-              echo "❌ Failed to upload $SCAN_TYPE (HTTP $HTTP_CODE)"
-              echo "Response: $BODY"
+            fi
+
+            if [ "$HTTP_CODE" = "404" ] && echo "$BODY" | grep -qi "test could not be found"; then
+              echo "ℹ️ No existing test found. Creating it via import-scan..."
+              RESPONSE2="$(do_upload "import-scan")"
+              HTTP_CODE2="$(echo "$RESPONSE2" | tail -n1)"
+              BODY2="$(echo "$RESPONSE2" | sed '$d')"
+
+              if [ "$HTTP_CODE2" = "201" ] || [ "$HTTP_CODE2" = "200" ]; then
+                echo "✅ $SCAN_TYPE imported successfully (initial create)"
+                UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
+                return 0
+              fi
+
+              echo "❌ Import failed (HTTP $HTTP_CODE2)"
+              echo "Response: $BODY2"
               UPLOAD_ERRORS=$((UPLOAD_ERRORS + 1))
               return 1
             fi
+
+            echo "❌ Upload failed (HTTP $HTTP_CODE)"
+            echo "Response: $BODY"
+            UPLOAD_ERRORS=$((UPLOAD_ERRORS + 1))
+            return 1
           }
 
           echo "### 📤 Upload Status:" >> $GITHUB_STEP_SUMMARY
