@@ -1084,13 +1084,17 @@ jobs:
             local FILE_PATH="$2"
             local TEST_TITLE="$3"
 
-            if [ ! -f "$FILE_PATH" ]; then return 0; fi
+            if [ ! -f "$FILE_PATH" ]; then
+              echo "⚠️ Skipping $SCAN_TYPE - file not found: $FILE_PATH"
+              return 0
+            fi
 
-            echo "📤 Processing $SCAN_TYPE..."
-            
-            # ملاحظة: استخدمنا reimport-scan مع auto_create_context=true
-            # هذا يضمن: إذا وجد فحص سابق بنفس الاسم يدمجه، وإذا لم يجد ينشئ واحد جديد.
-            RESPONSE=$(curl -sS -L -X POST "${DEFECTDOJO_URL}/api/v2/reimport-scan/" \
+            echo "📤 Processing $SCAN_TYPE via Reimport (with auto-create)..."
+
+            # طلب واحد ذكي يحل محل كل المحاولات السابقة
+            RESPONSE=$(curl -sS -L --max-time 60 \
+              -w "\n%{http_code}" \
+              -X POST "${DEFECTDOJO_URL}/api/v2/reimport-scan/" \
               -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
               -F "scan_type=${SCAN_TYPE}" \
               -F "file=@${FILE_PATH}" \
@@ -1101,14 +1105,19 @@ jobs:
               -F "close_old_findings=true" \
               -F "active=true" \
               -F "verified=false" \
-              -F "tags=github-actions,${BRANCH}")
+              -F "push_to_jira=false")
 
-            if [[ "$?" == 0 ]]; then
-              echo "✅ $SCAN_TYPE processed successfully"
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            
+            if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ $SCAN_TYPE processed successfully (HTTP $HTTP_CODE)"
               UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
+              return 0
             else
-              echo "❌ Failed to upload $SCAN_TYPE"
+              echo "❌ Failed $SCAN_TYPE (HTTP $HTTP_CODE)"
+              echo "Response: $(echo "$RESPONSE" | sed '$d')"
               UPLOAD_ERRORS=$((UPLOAD_ERRORS + 1))
+              return 1
             fi
           }
 
