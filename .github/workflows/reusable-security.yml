@@ -1091,7 +1091,7 @@ jobs:
 
             echo "📤 Processing $SCAN_TYPE via Reimport (with auto-create)..."
 
-            # طلب واحد ذكي يحل محل كل المحاولات السابقة
+            # إضافة engagement_name ضرورية عند استخدام auto_create_context=true
             RESPONSE=$(curl -sS -L --max-time 60 \
               -w "\n%{http_code}" \
               -X POST "${DEFECTDOJO_URL}/api/v2/reimport-scan/" \
@@ -1100,6 +1100,7 @@ jobs:
               -F "file=@${FILE_PATH}" \
               -F "product_name=${PRODUCT_NAME}" \
               -F "engagement=${ENGAGEMENT_ID}" \
+              -F "engagement_name=${ENGAGEMENT_NAME}" \
               -F "test_title=${TEST_TITLE}" \
               -F "auto_create_context=true" \
               -F "close_old_findings=true" \
@@ -1108,14 +1109,15 @@ jobs:
               -F "push_to_jira=false")
 
             HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-            
+            BODY=$(echo "$RESPONSE" | sed '$d')
+
             if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
               echo "✅ $SCAN_TYPE processed successfully (HTTP $HTTP_CODE)"
               UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
               return 0
             else
               echo "❌ Failed $SCAN_TYPE (HTTP $HTTP_CODE)"
-              echo "Response: $(echo "$RESPONSE" | sed '$d')"
+              echo "Response: $BODY"
               UPLOAD_ERRORS=$((UPLOAD_ERRORS + 1))
               return 1
             fi
