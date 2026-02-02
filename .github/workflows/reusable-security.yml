@@ -241,8 +241,16 @@ jobs:
       # SCA - Trivy (Dependencies)
       # ══════════════════════════════════════════
       - name: 🔍 SCA - Trivy (Dependencies)
+        uses: aquasecurity/trivy-action@master
         id: sca_trivy
         if: ${{ inputs.run_trivy_sca == true }}
+        with:
+          scan-type: 'fs'
+          format: 'json'
+          output: 'trivy-sca.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: 📊 Summary Generation
         env:
           ACTIONS_STEP_DEBUG: 'false'
         run: |
