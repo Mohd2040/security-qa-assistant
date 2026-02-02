@@ -1174,7 +1174,7 @@ jobs:
 
             # If reimport fails because the test does not exist yet, create it via import-scan
             # NOTE: Some Dojo setups return 404/400 for "missing test"; we key off the message string.
-            if echo "$BODY" | grep -qi "test could not be found"; then
+            if echo "$BODY" | grep -qiE "test could not be found|does not exist"; then
               echo "ℹ️ No existing test found. Creating it via import-scan..."
               local RESPONSE2 HTTP_CODE2 BODY2
               RESPONSE2="$(do_upload "import-scan")"
