@@ -18,6 +18,16 @@ on:
         required: false
         type: boolean
         default: true
+      run_trivy_sca:
+        description: 'Run Trivy SCA Dependencies '
+        required: false
+        type: boolean
+        default: true
+      run_dependency_check:
+        description: 'Run OWASP Dependency-Check '
+        required: false
+        type: boolean
+        default: true
       run_codeql:
         description: 'Run CodeQL analysis'
         required: false
@@ -101,7 +111,6 @@ jobs:
       # ═══════════════════════════════════════════
       # SETUP
       # ═══════════════════════════════════════════
-      
       - name: 📥 Checkout code
         uses: actions/checkout@v4
 
@@ -116,10 +125,16 @@ jobs:
         if: ${{ inputs.project_type == 'node' }}
         run: npm ci --prefer-offline --no-audit
 
+      - name: 📦 Install Trivy
+        if: ${{ inputs.run_trivy_sca == true }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+          trivy --version
       # ═══════════════════════════════════════════
       # CodeQL - Initialize FIRST (before builds)
       # ═══════════════════════════════════════════
-      
       - name: 🔬 Initialize CodeQL
         if: ${{ inputs.run_codeql }}
         uses: github/codeql-action/init@v4
@@ -128,6 +143,110 @@ jobs:
           queries: ${{ inputs.codeql_queries }}
           # For compiled languages, add build-mode
           # build-mode: manual
+      # ═══════════════════════════════════════════
+      # SCA - Run OWASP Dependency-Check
+      # ══════════════════════════════════════════
+      - name: 🧪 SCA Run OWASP Dependency-Check
+        if: ${{ inputs.run_dependency_check == true }}
+        uses: dependency-check/Dependency-Check_Action@v2.5.1
+        with:
+          project: "${{ github.repository }}-${{ github.ref_name }}"
+          path: "."
+          format: "JSON,XML"
+          out: "depcheck-output"
+        continue-on-error: true
+      #=======🔍 SCA - OWASP Dependency-Check================================
+      - name: 📊 SCA Summary - OWASP Dependency-Check
+        id: sca_depcheck
+        if: ${{ inputs.run_dependency_check == true }}
+        env:
+          ACTIONS_STEP_DEBUG: 'false'
+        run: |
+          set +x
+          set -e
+
+          REPORT="depcheck-output/dependency-check-report.json"
+          REPORT="depcheck-output/dependency-check-report.xml"
+
+          # Defaults
+          CRITICAL=0
+          HIGH=0
+          MODERATE=0
+          LOW=0
+          TOTAL=0
+
+          # Extract metrics
+          # NOTE: Dependency-Check uses CVSS severity in vulnerabilities array.
+          # We approximate: CRITICAL >= 9.0, HIGH 7.0-8.9, MODERATE 4.0-6.9, LOW 0.1-3.9
+          if [ -f "$REPORT" ]; then
+            CRITICAL=$(( $(jq '[.. | objects | .cvssv3? // empty | .baseScore? // empty | select(. >= 9)] | length' "$REPORT" 2>/dev/null || echo 0) ))
+            HIGH=$(( $(jq '[.. | objects | .cvssv3? // empty | .baseScore? // empty | select(. >= 7 and . < 9)] | length' "$REPORT" 2>/dev/null || echo 0) ))
+            MODERATE=$(( $(jq '[.. | objects | .cvssv3? // empty | .baseScore? // empty | select(. >= 4 and . < 7)] | length' "$REPORT" 2>/dev/null || echo 0) ))
+            LOW=$(( $(jq '[.. | objects | .cvssv3? // empty | .baseScore? // empty | select(. > 0 and . < 4)] | length' "$REPORT" 2>/dev/null || echo 0) ))
+            TOTAL=$(( CRITICAL + HIGH + MODERATE + LOW ))
+          fi
+
+          # Write summary
+          echo "## 🔍 SCA - Software Composition Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Results (OWASP Dependency-Check):" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Save to outputs
+          {
+            echo "critical=$CRITICAL"
+            echo "high=$HIGH"
+            echo "total=$TOTAL"
+          } >> "$GITHUB_OUTPUT"
+
+          # Technology
+          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** OWASP Dependency-Check" >> $GITHUB_STEP_SUMMARY
+          echo "- **Database:** NVD (and other supported sources)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Coverage:** Third-party dependencies (SCA)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Scope:** Manifest + discovered libraries" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Recommendations
+          echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "**⚠️ Action Required:** High-risk vulnerabilities detected." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Top vulnerable components (sample):**" >> $GITHUB_STEP_SUMMARY
+            jq -r '
+              .dependencies[]? 
+              | select(.vulnerabilities != null) 
+              | {fileName: .fileName, vulns: (.vulnerabilities | length)} 
+              ' "$REPORT" 2>/dev/null \
+              | head -c 1 >/dev/null 2>&1 || true
+
+            # Print up to 5 dependencies with most vulnerabilities (best-effort)
+            jq -r '
+              [ .dependencies[]? 
+                | select(.vulnerabilities != null) 
+                | {fileName: .fileName, count: (.vulnerabilities | length)} 
+              ] 
+              | sort_by(.count) | reverse | .[0:5] 
+              | .[] | "- `\(.fileName)` - \(.count) issue(s)"
+            ' "$REPORT" 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
+          else
+            echo "✅ No critical or high vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # SCA - Trivy (Dependencies)
+      # ══════════════════════════════════════════
       - name: 🔍 SCA - Trivy (Dependencies)
         id: sca_trivy
         if: ${{ inputs.run_trivy_sca == true }}
@@ -208,7 +327,7 @@ jobs:
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
         continue-on-error: true
-            # ═══════════════════════════════════════════
+      # ═══════════════════════════════════════════
       # SCA - Software Composition Analysis
       # ═══════════════════════════════════════════
       - name: 🔍 SCA - npm Audit
@@ -1137,6 +1256,9 @@ jobs:
           DEFECTDOJO_ENGAGEMENT_ID: ${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}
           BRANCH: ${{ github.ref_name }}
           COMMIT: ${{ github.sha }}
+          RUN_TRIVY_SCA: ${{ inputs.run_trivy_sca }}
+          RUN_DEPENDENCY_CHECK: ${{ inputs.run_dependency_check }}
+          
         run: |
           set -euo pipefail
 
@@ -1318,6 +1440,32 @@ jobs:
           else
             echo "- ⚠️ OWASP ZAP skipped (missing report)" >> "$GITHUB_STEP_SUMMARY"
           fi
+          #============================================================================
+          if [ "${RUN_TRIVY_SCA:-false}" = "true" ]; then
+            # Upload Trivy SCA report (JSON)
+            if [ -f "trivy-sca.json" ]; then
+              if upload_to_defectdojo "Trivy Scan" "trivy-sca.json" "Trivy SCA - ${BRANCH}"; then
+                echo "- ✅ Trivy SCA uploaded" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "- ❌ Trivy SCA failed" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            else
+              echo "- ⚠️ Trivy SCA skipped (missing trivy-sca.json)" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          
+          if [ "${RUN_DEPENDENCY_CHECK:-false}" = "true" ]; then
+            # Prefer XML report for Dependency-Check (commonly supported by DefectDojo).
+            if [ -f "depcheck-output/dependency-check-report.xml" ]; then
+              if upload_to_defectdojo "Dependency Check Scan" "depcheck-output/dependency-check-report.xml" "OWASP Dependency-Check - ${BRANCH}"; then
+                echo "- ✅ OWASP Dependency-Check uploaded" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "- ❌ OWASP Dependency-Check failed" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            else
+              echo "- ⚠️ OWASP Dependency-Check skipped (missing depcheck-output/dependency-check-report.xml)" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### 📊 Summary:" >> "$GITHUB_STEP_SUMMARY"
@@ -1343,6 +1491,9 @@ jobs:
             trivy-fs.json
             trivy-config.json
             zap-output/zap-report.json
+            trivy-sca.json
+            depcheck-output/dependency-check-report.json
+            depcheck-output/dependency-check-report.xml
             zap-output/zap-report.html
             sarif-results/*.sarif
           retention-days: 30
