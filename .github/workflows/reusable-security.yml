@@ -12,7 +12,7 @@ on:
         description: 'Run Trivy filesystem scan'
         required: false
         type: boolean
-        default: true
+        default: false
       run_npm_audit:
         description: 'Run npm audit'
         required: false
@@ -20,6 +20,11 @@ on:
         default: true
       run_trivy_sca:
         description: 'Run Trivy SCA Dependencies '
+        required: false
+        type: boolean
+        default: true
+      run_Semgrep_sca:
+        description: 'Run Semgrep SAST  '
         required: false
         type: boolean
         default: true
@@ -126,17 +131,6 @@ jobs:
         run: npm ci --prefer-offline --no-audit
 
       # ═══════════════════════════════════════════
-      # CodeQL - Initialize FIRST (before builds)
-      # ═══════════════════════════════════════════
-      - name: 🔬 Initialize CodeQL
-        if: ${{ inputs.run_codeql }}
-        uses: github/codeql-action/init@v4
-        with:
-          languages: ${{ inputs.codeql_languages }}
-          queries: ${{ inputs.codeql_queries }}
-          # For compiled languages, add build-mode
-          # build-mode: manual
-      # ═══════════════════════════════════════════
       # SCA - Run OWASP Dependency-Check
       # ══════════════════════════════════════════
       - name: 🧪 SCA Run OWASP Dependency-Check
@@ -145,10 +139,12 @@ jobs:
         with:
           project: "${{ github.repository }}-${{ github.ref_name }}"
           path: "."
-          format: "JSON,XML"
+          format: "ALL"
           out: "depcheck-output"
         continue-on-error: true
-      #=======🔍 SCA - OWASP Dependency-Check================================
+      #===========================================
+      # SCA - 🔍 Summary OWASP Dependency-Check
+      # ══════════════════════════════════════════
       - name: 📊 SCA Summary - OWASP Dependency-Check
         id: sca_depcheck
         if: ${{ inputs.run_dependency_check == true }}
@@ -180,8 +176,17 @@ jobs:
           fi
 
           # Write summary
-          echo "## 🔍 SCA - Software Composition Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔍 SCA Summary - OWASP Dependency-Check" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Technology
+          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** OWASP Dependency-Check" >> $GITHUB_STEP_SUMMARY
+          echo "- **Database:** NVD (and other supported sources)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Coverage:** Third-party dependencies (SCA)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Scope:** Manifest + discovered libraries" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           echo "### 📊 Results (OWASP Dependency-Check):" >> $GITHUB_STEP_SUMMARY
           echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
@@ -198,14 +203,6 @@ jobs:
             echo "high=$HIGH"
             echo "total=$TOTAL"
           } >> "$GITHUB_OUTPUT"
-
-          # Technology
-          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tool:** OWASP Dependency-Check" >> $GITHUB_STEP_SUMMARY
-          echo "- **Database:** NVD (and other supported sources)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Coverage:** Third-party dependencies (SCA)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Scan Scope:** Manifest + discovered libraries" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
 
           # Recommendations
           echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
@@ -241,7 +238,7 @@ jobs:
       # SCA - Trivy (Dependencies)
       # ══════════════════════════════════════════
       - name: 🔍 SCA - Trivy (Dependencies)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         id: sca_trivy
         if: ${{ inputs.run_trivy_sca == true }}
         with:
@@ -249,8 +246,10 @@ jobs:
           format: 'json'
           output: 'trivy-sca.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
-
-      - name: 📊 Summary Generation
+      # ═══════════════════════════════════════════
+      # SCA - Trivy (Summary Dependencies)
+      # ══════════════════════════════════════════
+      - name: 📊 SCA Summary - Trivy (Dependencies)
         env:
           ACTIONS_STEP_DEBUG: 'false'
         run: |
@@ -278,8 +277,17 @@ jobs:
           fi
 
           # Write summary
-          echo "## 🔍 SCA - Software Composition Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔍 SCA Summary - Trivy (Dependencies)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Technology
+          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** Trivy (Aqua Security)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Database:** Trivy vulnerability DB" >> $GITHUB_STEP_SUMMARY
+          echo "- **Coverage:** OS packages + language dependencies (SCA)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Scope:** Direct + transitive dependencies where supported" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           echo "### 📊 Results (Trivy SCA):" >> $GITHUB_STEP_SUMMARY
           echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
@@ -296,14 +304,6 @@ jobs:
             echo "high=$HIGH"
             echo "total=$TOTAL"
           } >> "$GITHUB_OUTPUT"
-
-          # Technology
-          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tool:** Trivy (Aqua Security)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Database:** Trivy vulnerability DB" >> $GITHUB_STEP_SUMMARY
-          echo "- **Coverage:** OS packages + language dependencies (SCA)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Scan Scope:** Direct + transitive dependencies where supported" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
 
           # Recommendations
           echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
@@ -329,9 +329,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
         continue-on-error: true
       # ═══════════════════════════════════════════
-      # SCA - Software Composition Analysis
+      # SCA - npm Audit Software Composition Analysis
       # ═══════════════════════════════════════════
-      - name: 🔍 SCA - npm Audit
+      - name: 🔍 SCA Summary - npm Audit 
         id: sca
         if: ${{ inputs.project_type == 'node' && inputs.run_npm_audit }}
         env:
@@ -360,8 +360,17 @@ jobs:
           fi
 
           # Write summary
-          echo "## 🔍 SCA - Software Composition Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔍 SCA Summary - npm Audit" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Technology
+          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** npm audit (built-in)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Database:** npm registry + GitHub Advisory Database" >> $GITHUB_STEP_SUMMARY
+          echo "- **Coverage:** JavaScript/Node.js dependencies" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Scope:** Direct + Transitive dependencies" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
           echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
@@ -378,14 +387,6 @@ jobs:
             echo "high=$HIGH"
             echo "total=$TOTAL"
           } >> "$GITHUB_OUTPUT"
-
-          # Technology
-          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tool:** npm audit (built-in)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Database:** npm registry + GitHub Advisory Database" >> $GITHUB_STEP_SUMMARY
-          echo "- **Coverage:** JavaScript/Node.js dependencies" >> $GITHUB_STEP_SUMMARY
-          echo "- **Scan Scope:** Direct + Transitive dependencies" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
 
           # Recommendations
           echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
@@ -409,97 +410,6 @@ jobs:
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
         continue-on-error: true
-
-      # ═══════════════════════════════════════════
-      # SAST - Static Application Security Testing
-      # ═══════════════════════════════════════════
-      
-      - name: 🛡️ SAST - Trivy Filesystem Scan
-        id: sast
-        if: ${{ inputs.run_trivy }}
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'json'
-          output: 'trivy-fs.json'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-          skip-dirs: 'node_modules'
-          exit-code: '0'
-        continue-on-error: true
-
-      - name: 📊 SAST - Process Trivy Results
-        if: ${{ inputs.run_trivy }}
-        run: |
-          echo "## 🛡️ SAST - Static Application Security Testing (Trivy)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -f trivy-fs.json ]; then
-            CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs.json)
-            HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs.json)
-            MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-fs.json)
-            LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-fs.json)
-            TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
-            
-            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
-            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
-            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            
-            # Technology Used
-            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
-            echo "- **Tool:** Aquasecurity Trivy" >> $GITHUB_STEP_SUMMARY
-            echo "- **Version:** 0.24.0" >> $GITHUB_STEP_SUMMARY
-            echo "- **Database:** Trivy DB (NVD, GitHub Advisories, etc.)" >> $GITHUB_STEP_SUMMARY
-            echo "- **Scan Type:** Filesystem (code + dependencies)" >> $GITHUB_STEP_SUMMARY
-            echo "- **Coverage:** Multi-language support" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            
-            echo "**Languages Detected:**" >> $GITHUB_STEP_SUMMARY
-            jq -r '.Results[]? | select(.Target) | "- \(.Type // "Unknown"): \(.Target)"' trivy-fs.json | sort -u >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
-            echo "" >> $GITHUB_STEP_SUMMARY
-            
-            # Recommendations
-            echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
-            if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
-              echo "**⚠️ Action Required:**" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              
-              # Show top vulnerabilities
-              echo "**Top Critical/High Vulnerabilities:**" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "| CVE | Severity | Package | Installed | Fixed |" >> $GITHUB_STEP_SUMMARY
-              echo "|-----|----------|---------|-----------|-------|" >> $GITHUB_STEP_SUMMARY
-              
-              jq -r '.Results[]?.Vulnerabilities[]? | 
-                select(.Severity == "CRITICAL" or .Severity == "HIGH") | 
-                "| [\(.VulnerabilityID)](https://nvd.nist.gov/vuln/detail/\(.VulnerabilityID)) | \(.Severity) | `\(.PkgName)` | \(.InstalledVersion) | \(.FixedVersion // "N/A") |"' \
-                trivy-fs.json | head -10 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
-              
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "**Steps to Fix:**" >> $GITHUB_STEP_SUMMARY
-              echo "1. Review CVE details (click CVE links above)" >> $GITHUB_STEP_SUMMARY
-              echo "2. Update affected packages to fixed versions" >> $GITHUB_STEP_SUMMARY
-              echo "3. If no fix available, consider alternatives or apply workarounds" >> $GITHUB_STEP_SUMMARY
-              echo "4. Test application after updates" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "✅ No critical or high SAST vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
-              echo "- Code analysis shows no major security issues" >> $GITHUB_STEP_SUMMARY
-              echo "- Continue following secure coding practices" >> $GITHUB_STEP_SUMMARY
-              echo "- Regular security reviews recommended" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "⚠️ Trivy scan did not produce results" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
       # ═══════════════════════════════════════════
       # IaC - Infrastructure as Code
       # ═══════════════════════════════════════════
@@ -507,7 +417,7 @@ jobs:
       - name: 🏗️ IaC - Trivy Config Scan
         id: iac
         if: ${{ inputs.run_trivy }}
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'config'
           scan-ref: '.'
@@ -522,7 +432,19 @@ jobs:
         run: |
           echo "## 🏗️ IaC - Infrastructure as Code Scan" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+          # Technology Used
+          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** Trivy Config Scanner" >> $GITHUB_STEP_SUMMARY
+          echo "- **Standards:** CIS Benchmarks, Best Practices" >> $GITHUB_STEP_SUMMARY
+          echo "- **Checks:** Security misconfigurations" >> $GITHUB_STEP_SUMMARY
+          echo "- **Supported Formats:**" >> $GITHUB_STEP_SUMMARY
+          echo "  - Dockerfile" >> $GITHUB_STEP_SUMMARY
+          echo "  - Kubernetes (YAML)" >> $GITHUB_STEP_SUMMARY
+          echo "  - Terraform" >> $GITHUB_STEP_SUMMARY
+          echo "  - Docker Compose" >> $GITHUB_STEP_SUMMARY
+          echo "  - Helm Charts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           if [ -f trivy-config.json ]; then
             CRITICAL=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="CRITICAL")] | length' trivy-config.json)
             HIGH=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="HIGH")] | length' trivy-config.json)
@@ -538,19 +460,6 @@ jobs:
             echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
             echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
             echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            
-            # Technology Used
-            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
-            echo "- **Tool:** Trivy Config Scanner" >> $GITHUB_STEP_SUMMARY
-            echo "- **Standards:** CIS Benchmarks, Best Practices" >> $GITHUB_STEP_SUMMARY
-            echo "- **Checks:** Security misconfigurations" >> $GITHUB_STEP_SUMMARY
-            echo "- **Supported Formats:**" >> $GITHUB_STEP_SUMMARY
-            echo "  - Dockerfile" >> $GITHUB_STEP_SUMMARY
-            echo "  - Kubernetes (YAML)" >> $GITHUB_STEP_SUMMARY
-            echo "  - Terraform" >> $GITHUB_STEP_SUMMARY
-            echo "  - Docker Compose" >> $GITHUB_STEP_SUMMARY
-            echo "  - Helm Charts" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             
             # Scan statistics
@@ -619,7 +528,173 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
       # ═══════════════════════════════════════════
-      # CodeQL Analysis (Advanced SAST)
+      # SAST - Static Application Security Testing
+      # ═══════════════════════════════════════════
+      
+      - name: 🛡️ SAST - Trivy Filesystem Scan
+        id: sast
+        if: ${{ inputs.run_trivy }}
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-fs.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          skip-dirs: 'node_modules'
+          exit-code: '0'
+        continue-on-error: true
+
+      - name: 📊 SAST - Process Trivy Results
+        if: ${{ inputs.run_trivy }}
+        run: |
+          echo "## 🛡️ SAST - Static Application Security Testing (Trivy)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Technology Used
+            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tool:** Aquasecurity Trivy" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version:** 0.28.0" >> $GITHUB_STEP_SUMMARY
+            echo "- **Database:** Trivy DB (NVD, GitHub Advisories, etc.)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Scan Type:** Filesystem (code + dependencies)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Coverage:** Multi-language support" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f trivy-fs.json ]; then
+            CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs.json)
+            HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs.json)
+            MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-fs.json)
+            LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-fs.json)
+            TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+            
+            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "**Languages Detected:**" >> $GITHUB_STEP_SUMMARY
+            jq -r '.Results[]? | select(.Target) | "- \(.Type // "Unknown"): \(.Target)"' trivy-fs.json | sort -u >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Recommendations
+            echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+            if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
+              echo "**⚠️ Action Required:**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              # Show top vulnerabilities
+              echo "**Top Critical/High Vulnerabilities:**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "| CVE | Severity | Package | Installed | Fixed |" >> $GITHUB_STEP_SUMMARY
+              echo "|-----|----------|---------|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+              
+              jq -r '.Results[]?.Vulnerabilities[]? | 
+                select(.Severity == "CRITICAL" or .Severity == "HIGH") | 
+                "| [\(.VulnerabilityID)](https://nvd.nist.gov/vuln/detail/\(.VulnerabilityID)) | \(.Severity) | `\(.PkgName)` | \(.InstalledVersion) | \(.FixedVersion // "N/A") |"' \
+                trivy-fs.json | head -10 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+              
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Steps to Fix:**" >> $GITHUB_STEP_SUMMARY
+              echo "1. Review CVE details (click CVE links above)" >> $GITHUB_STEP_SUMMARY
+              echo "2. Update affected packages to fixed versions" >> $GITHUB_STEP_SUMMARY
+              echo "3. If no fix available, consider alternatives or apply workarounds" >> $GITHUB_STEP_SUMMARY
+              echo "4. Test application after updates" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ No critical or high SAST vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+              echo "- Code analysis shows no major security issues" >> $GITHUB_STEP_SUMMARY
+              echo "- Continue following secure coding practices" >> $GITHUB_STEP_SUMMARY
+              echo "- Regular security reviews recommended" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⚠️ Trivy scan did not produce results" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+# ═══════════════════════════════════════════
+      # SAST - Semgrep Testing (Docker)
+      # ═══════════════════════════════════════════
+      - name: 🛡️ SAST - Semgrep (Docker) Scan
+        id: semgrep_sast
+        if: ${{ inputs.run_Semgrep_sca }}
+        run: |
+          set -e
+          # Running Semgrep via Docker for environment consistency
+          # Using :latest for newest rules, but :1.65.0 is recommended for production stability
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            returntocorp/semgrep:latest \
+            semgrep scan \
+              --config p/security-audit \
+              --exclude node_modules \
+              --sarif --output semgrep.sarif \
+              . || true
+        continue-on-error: true
+
+      # ═══════════════════════════════════════════
+      # SAST - Reporting Summary
+      # ═══════════════════════════════════════════
+      - name: 📊 SAST - Semgrep Summary Results
+        if: ${{ inputs.run_Semgrep_sca }}
+        run: |
+          # Check if the results file exists to prevent script failure
+          if [ ! -f semgrep.sarif ]; then
+            echo "❌ Semgrep results not found!" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          # Extract findings using jq (Semgrep severity levels: ERROR, WARNING, INFO)
+          # Mapping ERROR to Critical/High, WARNING to Medium for the report
+          ERROR=$(jq '[.runs[].results[] | select(.level == "error")] | length' semgrep.sarif)
+          WARNING=$(jq '[.runs[].results[] | select(.level == "warning")] | length' semgrep.sarif)
+          INFO=$(jq '[.runs[].results[] | select(.level == "note")] | length' semgrep.sarif)
+          TOTAL=$((ERROR + WARNING + INFO))
+
+          echo "## 🛡️ SAST - Semgrep Summary Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🛠️ Technology Stack:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** Semgrep (Dockerized)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Ruleset:** p/security-audit" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Scope:** Source Code Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📊 Findings Statistics:" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 Error (High Risk) | $ERROR |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 Warning (Medium Risk) | $WARNING |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔵 Info (Low Risk) | $INFO |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Total Issues** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Displaying Top Vulnerabilities if any Errors are found
+          if [ "$ERROR" -gt 0 ]; then
+            echo "### ⚠️ Top Critical Findings:" >> $GITHUB_STEP_SUMMARY
+            # Parse top 10 errors and format for Markdown display
+            jq -r '.results[] | select(.extra.severity == "ERROR") | "- **\(.extra.message)**\n  - 📍 File: `\(.path)` (Line: \(.start.line))"' semgrep.sarif | head -n 10 >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ **Clean Scan:** No high-risk security patterns detected in your code." >> $GITHUB_STEP_SUMMARY
+          fi
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # CodeQL - Initialize FIRST (before builds)
+      # ═══════════════════════════════════════════
+      - name: 🔬 Initialize CodeQL
+        if: ${{ inputs.run_codeql }}
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ inputs.codeql_languages }}
+          queries: ${{ inputs.codeql_queries }}
+          # For compiled languages, add build-mode
+          # build-mode: manual
+      # ═══════════════════════════════════════════
+      # SAST - CodeQL Analysis (Advanced SAST)
       # ═══════════════════════════════════════════
       
       - name: 🔬 CodeQL - Perform Analysis
@@ -630,11 +705,13 @@ jobs:
           output: sarif-results
           upload: true
         continue-on-error: true
-
-      - name: 📊 CodeQL - Process Results
+      # ═══════════════════════════════════════════
+      # SAST - Summary CodeQL Analysis 
+      # ═══════════════════════════════════════════
+      - name: 📊 Summary CodeQL Analysis
         if: ${{ inputs.run_codeql }}
         run: |
-          echo "## 🔬 CodeQL - Advanced Code Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔬 Summary CodeQL " >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Initialize variables
@@ -973,11 +1050,11 @@ jobs:
           fi
           
           # Process Trivy
-          if [ -f trivy-fs.json ]; then
-            C=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs.json)
-            H=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs.json)
-            M=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-fs.json)
-            L=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-fs.json)
+          if [ -f trivy-sca.json ]; then
+            C=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-sca.json)
+            H=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-sca.json)
+            M=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-sca.json)
+            L=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-sca.json)
             
             CRITICAL=$((CRITICAL + C))
             HIGH=$((HIGH + H))
@@ -994,7 +1071,7 @@ jobs:
                 cve: .VulnerabilityID,
                 source: "SAST (Trivy)",
                 fix: (.FixedVersion // "N/A")
-              }] | .[0:10]' trivy-fs.json > trivy-findings.json 2>/dev/null || echo "[]" > trivy-findings.json
+              }] | .[0:10]' trivy-sca.json > trivy-findings.json 2>/dev/null || echo "[]" > trivy-findings.json
           else
             echo "[]" > trivy-findings.json
 
@@ -1093,16 +1170,16 @@ jobs:
             echo "| 🔍 SCA | npm audit | - | - | - | - | N/A |" >> $GITHUB_STEP_SUMMARY
           fi
           
-          # SAST (Trivy)
-          if [ -f trivy-fs.json ]; then
-            TRIVY_C=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-fs.json)
-            TRIVY_H=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-fs.json)
-            TRIVY_M=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-fs.json)
-            TRIVY_L=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-fs.json)
+          # SCA (Trivy)
+          if [ -f trivy-sca.json ]; then
+            TRIVY_C=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-sca.json)
+            TRIVY_H=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-sca.json)
+            TRIVY_M=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-sca.json)
+            TRIVY_L=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-sca.json)
             TRIVY_T=$((TRIVY_C + TRIVY_H + TRIVY_M + TRIVY_L))
-            echo "| 🛡️ SAST | Trivy | $TRIVY_C | $TRIVY_H | $TRIVY_M | $TRIVY_L | $TRIVY_T |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🛡️ SCA | Trivy | $TRIVY_C | $TRIVY_H | $TRIVY_M | $TRIVY_L | $TRIVY_T |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| 🛡️ SAST | Trivy | - | - | - | - | N/A |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🛡️ SCA | Trivy | - | - | - | - | N/A |" >> $GITHUB_STEP_SUMMARY
           fi
           
           # CodeQL
@@ -1411,11 +1488,11 @@ jobs:
             echo "- ❌ NPM Audit failed" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          if upload_to_defectdojo "Trivy Scan" "trivy-fs.json" "Trivy FS - ${BRANCH}"; then
-            echo "- ✅ Trivy uploaded" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "- ❌ Trivy failed" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          #if upload_to_defectdojo "Trivy Scan" "trivy-fs.json" "Trivy FS - ${BRANCH}"; then
+          #  echo "- ✅ Trivy uploaded" >> "$GITHUB_STEP_SUMMARY"
+          #else
+          #  echo "- ❌ Trivy failed" >> "$GITHUB_STEP_SUMMARY"
+          #fi
 
           # NOTE: SARIF dedup may depend on the exact Dojo test type name.
           # If you see dedup warnings, query /api/v2/test_types and use the exact SARIF test type name supported by your Dojo.
@@ -1467,6 +1544,16 @@ jobs:
               echo "- ⚠️ OWASP Dependency-Check skipped (missing depcheck-output/dependency-check-report.xml)" >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
+          # --- Semgrep (SARIF) ---
+          if [ -f "semgrep.sarif" ]; then
+            if upload_to_defectdojo "SARIF" "semgrep.sarif" "Semgrep - ${BRANCH}"; then
+              echo "- ✅ Semgrep uploaded" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- ❌ Semgrep failed" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "- ⚠️ Semgrep skipped (missing semgrep.sarif)" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### 📊 Summary:" >> "$GITHUB_STEP_SUMMARY"
@@ -1487,7 +1574,7 @@ jobs:
           path: |
             summary.json
             npm-audit.json
-            trivy-fs.json
+            semgrep.sarif
             trivy-config.json
             zap-output/zap-report.json
             trivy-sca.json
