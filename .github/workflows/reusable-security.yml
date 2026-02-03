@@ -118,18 +118,13 @@ jobs:
       # ═══════════════════════════════════════════
       - name: 📥 Checkout code
         uses: actions/checkout@v4
-
+      # ═══════════════════════════════════════════
       - name: 🟢 Setup Node.js
         if: ${{ inputs.project_type == 'node' }}
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-
-      - name: 📦 Install dependencies
-        if: ${{ inputs.project_type == 'node' }}
-        run: npm ci --prefer-offline --no-audit
-
       # ═══════════════════════════════════════════
       # SCA - Run OWASP Dependency-Check
       # ══════════════════════════════════════════
@@ -140,7 +135,7 @@ jobs:
           project: "${{ github.repository }}-${{ github.ref_name }}"
           path: "."
           format: "ALL"
-          out: "depcheck-output"
+          out: "${{ runner.temp }}/depcheck-output"
         continue-on-error: true
       #===========================================
       # SCA - 🔍 Summary OWASP Dependency-Check
@@ -154,8 +149,8 @@ jobs:
           set +x
           set -e
 
-          REPORT_JSON="depcheck-output/dependency-check-report.json"
-          REPORT_XML="depcheck-output/dependency-check-report.xml"
+          REPORT_JSON="${{ runner.temp }}/depcheck-output/dependency-check-report.json"
+          REPORT_XML="${{ runner.temp }}/depcheck-output/dependency-check-report.xml"
 
           # Defaults
           CRITICAL=0
@@ -368,6 +363,12 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
         continue-on-error: true
       # ═══════════════════════════════════════════
+      # SCA - 📦 Install dependencies npm ci
+      # ═══════════════════════════════════════════
+      - name: 📦 Install dependencies
+        if: ${{ inputs.project_type == 'node' }}
+        run: npm ci --prefer-offline --no-audit
+      # ═══════════════════════════════════════════
       # SCA - npm Audit Software Composition Analysis
       # ═══════════════════════════════════════════
       - name: 🔍 SCA Summary - npm Audit 
@@ -576,9 +577,10 @@ jobs:
           # Running Semgrep via Docker for environment consistency
           # Using :latest for newest rules, but :1.65.0 is recommended for production stability
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "${{ github.workspace }}:/src" \
             -w /src \
-            returntocorp/semgrep:latest \
+            returntocorp/semgrep:1.65.0 \
             semgrep scan \
               --config p/security-audit \
               --exclude node_modules \
