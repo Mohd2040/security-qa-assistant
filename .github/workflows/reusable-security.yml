@@ -8,11 +8,11 @@ on:
         required: false
         type: string
         default: 'node'
-      run_trivy:
-        description: 'Run Trivy filesystem scan'
+      run_trivy_sca:
+        description: 'Run Trivy (Dependencies)'
         required: false
         type: boolean
-        default: false
+        default: true
       run_npm_audit:
         description: 'Run npm audit'
         required: false
@@ -131,11 +131,13 @@ jobs:
       - name: 🧪 SCA Run OWASP Dependency-Check
         if: ${{ inputs.run_dependency_check == true }}
         uses: dependency-check/Dependency-Check_Action@main
+        env:
+          REPORTS_DIR: ${{ runner.temp }}/security-reports
         with:
           project: "${{ github.repository }}-${{ github.ref_name }}"
           path: "."
           format: "ALL"
-          out: "${{ runner.temp }}/depcheck-output"
+          out: "${{ env.REPORTS_DIR }}/depcheck-output"
         continue-on-error: true
       #===========================================
       # SCA - 🔍 Summary OWASP Dependency-Check
@@ -149,8 +151,8 @@ jobs:
           set +x
           set -e
 
-          REPORT_JSON="${{ runner.temp }}/depcheck-output/dependency-check-report.json"
-          REPORT_XML="${{ runner.temp }}/depcheck-output/dependency-check-report.xml"
+          REPORT_JSON="${REPORTS_DIR}/depcheck-output/dependency-check-report.json"
+          REPORT_XML="${REPORTS_DIR}/depcheck-output/dependency-check-report.xml
 
           # Defaults
           CRITICAL=0
@@ -956,7 +958,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
+          ts="${ts:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
+          repo="${repo:-${GITHUB_REPOSITORY:-unknown}}"
+          branch="${branch:-${GITHUB_REF_NAME:-unknown}}"
+          commit="${commit:-${GITHUB_SHA:-unknown}}"
           # ---------------------------
           # Helpers
           # ---------------------------
@@ -1019,8 +1024,9 @@ jobs:
           # OWASP Dependency-Check
           # output: depcheck-output/dependency-check-report.json
           # ---------------------------
-          if [ -f depcheck-output/dependency-check-report.json ]; then
-            REPORT="depcheck-output/dependency-check-report.json"
+          DEPCHK_DIR="${REPORTS_DIR}/depcheck-output"
+          if [ -f "$DEPCHK_DIR/dependency-check-report.json" ]; then
+            REPORT="$DEPCHK_DIR/dependency-check-report.json"
 
             # count based on CVSS v3/v2 score (best-effort)
             DC_C=$(jq_safe '[.. | objects | (.cvssv3?.baseScore // .cvssv2?.score // empty) | select(. >= 9)] | length' "$REPORT"); DC_C=${DC_C:-0}
@@ -1411,6 +1417,7 @@ jobs:
           COMMIT: ${{ github.sha }}
           RUN_TRIVY_SCA: ${{ inputs.run_trivy_sca }}
           RUN_DEPENDENCY_CHECK: ${{ inputs.run_dependency_check }}
+          
           
         run: |
           set -euo pipefail
