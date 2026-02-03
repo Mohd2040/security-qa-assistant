@@ -105,9 +105,20 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: [self-hosted, ubuntudevops]
-    #runs-on: ubuntu-latest
+    env:
+      REPORTS_DIR: ${{ runner.temp }}/security-reports
     
     steps:
+      # ═══════════════════════════════════════════
+      - name: 🧹 Pre-checkout cleanup (self-hosted)
+        run: |
+          set +e
+          sudo rm -rf "$GITHUB_WORKSPACE/depcheck-output" "$GITHUB_WORKSPACE/zap-output" 2>/dev/null || true
+          sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE" 2>/dev/null || true
+      # ═══════════════════════════════════════════    
+      - name: 📁 Prepare reports dir
+        run: |
+          mkdir -p "${REPORTS_DIR}/depcheck-output" "${REPORTS_DIR}/zap-output"
       # ═══════════════════════════════════════════
       # SETUP
       # ═══════════════════════════════════════════
@@ -126,8 +137,6 @@ jobs:
       - name: 🧪 SCA Run OWASP Dependency-Check
         if: ${{ inputs.run_dependency_check == true }}
         uses: dependency-check/Dependency-Check_Action@main
-        env:
-          REPORTS_DIR: ${{ runner.temp }}/security-reports
         with:
           project: "${{ github.repository }}-${{ github.ref_name }}"
           path: "."
@@ -1647,12 +1656,20 @@ jobs:
             npm-audit.json
             semgrep.sarif
             trivy-config.json
-            zap-output/zap-report.json
             trivy-sca.json
+            sarif-results/*.sarif
+
+            # New (preferred)
+            ${{ env.REPORTS_DIR }}/depcheck-output/dependency-check-report.json
+            ${{ env.REPORTS_DIR }}/depcheck-output/dependency-check-report.xml
+
+            # Old (backward compatible)
             depcheck-output/dependency-check-report.json
             depcheck-output/dependency-check-report.xml
+
+            zap-output/zap-report.json
             zap-output/zap-report.html
-            sarif-results/*.sarif
+          
           retention-days: 30
           if-no-files-found: warn
 
