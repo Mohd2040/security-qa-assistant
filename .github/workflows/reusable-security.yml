@@ -18,11 +18,6 @@ on:
         required: false
         type: boolean
         default: true
-      run_Semgrep_sca_sca:
-        description: 'Run Trivy SCA Dependencies '
-        required: false
-        type: boolean
-        default: true
       run_Semgrep_sca:
         description: 'Run Semgrep SAST  '
         required: false
@@ -152,7 +147,7 @@ jobs:
           set -e
 
           REPORT_JSON="${REPORTS_DIR}/depcheck-output/dependency-check-report.json"
-          REPORT_XML="${REPORTS_DIR}/depcheck-output/dependency-check-report.xml
+          REPORT_XML="${REPORTS_DIR}/depcheck-output/dependency-check-report.xml"
 
           # Defaults
           CRITICAL=0
