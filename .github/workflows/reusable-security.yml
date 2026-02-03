@@ -105,8 +105,6 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: [self-hosted, ubuntudevops]
-    env:
-      REPORTS_DIR: ${{ runner.temp }}/security-reports
     
     steps:
       # ═══════════════════════════════════════════
@@ -119,6 +117,12 @@ jobs:
       - name: 📁 Prepare reports dir
         run: |
           mkdir -p "${REPORTS_DIR}/depcheck-output" "${REPORTS_DIR}/zap-output"
+
+      - name: 📁 Set reports directory
+        shell: bash
+        run: |
+          echo "REPORTS_DIR=${RUNNER_TEMP}/security-reports" >> "$GITHUB_ENV"
+          mkdir -p "${RUNNER_TEMP}/security-reports"
       # ═══════════════════════════════════════════
       # SETUP
       # ═══════════════════════════════════════════
