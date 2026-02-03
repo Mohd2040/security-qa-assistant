@@ -650,11 +650,22 @@ jobs:
           fi
 
           # Extract findings using jq (Semgrep severity levels: ERROR, WARNING, INFO)
-          # Mapping ERROR to Critical/High, WARNING to Medium for the report
-          ERROR=$(jq '[.runs[].results[] | select(.level == "error")] | length' semgrep.sarif)
-          WARNING=$(jq '[.runs[].results[] | select(.level == "warning")] | length' semgrep.sarif)
-          INFO=$(jq '[.runs[].results[] | select(.level == "note")] | length' semgrep.sarif)
-          TOTAL=$((ERROR + WARNING + INFO))
+          # Ensure jq is working on a valid file
+          if [ -s semgrep.sarif ]; then
+              # We use a single variable to avoid reading the file multiple times
+              RESULTS_ARRAY=".runs[]?.results[]?"
+
+              ERROR=$(jq "[$RESULTS_ARRAY | select((.level // .rule.properties.severity // \"\") | tostring | ascii_downcase | . == \"error\")] | length" semgrep.sarif || echo 0)
+              
+              WARNING=$(jq "[$RESULTS_ARRAY | select((.level // .rule.properties.severity // \"\") | tostring | ascii_downcase | . == \"warning\")] | length" semgrep.sarif || echo 0)
+              
+              # Semgrep maps 'note' to low-level findings in SARIF
+              INFO=$(jq "[$RESULTS_ARRAY | select((.level // .rule.properties.severity // \"\") | tostring | ascii_downcase | (. == \"note\" or . == \"info\"))] | length" semgrep.sarif || echo 0)
+
+              TOTAL=$((ERROR + WARNING + INFO))
+          else
+              ERROR=0; WARNING=0; INFO=0; TOTAL=0
+          fi
 
           echo "## 🛡️ SAST - Semgrep Summary Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
