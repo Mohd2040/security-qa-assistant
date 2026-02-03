@@ -114,15 +114,11 @@ jobs:
           sudo rm -rf "$GITHUB_WORKSPACE/depcheck-output" "$GITHUB_WORKSPACE/zap-output" 2>/dev/null || true
           sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE" 2>/dev/null || true
       # ═══════════════════════════════════════════    
-      - name: 📁 Prepare reports dir
-        run: |
-          mkdir -p "${REPORTS_DIR}/depcheck-output" "${REPORTS_DIR}/zap-output"
-
       - name: 📁 Set reports directory
         shell: bash
         run: |
           echo "REPORTS_DIR=${RUNNER_TEMP}/security-reports" >> "$GITHUB_ENV"
-          mkdir -p "${RUNNER_TEMP}/security-reports"
+          mkdir -p "${RUNNER_TEMP}/security-reports/depcheck-output" "${RUNNER_TEMP}/security-reports/zap-output"
       # ═══════════════════════════════════════════
       # SETUP
       # ═══════════════════════════════════════════
