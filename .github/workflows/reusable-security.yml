@@ -115,7 +115,8 @@ permissions:
 jobs:
   security-scan:
     name: Security Scan
-    runs-on: [self-hosted, ubuntudevops]
+    runs-on: ${{ fromJson(inputs.runner_labels) }}
+    #runs-on: [self-hosted, ubuntudevops]
     
     steps:
       # ═══════════════════════════════════════════

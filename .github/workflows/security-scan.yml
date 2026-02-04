@@ -10,6 +10,12 @@ on:
     #- cron: '0 2 * * 1'
   workflow_dispatch:
     inputs:
+      runner_labels:
+        required: false
+        type: string
+        default: '["self-hosted", "ubuntudevops"]'
+        #default: '["ubuntu-latest"]'
+
       dast_url:
         description: 'Target URL for DAST scan (optional)'
         required: false
