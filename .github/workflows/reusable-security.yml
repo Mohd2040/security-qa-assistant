@@ -1542,10 +1542,155 @@ jobs:
           echo "🧩 Engagement: ${ENGAGEMENT_NAME} (ID: ${ENGAGEMENT_ID})" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
+          # --- Upload function: try reimport first, then fallback to import for first-time creation ---
+          upload_to_defectdojo() {
+            local SCAN_TYPE="$1"
+            local FILE_PATH="$2"
+            local TEST_TITLE="$3"
+
+            if [ ! -f "$FILE_PATH" ]; then
+              echo "⚠️ Skipping $SCAN_TYPE - file not found: $FILE_PATH"
+              echo "- ⚠️ ${SCAN_TYPE} skipped (missing file: $FILE_PATH)" >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+
+            do_upload() {
+              local ENDPOINT="$1"
+
+              # base form fields (keep your logic)
+              local CURL_ARGS=(
+                -sS -L --max-time 180 --connect-timeout 25
+                -w "\n%{http_code}"
+                -X POST "${DEFECTDOJO_URL}/api/v2/${ENDPOINT}/"
+                -H "Authorization: Token ${DEFECTDOJO_TOKEN}"
+                -F "scan_type=${SCAN_TYPE}"
+                -F "file=@${FILE_PATH}"
+                -F "product_name=${PRODUCT_NAME}"
+                -F "engagement_name=${ENGAGEMENT_NAME}"
+                -F "test_title=${TEST_TITLE}"
+                -F "scan_date=$(date +%Y-%m-%d)"
+                -F "tags=github-actions,${BRANCH}"
+                -F "close_old_findings=false"
+              )
+
+              # Optional: if your Dojo supports it, passing engagement id can help resolve correctly
+              if [ -n "${ENGAGEMENT_ID:-}" ]; then
+                CURL_ARGS+=(-F "engagement=${ENGAGEMENT_ID}")
+              fi
+
+              curl "${CURL_ARGS[@]}"
+            }
+
+            echo "📤 Uploading ${SCAN_TYPE} (reimport -> fallback import)..."
+
+            local RESPONSE HTTP_CODE BODY
+            RESPONSE="$(do_upload "reimport-scan")"
+            HTTP_CODE="$(echo "$RESPONSE" | tail -n1)"
+            BODY="$(echo "$RESPONSE" | sed '$d')"
+
+            if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ ${SCAN_TYPE} reimported successfully"
+              UPLOAD_COUNT=$(( ${UPLOAD_COUNT:-0} + 1 ))
+              echo "- ✅ ${SCAN_TYPE} reimported" >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+
+            # If reimport fails because the test does not exist yet, create it via import-scan
+            if echo "$BODY" | grep -qiE "test could not be found|does not exist|no test"; then
+              echo "ℹ️ No existing test found. Creating it via import-scan..."
+
+              local RESPONSE2 HTTP_CODE2 BODY2
+              RESPONSE2="$(do_upload "import-scan")"
+              HTTP_CODE2="$(echo "$RESPONSE2" | tail -n1)"
+              BODY2="$(echo "$RESPONSE2" | sed '$d')"
+
+              if [ "$HTTP_CODE2" = "201" ] || [ "$HTTP_CODE2" = "200" ]; then
+                echo "✅ ${SCAN_TYPE} imported successfully (initial create)"
+                UPLOAD_COUNT=$(( ${UPLOAD_COUNT:-0} + 1 ))
+                echo "- ✅ ${SCAN_TYPE} imported" >> "$GITHUB_STEP_SUMMARY"
+                return 0
+              fi
+
+              echo "❌ Import failed (HTTP $HTTP_CODE2)"
+              echo "Response: $(echo "$BODY2" | head -c 600)"
+              echo "- ❌ ${SCAN_TYPE} import failed (HTTP $HTTP_CODE2): $(echo "$BODY2" | tr '\n' ' ' | head -c 200)" >> "$GITHUB_STEP_SUMMARY"
+              UPLOAD_ERRORS=$(( ${UPLOAD_ERRORS:-0} + 1 ))
+              return 1
+            fi
+
+            echo "❌ Upload failed (HTTP $HTTP_CODE)"
+            echo "Response: $(echo "$BODY" | head -c 600)"
+            echo "- ❌ ${SCAN_TYPE} reimport failed (HTTP $HTTP_CODE): $(echo "$BODY" | tr '\n' ' ' | head -c 200)" >> "$GITHUB_STEP_SUMMARY"
+            UPLOAD_ERRORS=$(( ${UPLOAD_ERRORS:-0} + 1 ))
+            return 1
+          }
+
+          report_upload() {
+            local LABEL="$1"
+            local SCAN_TYPE="$2"
+            local FILE_PATH="$3"
+            local TEST_TITLE="$4"
+
+            if upload_to_defectdojo "$SCAN_TYPE" "$FILE_PATH" "$TEST_TITLE"; then
+              echo "- ✅ ${LABEL} uploaded" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- ❌ ${LABEL} failed" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          }
+            
+          echo "### 📤 Upload Status:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # --- NPM Audit ---
+          report_upload "NPM Audit" "NPM Audit Scan" "npm-audit.json" "NPM Audit - ${BRANCH}"
+
+          # --- CodeQL SARIF ---
+          if [ -d sarif-results ] && ls -1 sarif-results/*.sarif >/dev/null 2>&1; then
+            for SARIF_FILE in sarif-results/*.sarif; do
+              LANG="$(basename "$SARIF_FILE" .sarif)"
+              report_upload "CodeQL SARIF (${LANG})" "SARIF" "$SARIF_FILE" "CodeQL ${LANG} - ${BRANCH}"
+            done
+          else
+            echo "- ⚠️ CodeQL SARIF skipped (no files)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # --- OWASP ZAP ---
+          if [ -f "zap-output/zap-report.xml" ]; then
+            report_upload "OWASP ZAP" "ZAP Scan" "zap-output/zap-report.xml" "OWASP ZAP - ${BRANCH}"
+          else
+            echo "- ⚠️ OWASP ZAP skipped (missing report)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # --- Trivy SCA ---
+          if [ "${RUN_TRIVY_SCA:-false}" = "true" ]; then
+            if [ -f "trivy-sca.json" ]; then
+              report_upload "Trivy SCA" "Trivy Scan" "trivy-sca.json" "Trivy SCA - ${BRANCH}"
+            else
+              echo "- ⚠️ Trivy SCA skipped (missing trivy-sca.json)" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          # --- OWASP Dependency-Check ---
+          if [ "${RUN_DEPENDENCY_CHECK:-false}" = "true" ]; then
+            DEP_XML="${REPORTS_DIR:-.}/depcheck-output/dependency-check-report.xml"
+            if [ -f "$DEP_XML" ]; then
+              report_upload "OWASP Dependency-Check" "Dependency Check Scan" "$DEP_XML" "OWASP Dependency-Check - ${BRANCH}"
+            else
+              echo "- ⚠️ OWASP Dependency-Check skipped (missing $DEP_XML)" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          # --- Semgrep (SARIF) ---
+          if [ -f "semgrep.sarif" ]; then
+            report_upload "Semgrep" "SARIF" "semgrep.sarif" "Semgrep - ${BRANCH}"
+          else
+            echo "- ⚠️ Semgrep skipped (missing semgrep.sarif)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### 📊 Summary:" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Successful uploads:** $UPLOAD_COUNT" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Errors:** $UPLOAD_ERRORS" >> "$GITHUB_STEP_SUMMARY"
+          #echo "- **Successful uploads:** $UPLOAD_COUNT" >> "$GITHUB_STEP_SUMMARY"
+          #echo "- **Errors:** $UPLOAD_ERRORS" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "🔗 View DefectDojo: ${DEFECTDOJO_URL}" >> "$GITHUB_STEP_SUMMARY"
         continue-on-error: true
