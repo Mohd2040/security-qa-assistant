@@ -27,7 +27,7 @@ jobs:
     uses: ./.github/workflows/reusable-security.yml
     with:
       project_type: 'node'
-      run_trivy_sca: false
+      run_trivy_sca: true
       run_npm_audit: false
       run_codeql: false
       #defectdojo_enabled: true

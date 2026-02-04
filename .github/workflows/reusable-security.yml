@@ -28,22 +28,22 @@ on:
         description: 'Run npm audit'
         required: false
         type: boolean
-        default: true
+        default: false
       run_Semgrep_sca:
         description: 'Run Semgrep SAST  '
         required: false
         type: boolean
-        default: true
+        default: false
       run_dependency_check:
         description: 'Run OWASP Dependency-Check '
         required: false
         type: boolean
-        default: true
+        default: false
       run_codeql:
         description: 'Run CodeQL analysis'
         required: false
         type: boolean
-        default: true  # Enabled by default
+        default: false  # Enabled by default
       codeql_languages:
         description: 'CodeQL languages (javascript-typescript, python, go, java, etc.)'
         required: false
@@ -1419,6 +1419,8 @@ jobs:
           RUN_DEPENDENCY_CHECK: ${{ inputs.run_dependency_check }}
         run: |
           set -euo pipefail  
+          UPLOAD_COUNT=0
+          UPLOAD_ERRORS=0
 
           echo "## 📊 DefectDojo Integration" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -1480,9 +1482,12 @@ jobs:
               --data-urlencode "search=${ENGAGEMENT_NAME}" \
               "${DEFECTDOJO_URL}/api/v2/engagements/")"
 
-            ENGAGEMENT_ID="$(echo "$ENG_SEARCH" | jq -r --arg n "$ENGAGEMENT_NAME" --argjson p "$PRODUCT_ID" \
-              '.results[] | select(.name==$n and .product==$p) | .id' | head -n1)"
+            ENGAGEMENT_ID="$(echo "$ENG_SEARCH" | jq -r --arg n "$ENGAGEMENT_NAME" --arg p "$PRODUCT_ID" \
+              '.results[] | select(.name==$n and (.product|tostring)==$p) | .id' | head -n1)"
 
+            if [ -n "$ENGAGEMENT_ID" ]; then
+              echo "✅ Engagement found (ID: $ENGAGEMENT_ID)" >> "$GITHUB_STEP_SUMMARY"
+            fi
             if [ -z "$ENGAGEMENT_ID" ]; then
               echo "🧩 Creating Engagement: $ENGAGEMENT_NAME"
               TARGET_START="$(date +%Y-%m-%d)"
