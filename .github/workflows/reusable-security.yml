@@ -3,6 +3,10 @@ name: Reusable Security Scan (with CodeQL)
 on:
   workflow_call:
     inputs:
+      runner_labels:
+        required: false
+        type: string
+        default: '["ubuntu-latest"]'
       defectdojo_product_type:
         description: 'Product type name in DefectDojo'
         required: false
