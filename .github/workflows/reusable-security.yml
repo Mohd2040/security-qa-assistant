@@ -248,7 +248,7 @@ jobs:
           format: 'json'
           output: 'trivy-sca.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
-      # ═══════════════════════════════════════════
+# ═══════════════════════════════════════════
       # SCA - Trivy (Summary Dependencies)
       # ══════════════════════════════════════════
       - name: 📊 SCA Summary - Trivy (Dependencies)
@@ -259,7 +259,6 @@ jobs:
           set -e
 
           # Run Trivy filesystem scan (includes dependency vulnerabilities)
-          # NOTE: '--scanners vuln' keeps focus on SCA/vulnerabilities.
           trivy fs --scanners vuln --format json --output trivy-sca.json . || true
 
           # Defaults
@@ -306,17 +305,19 @@ jobs:
             echo "high=$HIGH"
             echo "total=$TOTAL"
           } >> "$GITHUB_OUTPUT"
+
+          # تفحص النتائج قبل المتابعة
+          if [ -f trivy-sca.json ]; then
             echo "**Languages Detected:**" >> $GITHUB_STEP_SUMMARY
             jq -r '.Results[]? | select(.Target) | "- \(.Type // "Unknown"): \(.Target)"' trivy-sca.json | sort -u >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
             echo "" >> $GITHUB_STEP_SUMMARY
             
-            # Recommendations
+            # Recommendations (الجزء الأول)
             echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
             if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
               echo "**⚠️ Action Required:**" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
               
-              # Show top vulnerabilities
               echo "**Top Critical/High Vulnerabilities:**" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "| CVE | Severity | Package | Installed | Fixed |" >> $GITHUB_STEP_SUMMARY
@@ -336,38 +337,32 @@ jobs:
             else
               echo "✅ No critical or high SAST vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
               echo "- Code analysis shows no major security issues" >> $GITHUB_STEP_SUMMARY
-              echo "- Continue following secure coding practices" >> $GITHUB_STEP_SUMMARY
-              echo "- Regular security reviews recommended" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # 
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            echo "### 📦 Vulnerability Density:" >> $GITHUB_STEP_SUMMARY
+            if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+              echo "**Top vulnerable packages (sample):**" >> $GITHUB_STEP_SUMMARY
+              jq -r '
+                [ .Results[]?.Vulnerabilities[]? 
+                  | {PkgName, Severity} 
+                ] 
+                | group_by(.PkgName) 
+                | map({PkgName: .[0].PkgName, count: length}) 
+                | sort_by(.count) | reverse | .[0:5] 
+                | .[] | "- `\(.PkgName)` - \(.count) finding(s)"
+              ' trivy-sca.json 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
+            else
+              echo "✅ All packages are within safety limits." >> $GITHUB_STEP_SUMMARY
             fi
           else
             echo "⚠️ Trivy scan did not produce results" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "################################################### " >> $GITHUB_STEP_SUMMARY
-          # Recommendations
-          echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
-          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
-            echo "**⚠️ Action Required:** High-risk vulnerabilities detected." >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Top vulnerable packages (sample):**" >> $GITHUB_STEP_SUMMARY
-            jq -r '
-              [ .Results[]?.Vulnerabilities[]? 
-                | {PkgName, Severity} 
-              ] 
-              | group_by(.PkgName) 
-              | map({PkgName: .[0].PkgName, count: length}) 
-              | sort_by(.count) | reverse | .[0:5] 
-              | .[] | "- `\(.PkgName)` - \(.count) finding(s)"
-            ' trivy-sca.json 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
-          else
-            echo "✅ No critical or high vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
-          fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
         continue-on-error: true
       # ═══════════════════════════════════════════
       # SCA - 📦 Install dependencies npm ci
@@ -1316,7 +1311,7 @@ jobs:
           tv_m=$(jq -r '.breakdown.trivy_sca.medium' summary.json)
           tv_l=$(jq -r '.breakdown.trivy_sca.low' summary.json)
           tv_t=$((tv_c + tv_h + tv_m + tv_l))
-          echo "| 🛡️ SCA | Trivy (fs vuln) | $tv_c | $tv_h | $tv_m | $tv_l | $tv_t |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🔍 SCA | Trivy (fs vuln) | $tv_c | $tv_h | $tv_m | $tv_l | $tv_t |" >> "$GITHUB_STEP_SUMMARY"
 
           iac_c=$(jq -r '.breakdown.trivy_config.critical' summary.json)
           iac_h=$(jq -r '.breakdown.trivy_config.high' summary.json)
