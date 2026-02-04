@@ -28,8 +28,8 @@ jobs:
     with:
       project_type: 'node'
       run_trivy_sca: true
-      run_npm_audit: false
-      run_codeql: false
+      run_npm_audit: true
+      run_codeql: true
       #defectdojo_enabled: true
       defectdojo_enabled: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
       defectdojo_auto_create: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}

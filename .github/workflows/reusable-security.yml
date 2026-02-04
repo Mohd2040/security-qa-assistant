@@ -28,22 +28,22 @@ on:
         description: 'Run npm audit'
         required: false
         type: boolean
-        default: false
+        default: true
       run_Semgrep_sca:
         description: 'Run Semgrep SAST  '
         required: false
         type: boolean
-        default: false
+        default: true
       run_dependency_check:
         description: 'Run OWASP Dependency-Check '
         required: false
         type: boolean
-        default: false
+        default: true
       run_codeql:
         description: 'Run CodeQL analysis'
         required: false
         type: boolean
-        default: false  # Enabled by default
+        default: true  # Enabled by default
       codeql_languages:
         description: 'CodeQL languages (javascript-typescript, python, go, java, etc.)'
         required: false
@@ -1637,7 +1637,7 @@ jobs:
               echo "- ❌ ${LABEL} failed" >> "$GITHUB_STEP_SUMMARY"
             fi
           }
-            
+
           echo "### 📤 Upload Status:" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
