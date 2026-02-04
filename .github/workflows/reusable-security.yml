@@ -113,18 +113,19 @@ jobs:
           set +e
           sudo rm -rf "$GITHUB_WORKSPACE/depcheck-output" "$GITHUB_WORKSPACE/zap-output" 2>/dev/null || true
           sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE" 2>/dev/null || true
-      # ═══════════════════════════════════════════    
+      # ═══════════════════════════════════════════   
+            # SETUP
+      # ═══════════════════════════════════════════
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      # ═══════════════════════════════════════════ 
       - name: 📁 Set reports directory
         shell: bash
         run: |
           echo "REPORTS_DIR=security-reports" >> "$GITHUB_ENV"
           mkdir -p "security-reports/depcheck-output" "security-reports/zap-output"
       # ═══════════════════════════════════════════
-      # SETUP
-      # ═══════════════════════════════════════════
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-      # ═══════════════════════════════════════════
+
       - name: 🟢 Setup Node.js
         if: ${{ inputs.project_type == 'node' }}
         uses: actions/setup-node@v4
