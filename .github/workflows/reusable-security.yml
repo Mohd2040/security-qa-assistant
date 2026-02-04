@@ -1615,8 +1615,8 @@ jobs:
           
           if [ "${RUN_DEPENDENCY_CHECK:-false}" = "true" ]; then
             # Prefer XML report for Dependency-Check (commonly supported by DefectDojo).
-            if [ -f "depcheck-output/dependency-check-report.xml" ]; then
-              if upload_to_defectdojo "Dependency Check Scan" "depcheck-output/dependency-check-report.xml" "OWASP Dependency-Check - ${BRANCH}"; then
+            if [ -f "${REPORTS_DIR}/depcheck-output/dependency-check-report.xml" ]; then
+              if upload_to_defectdojo "Dependency Check Scan" "${REPORTS_DIR}/depcheck-output/dependency-check-report.xml" "OWASP Dependency-Check - ${BRANCH}"; then
                 echo "- ✅ OWASP Dependency-Check uploaded" >> "$GITHUB_STEP_SUMMARY"
               else
                 echo "- ❌ OWASP Dependency-Check failed" >> "$GITHUB_STEP_SUMMARY"
