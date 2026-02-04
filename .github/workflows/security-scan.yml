@@ -32,6 +32,7 @@ jobs:
     name: Run Security Scan
     uses: ./.github/workflows/reusable-security.yml
     with:
+      runner_labels: '["self-hosted", "ubuntudevops"]'
       project_type: 'node'
       run_trivy_sca: true
       run_npm_audit: true
