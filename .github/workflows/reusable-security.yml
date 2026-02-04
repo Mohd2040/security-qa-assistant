@@ -117,8 +117,8 @@ jobs:
       - name: 📁 Set reports directory
         shell: bash
         run: |
-          echo "REPORTS_DIR=${RUNNER_TEMP}/security-reports" >> "$GITHUB_ENV"
-          mkdir -p "${RUNNER_TEMP}/security-reports/depcheck-output" "${RUNNER_TEMP}/security-reports/zap-output"
+          echo "REPORTS_DIR=security-reports" >> "$GITHUB_ENV"
+          mkdir -p "security-reports/depcheck-output" "security-reports/zap-output"
       # ═══════════════════════════════════════════
       # SETUP
       # ═══════════════════════════════════════════
@@ -141,7 +141,7 @@ jobs:
           project: "${{ github.repository }}-${{ github.ref_name }}"
           path: "."
           format: "ALL"
-          out: "${{ env.REPORTS_DIR }}/depcheck-output"
+          out: "security-reports/depcheck-output"
         continue-on-error: true
       #===========================================
       # SCA - 🔍 Summary OWASP Dependency-Check
