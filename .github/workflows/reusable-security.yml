@@ -1477,25 +1477,42 @@ jobs:
             echo "🔍 Checking Engagement: $ENGAGEMENT_NAME"
             ENG_SEARCH="$(curl -sS -G \
               -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
-              --data-urlencode "name=${ENGAGEMENT_NAME}" \
+              --data-urlencode "search=${ENGAGEMENT_NAME}" \
               "${DEFECTDOJO_URL}/api/v2/engagements/")"
 
-            ENGAGEMENT_ID="$(echo "$ENG_SEARCH" | jq -r '.results[0].id // empty')"
+            ENGAGEMENT_ID="$(echo "$ENG_SEARCH" | jq -r --arg n "$ENGAGEMENT_NAME" --argjson p "$PRODUCT_ID" \
+              '.results[] | select(.name==$n and .product==$p) | .id' | head -n1)"
 
             if [ -z "$ENGAGEMENT_ID" ]; then
               echo "🧩 Creating Engagement: $ENGAGEMENT_NAME"
-              CREATE_ENG="$(curl -sS -X POST \
+              TARGET_START="$(date +%Y-%m-%d)"
+              TARGET_END="$(date -d '+365 days' +%Y-%m-%d 2>/dev/null || date -v+365d +%Y-%m-%d)"  # linux/mac fallback
+
+              RESPONSE="$(curl -sS -L \
+                -w "\n%{http_code}" \
+                -X POST \
                 -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
                 -H "Content-Type: application/json" \
                 -d "{
                   \"name\": \"${ENGAGEMENT_NAME}\",
                   \"product\": ${PRODUCT_ID},
                   \"status\": \"In Progress\",
-                  \"engagement_type\": \"CI/CD\"
+                  \"engagement_type\": \"CI/CD\",
+                  \"target_start\": \"${TARGET_START}\",
+                  \"target_end\": \"${TARGET_END}\"
                 }" \
                 "${DEFECTDOJO_URL}/api/v2/engagements/")"
 
-              ENGAGEMENT_ID="$(echo "$CREATE_ENG" | jq -r '.id // empty')"
+              HTTP_CODE="$(echo "$RESPONSE" | tail -n1)"
+              BODY="$(echo "$RESPONSE" | sed '$d')"
+
+              if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
+                ENGAGEMENT_ID="$(echo "$BODY" | jq -r '.id // empty')"
+              else
+                echo "❌ Engagement create failed (HTTP $HTTP_CODE)" >> "$GITHUB_STEP_SUMMARY"
+                echo "Response: $(echo "$BODY" | head -c 600)" >> "$GITHUB_STEP_SUMMARY"
+                ENGAGEMENT_ID=""
+              fi
             fi
 
             if [ -z "$ENGAGEMENT_ID" ]; then
