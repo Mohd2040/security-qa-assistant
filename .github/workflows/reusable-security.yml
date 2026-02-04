@@ -192,11 +192,11 @@ jobs:
           echo "### 📊 Results (OWASP Dependency-Check):" >> $GITHUB_STEP_SUMMARY
           echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🟡 Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+          printf "| 🔴 Critical | %d |\n" "$CRITICAL" >> $GITHUB_STEP_SUMMARY
+          printf "| 🟠 High | %d |\n" "$HIGH" >> $GITHUB_STEP_SUMMARY
+          printf "| 🟡 Moderate | %d |\n" "$MODERATE" >> $GITHUB_STEP_SUMMARY
+          printf "| 🟢 Low | %d |\n" "$LOW" >> $GITHUB_STEP_SUMMARY
+          printf "| **Total** | **%d** |\n" "$TOTAL" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           # Save to outputs
@@ -339,24 +339,6 @@ jobs:
               echo "- Code analysis shows no major security issues" >> $GITHUB_STEP_SUMMARY
             fi
             
-            # 
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "---" >> $GITHUB_STEP_SUMMARY
-            echo "### 📦 Vulnerability Density:" >> $GITHUB_STEP_SUMMARY
-            if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
-              echo "**Top vulnerable packages (sample):**" >> $GITHUB_STEP_SUMMARY
-              jq -r '
-                [ .Results[]?.Vulnerabilities[]? 
-                  | {PkgName, Severity} 
-                ] 
-                | group_by(.PkgName) 
-                | map({PkgName: .[0].PkgName, count: length}) 
-                | sort_by(.count) | reverse | .[0:5] 
-                | .[] | "- `\(.PkgName)` - \(.count) finding(s)"
-              ' trivy-sca.json 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
-            else
-              echo "✅ All packages are within safety limits." >> $GITHUB_STEP_SUMMARY
-            fi
           else
             echo "⚠️ Trivy scan did not produce results" >> $GITHUB_STEP_SUMMARY
           fi
@@ -367,7 +349,7 @@ jobs:
       # ═══════════════════════════════════════════
       # SCA - 📦 Install dependencies npm ci
       # ═══════════════════════════════════════════
-      - name: 📦 Install dependencies
+      - name: 📦 Install dependencies npm Audit
         if: ${{ inputs.project_type == 'node' }}
         run: npm ci --prefer-offline --no-audit
       # ═══════════════════════════════════════════
@@ -593,7 +575,7 @@ jobs:
       # ═══════════════════════════════════════════
       # SAST - Reporting Summary
       # ═══════════════════════════════════════════
-      - name: 📊 SAST - Semgrep Summary Results
+      - name: 📊🛡️ SAST - Semgrep Summary Results
         if: ${{ inputs.run_Semgrep_sca }}
         run: |
           # Check if the results file exists to prevent script failure
@@ -620,7 +602,7 @@ jobs:
               ERROR=0; WARNING=0; INFO=0; TOTAL=0
           fi
 
-          echo "## 🛡️ SAST - Semgrep Summary Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 🛡️🛡️ SAST - Semgrep Summary Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🛠️ Technology Stack:" >> $GITHUB_STEP_SUMMARY
           echo "- **Tool:** Semgrep (Dockerized)" >> $GITHUB_STEP_SUMMARY
@@ -645,6 +627,10 @@ jobs:
           else
             echo "✅ **Clean Scan:** No high-risk security patterns detected in your code." >> $GITHUB_STEP_SUMMARY
           fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
         continue-on-error: true
       # ═══════════════════════════════════════════
       # SAST - CodeQL - Initialize FIRST (before builds)
@@ -672,7 +658,7 @@ jobs:
       # ═══════════════════════════════════════════
       # SAST - Summary CodeQL Analysis 
       # ═══════════════════════════════════════════
-      - name: 📊 Summary CodeQL Analysis
+      - name: 📊🔬 Summary CodeQL Analysis
         if: ${{ inputs.run_codeql }}
         run: |
 
@@ -749,9 +735,9 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
       # ═══════════════════════════════════════════
       # DAST - Dynamic Application Security Testing
       # ═══════════════════════════════════════════
@@ -1328,7 +1314,7 @@ jobs:
 
           # CodeQL row (link only)
           if [ "${{ inputs.run_codeql }}" = "true" ]; then
-            echo "| 🔬 SAST | CodeQL | - | - | - | - | [View Security Tab](https://github.com/${{ github.repository }}/security/code-scanning) |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| 🔬 SAST | CodeQL | - | - | - | - | [View Security Tab](https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }}) |" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           zap_h=$(jq -r '.breakdown.zap.high' summary.json)
@@ -1389,7 +1375,7 @@ jobs:
           echo "|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
 
           [ -f npm-audit.json ] && echo "| 📄 npm-audit.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 npm-audit.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
-          [ -f depcheck-output/dependency-check-report.json ] && echo "| 📄 dependency-check-report.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 dependency-check-report.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+          [ -f ${{ env.REPORTS_DIR }}/depcheck-output/dependency-check-report.json ] && echo "| 📄 dependency-check-report.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 dependency-check-report.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
           [ -f trivy-sca.json ] && echo "| 📄 trivy-sca.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 trivy-sca.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
           [ -f trivy-config.json ] && echo "| 📄 trivy-config.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 trivy-config.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
           [ -f semgrep.sarif ] && echo "| 📄 semgrep.sarif | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 semgrep.sarif | ❌ |" >> "$GITHUB_STEP_SUMMARY"
