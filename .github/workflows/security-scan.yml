@@ -32,8 +32,8 @@ jobs:
     name: Run Security Scan
     uses: Mohd2040/security-qa-assistant/.github/workflows/reusable-security.yml@devops3
     with:
-      runner_labels: '["self-hosted", "ubuntudevops"]'
-      #runner_labels: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_labels || '["ubuntu-latest"]' }}
+      #runner_labels: '["self-hosted", "ubuntudevops"]'
+      runner_labels: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_labels || '["ubuntu-latest"]' }}
       project_type: 'auto'
       run_trivy_sca: true
       run_npm_audit: false
