@@ -288,20 +288,28 @@ echo "  ✓ OWASP ZAP (DAST - Dynamic Application Security Testing)"
 # 16. كتابة المخرجات إلى GITHUB_STEP_SUMMARY
 # ═══════════════════════════════════════════
 {
-  echo "has_node=$has_node"
-  echo "has_dotnet=$has_dotnet"
-  echo "has_python=$has_python"
-  echo "has_go=$has_go"
-  echo "has_java=$has_java"
-  echo "has_rust=$has_rust"
-  echo "has_ruby=$has_ruby"
-  echo "has_php=$has_php"
-  echo "has_frontend=$has_frontend"
-  echo "has_iac=$has_iac"
-  echo "has_docker=$has_docker"
-  echo "has_k8s=$has_k8s"
-  echo "codeql_languages=$codeql_languages"
-  echo "project_type=$project_type"
+echo "🎯 Primary Project Type: $project_type"
+
+echo ""
+echo "═══════════════════════════════════════════"
+echo "🔧 Recommended Security Tools:"
+echo "═══════════════════════════════════════════"
+
+$has_node && echo "  ✓ npm audit (Node.js dependency scanning)"
+$has_python && echo "  ✓ pip-audit / safety (Python dependency scanning)"
+$has_dotnet && echo "  ✓ dotnet list package --vulnerable (.NET scanning)"
+$has_go && echo "  ✓ govulncheck (Go vulnerability scanning)"
+$has_java && echo "  ✓ OWASP Dependency-Check (Java scanning)"
+$has_rust && echo "  ✓ cargo audit (Rust dependency scanning)"
+$has_docker && echo "  ✓ Trivy (Docker image scanning)"
+$has_iac && echo "  ✓ tfsec / checkov (IaC scanning)"
+$has_k8s && echo "  ✓ kubesec / kube-bench (Kubernetes scanning)"
+
+echo "  ✓ CodeQL (SAST - Static Analysis)"
+echo "  ✓ Trivy (SCA - Software Composition Analysis)"
+echo "  ✓ Semgrep (SAST - Pattern-based scanning)"
+echo "  ✓ OWASP ZAP (DAST - Dynamic Application Security Testing)"
+
 } >> "${GITHUB_STEP_SUMMARY}"
 
 
