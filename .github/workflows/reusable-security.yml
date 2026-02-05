@@ -141,13 +141,19 @@ jobs:
           echo "REPORTS_DIR=security-reports" >> "$GITHUB_ENV"
           mkdir -p "security-reports/depcheck-output" "security-reports/zap-output"
       # ═══════════════════════════════════════════
-
+      - name: Detect project type
+        id: detect
+        shell: bash
+        run: |
+          bash .github/scripts/detect_project.sh
+      # ═══════════════════════════════════════════
       - name: 🟢 Setup Node.js
         if: ${{ inputs.project_type == 'node' }}
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
+        continue-on-error: true
       # ═══════════════════════════════════════════
       # SCA - Run OWASP Dependency-Check
       # ══════════════════════════════════════════
