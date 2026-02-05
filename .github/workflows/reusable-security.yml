@@ -134,29 +134,37 @@ jobs:
       # ═══════════════════════════════════════════
       - name: 📥 Checkout code
         uses: actions/checkout@v4
+
+      - name: 📥 Checkout shared security scripts
+        uses: actions/checkout@v4
+        with:
+          repository: Mohd2040/security-qa-assistant
+          ref: devops3
+          path: .github-shared
       # ═══════════════════════════════════════════ 
       - name: 📁 Set reports directory
         shell: bash
         run: |
           echo "REPORTS_DIR=security-reports" >> "$GITHUB_ENV"
           mkdir -p "security-reports/depcheck-output" "security-reports/zap-output"
+      # ═══════════════════════════════════════════
       # 1) Detect local or shared
-      - name: Detect project type (local or shared)
-        id: detect
+      - name: Detect project type
+        id: detect_any
         shell: bash
         run: |
           set -euo pipefail
 
           if [ -f ".github/scripts/detect_project.sh" ]; then
-            echo "LOCAL_DETECT=true" >> "$GITHUB_ENV"
+            echo "✅ Using LOCAL detect script"
             chmod +x .github/scripts/detect_project.sh
             bash .github/scripts/detect_project.sh
             exit 0
           fi
 
-          echo "LOCAL_DETECT=false" >> "$GITHUB_ENV"
-          echo "✅ Local detect script not found, will use shared script."
-
+          echo "✅ Using SHARED detect script"
+          chmod +x .github-shared/.github/scripts/detect_project.sh
+          bash .github-shared/.github/scripts/detect_project.sh
       # 2) Checkout shared scripts (only when needed)
       - name: Checkout security scripts
         if: ${{ env.LOCAL_DETECT == 'false' }}
