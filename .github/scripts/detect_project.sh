@@ -284,6 +284,27 @@ echo "  ✓ OWASP ZAP (DAST - Dynamic Application Security Testing)"
   echo "project_type=$project_type"
 } >> "${GITHUB_OUTPUT}"
 
+# ═══════════════════════════════════════════
+# 16. كتابة المخرجات إلى GITHUB_STEP_SUMMARY
+# ═══════════════════════════════════════════
+{
+  echo "has_node=$has_node"
+  echo "has_dotnet=$has_dotnet"
+  echo "has_python=$has_python"
+  echo "has_go=$has_go"
+  echo "has_java=$has_java"
+  echo "has_rust=$has_rust"
+  echo "has_ruby=$has_ruby"
+  echo "has_php=$has_php"
+  echo "has_frontend=$has_frontend"
+  echo "has_iac=$has_iac"
+  echo "has_docker=$has_docker"
+  echo "has_k8s=$has_k8s"
+  echo "codeql_languages=$codeql_languages"
+  echo "project_type=$project_type"
+} >> "${GITHUB_STEP_SUMMARY}"
+
+
 echo ""
 echo "✅ Detection complete! Results written to GITHUB_OUTPUT"
 echo "═══════════════════════════════════════════"

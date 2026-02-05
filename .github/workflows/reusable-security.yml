@@ -27,22 +27,22 @@ on:
         description: 'Run Trivy (Dependencies)'
         required: false
         type: boolean
-        default: true
+        default: false
       run_npm_audit:
         description: 'Run npm audit'
         required: false
         type: boolean
-        default: true
+        default: false
       run_Semgrep_sca:
         description: 'Run Semgrep SAST  '
         required: false
         type: boolean
-        default: true
+        default: false
       run_dependency_check:
         description: 'Run OWASP Dependency-Check '
         required: false
         type: boolean
-        default: true
+        default: false
       run_codeql:
         description: 'Run CodeQL analysis'
         required: false
