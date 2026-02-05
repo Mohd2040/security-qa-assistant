@@ -145,7 +145,7 @@ jobs:
         id: detect
         shell: bash
         run: |
-          bash .github/scripts/detect_project.sh
+          bash Mohd2040/security-qa-assistant/actions/.github/scripts/detect_project.sh
       # ═══════════════════════════════════════════
       - name: 🟢 Setup Node.js
         if: ${{ inputs.project_type == 'node' }}
