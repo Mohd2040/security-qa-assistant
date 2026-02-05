@@ -145,11 +145,37 @@ jobs:
         id: detect
         shell: bash
         run: |
+          ls -la .github || true
+          ls -la .github/scripts || true
+
+          if [ ! -f ".github/scripts/detect_project.sh" ]; then
+            echo "❌ Missing .github/scripts/detect_project.sh"
+            exit 1
+          fi
+
           chmod +x .github/scripts/detect_project.sh
           bash .github/scripts/detect_project.sh
       # ═══════════════════════════════════════════
+      - name: 🧭 Resolve effective config (auto/manual)
+        id: resolve
+        shell: bash
+        run: |
+          # project_type: لو inputs = auto -> استخدم نتيجة السكربت
+          if [ "${{ inputs.project_type }}" = "auto" ] || [ -z "${{ inputs.project_type }}" ]; then
+            echo "project_type=${{ steps.detect.outputs.project_type }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "project_type=${{ inputs.project_type }}" >> "$GITHUB_OUTPUT"
+          fi
+
+          # codeql_languages: لو inputs فاضية أو default -> استخدم نتيجة السكربت
+          if [ -z "${{ inputs.codeql_languages }}" ] || [ "${{ inputs.codeql_languages }}" = "javascript-typescript" ]; then
+            echo "codeql_languages=${{ steps.detect.outputs.codeql_languages }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "codeql_languages=${{ inputs.codeql_languages }}" >> "$GITHUB_OUTPUT"
+          fi
+      # ═══════════════════════════════════════════
       - name: 🟢 Setup Node.js
-        if: ${{ inputs.project_type == 'node' }}
+        if: ${{ steps.resolve.outputs.project_type == 'node' }}
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -159,7 +185,7 @@ jobs:
       # SCA - Run OWASP Dependency-Check
       # ══════════════════════════════════════════
       - name: 🧪 SCA Run OWASP Dependency-Check
-        if: ${{ inputs.run_dependency_check == true }}
+        if: ${{ inputs.run_dependency_check == true && (steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_dotnet == 'true') }}
         uses: dependency-check/Dependency-Check_Action@main
         with:
           project: "${{ github.repository }}-${{ github.ref_name }}"
@@ -172,7 +198,7 @@ jobs:
       # ══════════════════════════════════════════
       - name: 📊 SCA Summary - OWASP Dependency-Check
         id: sca_depcheck
-        if: ${{ inputs.run_dependency_check == true }}
+        if: ${{ inputs.run_dependency_check == true && (steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_dotnet == 'true') }}
         env:
           ACTIONS_STEP_DEBUG: 'false'
         run: |
@@ -275,6 +301,7 @@ jobs:
       # SCA - Trivy (Summary Dependencies)
       # ══════════════════════════════════════════
       - name: 📊 SCA Summary - Trivy (Dependencies)
+        if: ${{ inputs.run_trivy_sca == true }}
         env:
           ACTIONS_STEP_DEBUG: 'false'
         run: |
@@ -373,14 +400,14 @@ jobs:
       # SCA - 📦 Install dependencies npm ci
       # ═══════════════════════════════════════════
       - name: 📦 Install dependencies npm Audit
-        if: ${{ inputs.project_type == 'node' }}
+        if: ${{ steps.resolve.outputs.project_type == 'node' }}
         run: npm ci --prefer-offline --no-audit
       # ═══════════════════════════════════════════
       # SCA - npm Audit Software Composition Analysis
       # ═══════════════════════════════════════════
       - name: 🔍 SCA Summary - npm Audit 
         id: sca
-        if: ${{ inputs.project_type == 'node' && inputs.run_npm_audit }}
+        if: ${{ steps.resolve.outputs.project_type == 'node' && inputs.run_npm_audit }}
         env:
           ACTIONS_STEP_DEBUG: 'false'
         run: |
@@ -674,7 +701,7 @@ jobs:
         if: ${{ inputs.run_codeql }}
         uses: github/codeql-action/analyze@v4
         with:
-          category: "/language:${{ inputs.codeql_languages }}"
+          category: "/language:${{ steps.resolve.outputs.codeql_languages }}"
           output: sarif-results
           upload: true
         continue-on-error: true

@@ -34,7 +34,7 @@ jobs:
     with:
       runner_labels: '["self-hosted", "ubuntudevops"]'
       #runner_labels: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_labels || '["ubuntu-latest"]' }}
-      project_type: 'node'
+      project_type: 'auto'
       run_trivy_sca: true
       run_npm_audit: true
       run_codeql: true
