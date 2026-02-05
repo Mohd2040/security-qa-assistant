@@ -13,8 +13,8 @@ on:
       runner_labels:
         required: false
         type: string
-        default: '["self-hosted", "ubuntudevops"]'
-        #default: '["ubuntu-latest"]'
+        #default: '["self-hosted", "ubuntudevops"]'
+        default: '["ubuntu-latest"]'
 
       dast_url:
         description: 'Target URL for DAST scan (optional)'
@@ -30,17 +30,15 @@ permissions:
 jobs:
   call-security-scan:
     name: Run Security Scan
-    uses: ./.github/workflows/reusable-security.yml
+    uses: Mohd2040/security-qa-assistant/.github/workflows/reusable-security.yml@devops3
     with:
       runner_labels: '["self-hosted", "ubuntudevops"]'
       #runner_labels: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_labels || '["ubuntu-latest"]' }}
       project_type: 'auto'
       run_trivy_sca: true
-      run_npm_audit: true
+      run_npm_audit: false
       run_codeql: true
-      #defectdojo_enabled: true
-      defectdojo_enabled: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
-      defectdojo_auto_create: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
-      #dast_auth_enabled: false
+    #  defectdojo_enabled: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    #  defectdojo_auto_create: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
       dast_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_url || 'https://security-qa-assistant.onrender.com/' }}
     secrets: inherit

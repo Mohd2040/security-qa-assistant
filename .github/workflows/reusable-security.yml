@@ -141,6 +141,8 @@ jobs:
           echo "REPORTS_DIR=security-reports" >> "$GITHUB_ENV"
           mkdir -p "security-reports/depcheck-output" "security-reports/zap-output"
       # ═══════════════════════════════════════════
+      # Detect project type
+      # ══════════════════════════════════════════
       - name: Detect project type
         id: detect
         shell: bash
@@ -156,18 +158,20 @@ jobs:
           chmod +x .github/scripts/detect_project.sh
           bash .github/scripts/detect_project.sh
       # ═══════════════════════════════════════════
+      # 🧭 Resolve effective config (auto/manual)
+      # ══════════════════════════════════════════
       - name: 🧭 Resolve effective config (auto/manual)
         id: resolve
         shell: bash
         run: |
-          # project_type: لو inputs = auto -> استخدم نتيجة السكربت
+          # project_type: inputs = auto 
           if [ "${{ inputs.project_type }}" = "auto" ] || [ -z "${{ inputs.project_type }}" ]; then
             echo "project_type=${{ steps.detect.outputs.project_type }}" >> "$GITHUB_OUTPUT"
           else
             echo "project_type=${{ inputs.project_type }}" >> "$GITHUB_OUTPUT"
           fi
 
-          # codeql_languages: لو inputs فاضية أو default -> استخدم نتيجة السكربت
+          # codeql_languages: inputs or  default 
           if [ -z "${{ inputs.codeql_languages }}" ] || [ "${{ inputs.codeql_languages }}" = "javascript-typescript" ]; then
             echo "codeql_languages=${{ steps.detect.outputs.codeql_languages }}" >> "$GITHUB_OUTPUT"
           else
