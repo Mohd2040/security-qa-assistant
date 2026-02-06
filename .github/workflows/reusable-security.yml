@@ -1,4 +1,4 @@
-name: Reusable Security Scan (with CodeQL)
+name: Reusable Security Scan 
 
 on:
   workflow_call:
@@ -862,7 +862,49 @@ jobs:
             echo "CodeQL generated SARIF files for integration with other tools." >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
+          echo "## 🔬 SAST - Summary CodeQL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           
+          # Initialize variables
+          FINDINGS="0"
+          CRITICAL=0
+          HIGH=0
+          MEDIUM=0
+          LOW=0
+          
+          # Count findings from SARIF file
+          if [ -d sarif-results ]; then
+            # SARIF
+            # CodeQL uses: error (Critical/High), warning (Medium), note (Low)
+            CRITICAL=$(find sarif-results -name "*.sarif" -exec jq '[.runs[].results[] | select(.level == "error" and (.properties.precision == "very-high" or .properties.security_severity >= "9.0"))] | length' {} + | awk '{s+=$1} END {print s}')
+            HIGH=$(find sarif-results -name "*.sarif" -exec jq '[.runs[].results[] | select(.level == "error" and (.properties.security_severity < "9.0"))] | length' {} + | awk '{s+=$1} END {print s}')
+            MEDIUM=$(find sarif-results -name "*.sarif" -exec jq '[.runs[].results[] | select(.level == "warning")] | length' {} + | awk '{s+=$1} END {print s}')
+            LOW=$(find sarif-results -name "*.sarif" -exec jq '[.runs[].results[] | select(.level == "note")] | length' {} + | awk '{s+=$1} END {print s}')
+            
+            CRITICAL=${CRITICAL:-0}; HIGH=${HIGH:-0}; MEDIUM=${MEDIUM:-0}; LOW=${LOW:-0}
+            FINDINGS=$((CRITICAL + HIGH + MEDIUM + LOW))
+          fi
+          
+          # Display Status Based on Findings
+          if [ "$FINDINGS" = "0" ]; then
+            echo "✅ **Excellent! CodeQL found ZERO vulnerabilities**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **CodeQL found $FINDINGS security issue(s)**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📊 Results Breakdown:" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$FINDINGS** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **[View detailed findings in Security tab](https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }})**" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
