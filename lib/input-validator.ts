@@ -33,7 +33,7 @@ export function validateEmail(email: any): string {
   const trimmedEmail = email.trim().toLowerCase();
 
   // Basic email regex validation
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   if (!emailRegex.test(trimmedEmail)) {
     throw new Error('Invalid email format');
   }

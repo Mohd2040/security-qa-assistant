@@ -865,8 +865,10 @@ jobs:
           echo "## 🔬 SAST - Summary CodeQL" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
+          echo "## 🔬 SAST - Summary CodeQL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           # Initialize variables
-          #FINDINGS="0"
           CRITICAL=0
           HIGH=0
           MEDIUM=0
@@ -875,54 +877,52 @@ jobs:
 
           # Count findings from SARIF file
           if [ -d sarif-results ]; then
-            # SARIF
-            # CodeQL uses: error (Critical/High), warning (Medium), note (Low)
-            #
-            # IMPORTANT:
-            # security-severity is usually stored in:
-            # .runs[].tool.driver.rules[ruleIndex].properties."security-severity"
-            # not in .runs[].results[].properties
+            # GitHub mapping for security-severity (numeric):
+            # >9.0 Critical, 7.0-8.9 High, 4.0-6.9 Medium, 0.1-3.9 Low
+            # Source behavior documented by GitHub community & aligns with GitHub code scanning. 
 
             CRITICAL=$(find sarif-results -name "*.sarif" -exec jq -r '
-              def sev($run; $res):
+              def secsev($run; $res):
                 ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity" // 0) | tonumber;
 
-              [ .runs[]
-                as $run
-                | ($run.results // [])
-                | .[]
-                as $res
-                | select(($res.level // "warning") == "error" and sev($run; $res) >= 9)
-              ] | length
+              [ .runs[] as $run
+                | (($run.results // [])[] as $res
+                  | select(secsev($run; $res) > 9.0)
+                  | 1)
+              ] | add // 0
             ' {} + | awk '{s+=$1} END {print s}')
 
             HIGH=$(find sarif-results -name "*.sarif" -exec jq -r '
-              def sev($run; $res):
+              def secsev($run; $res):
                 ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity" // 0) | tonumber;
 
-              [ .runs[]
-                as $run
-                | ($run.results // [])
-                | .[]
-                as $res
-                | select(($res.level // "warning") == "error" and sev($run; $res) < 9)
-              ] | length
+              [ .runs[] as $run
+                | (($run.results // [])[] as $res
+                  | select(secsev($run; $res) >= 7.0 and secsev($run; $res) <= 8.9)
+                  | 1)
+              ] | add // 0
             ' {} + | awk '{s+=$1} END {print s}')
 
             MEDIUM=$(find sarif-results -name "*.sarif" -exec jq -r '
-              [ .runs[]
-                | (.results // [])
-                | .[]
-                | select((.level // "warning") == "warning")
-              ] | length
+              def secsev($run; $res):
+                ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity" // 0) | tonumber;
+
+              [ .runs[] as $run
+                | (($run.results // [])[] as $res
+                  | select(secsev($run; $res) >= 4.0 and secsev($run; $res) <= 6.9)
+                  | 1)
+              ] | add // 0
             ' {} + | awk '{s+=$1} END {print s}')
 
             LOW=$(find sarif-results -name "*.sarif" -exec jq -r '
-              [ .runs[]
-                | (.results // [])
-                | .[]
-                | select((.level // "warning") == "note")
-              ] | length
+              def secsev($run; $res):
+                ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity" // 0) | tonumber;
+
+              [ .runs[] as $run
+                | (($run.results // [])[] as $res
+                  | select(secsev($run; $res) >= 0.1 and secsev($run; $res) <= 3.9)
+                  | 1)
+              ] | add // 0
             ' {} + | awk '{s+=$1} END {print s}')
 
             CRITICAL=${CRITICAL:-0}; HIGH=${HIGH:-0}; MEDIUM=${MEDIUM:-0}; LOW=${LOW:-0}
@@ -947,6 +947,7 @@ jobs:
             echo "🔗 **[View detailed findings in Security tab](https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }})**" >> $GITHUB_STEP_SUMMARY
           fi
 
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
                     echo "" >> $GITHUB_STEP_SUMMARY
                     echo "---" >> $GITHUB_STEP_SUMMARY
