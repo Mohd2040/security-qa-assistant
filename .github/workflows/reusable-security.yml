@@ -866,7 +866,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Initialize variables
-          FINDINGS="0"
+          #FINDINGS="0"
           CRITICAL=0
           HIGH=0
           MEDIUM=0
