@@ -1,5 +1,6 @@
 // app/api/qa/search/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import type { Filter } from "mongodb";
 import { getDb } from "@/lib/mongodb";
 import { QaEntry, QaDomain, OwnerGroup, QaStatus } from "@/lib/types";
 import Fuse from "fuse.js";
@@ -98,12 +99,12 @@ export async function POST(req: NextRequest) {
     }
 
     const db = await getDb();
-    const collection = db.collection("qa_entries");
+    const collection = db.collection<InternalDoc>("qa_entries");
 
     // -------------------------
     // 1) بناء الفلتر الأساسي مع Input Validation
     // -------------------------
-    const filter: any = {};
+    const filter: Filter<InternalDoc> = {};
 
     // ✅ SECURITY: Validate status enum
     if (status !== "all") {

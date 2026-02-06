@@ -170,7 +170,7 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        const qaDoc: any = {
+        const qaDoc: QaEntry = {
           question_text,
           question_text_en,
           question_language: "en",

@@ -864,27 +864,71 @@ jobs:
           fi
           echo "## 🔬 SAST - Summary CodeQL" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           # Initialize variables
           #FINDINGS="0"
           CRITICAL=0
           HIGH=0
           MEDIUM=0
           LOW=0
-          
+          FINDINGS=0
+
           # Count findings from SARIF file
           if [ -d sarif-results ]; then
             # SARIF
             # CodeQL uses: error (Critical/High), warning (Medium), note (Low)
-            CRITICAL=$(find sarif-results -name "*.sarif" -exec jq '[.runs[].results[] | select(.level == "error" and (.properties.precision == "very-high" or .properties.security_severity >= "9.0"))] | length' {} + | awk '{s+=$1} END {print s}')
-            HIGH=$(find sarif-results -name "*.sarif" -exec jq '[.runs[].results[] | select(.level == "error" and (.properties.security_severity < "9.0"))] | length' {} + | awk '{s+=$1} END {print s}')
-            MEDIUM=$(find sarif-results -name "*.sarif" -exec jq '[.runs[].results[] | select(.level == "warning")] | length' {} + | awk '{s+=$1} END {print s}')
-            LOW=$(find sarif-results -name "*.sarif" -exec jq '[.runs[].results[] | select(.level == "note")] | length' {} + | awk '{s+=$1} END {print s}')
-            
+            #
+            # IMPORTANT:
+            # security-severity is usually stored in:
+            # .runs[].tool.driver.rules[ruleIndex].properties."security-severity"
+            # not in .runs[].results[].properties
+
+            CRITICAL=$(find sarif-results -name "*.sarif" -exec jq -r '
+              def sev($run; $res):
+                ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity" // 0) | tonumber;
+
+              [ .runs[]
+                as $run
+                | ($run.results // [])
+                | .[]
+                as $res
+                | select(($res.level // "warning") == "error" and sev($run; $res) >= 9)
+              ] | length
+            ' {} + | awk '{s+=$1} END {print s}')
+
+            HIGH=$(find sarif-results -name "*.sarif" -exec jq -r '
+              def sev($run; $res):
+                ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity" // 0) | tonumber;
+
+              [ .runs[]
+                as $run
+                | ($run.results // [])
+                | .[]
+                as $res
+                | select(($res.level // "warning") == "error" and sev($run; $res) < 9)
+              ] | length
+            ' {} + | awk '{s+=$1} END {print s}')
+
+            MEDIUM=$(find sarif-results -name "*.sarif" -exec jq -r '
+              [ .runs[]
+                | (.results // [])
+                | .[]
+                | select((.level // "warning") == "warning")
+              ] | length
+            ' {} + | awk '{s+=$1} END {print s}')
+
+            LOW=$(find sarif-results -name "*.sarif" -exec jq -r '
+              [ .runs[]
+                | (.results // [])
+                | .[]
+                | select((.level // "warning") == "note")
+              ] | length
+            ' {} + | awk '{s+=$1} END {print s}')
+
             CRITICAL=${CRITICAL:-0}; HIGH=${HIGH:-0}; MEDIUM=${MEDIUM:-0}; LOW=${LOW:-0}
             FINDINGS=$((CRITICAL + HIGH + MEDIUM + LOW))
           fi
-          
+
           # Display Status Based on Findings
           if [ "$FINDINGS" = "0" ]; then
             echo "✅ **Excellent! CodeQL found ZERO vulnerabilities**" >> $GITHUB_STEP_SUMMARY
@@ -902,12 +946,11 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "🔗 **[View detailed findings in Security tab](https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }})**" >> $GITHUB_STEP_SUMMARY
           fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+                    echo "" >> $GITHUB_STEP_SUMMARY
+                    echo "---" >> $GITHUB_STEP_SUMMARY
+                    echo "" >> $GITHUB_STEP_SUMMARY
       # ═══════════════════════════════════════════
       # DAST - Dynamic Application Security Testing
       # ═══════════════════════════════════════════
