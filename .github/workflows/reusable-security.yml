@@ -467,6 +467,7 @@ jobs:
       - name: 📦 Install dependencies npm Audit
         if: ${{ steps.resolve.outputs.project_type == 'node' }}
         run: npm ci --prefer-offline --no-audit
+        continue-on-error: true
       # ═══════════════════════════════════════════
       # SCA - npm Audit Software Composition Analysis
       # ═══════════════════════════════════════════
@@ -818,7 +819,7 @@ jobs:
           # Scan Statistics
           echo "### 📈 Scan Statistics:" >> $GITHUB_STEP_SUMMARY
           echo "- **Status:** Analysis Complete" >> $GITHUB_STEP_SUMMARY
-          echo "- **Language:** ${{ inputs.codeql_languages }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Language:** ${{ steps.resolve.outputs.codeql_languages }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Query Pack:** ${{ inputs.codeql_queries }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Total Findings:** $FINDINGS" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
