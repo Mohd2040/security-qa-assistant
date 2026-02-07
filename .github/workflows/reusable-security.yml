@@ -934,54 +934,48 @@ jobs:
 
           if ! ls sarif-results/*.sarif >/dev/null 2>&1; then
             echo "⚠️ No SARIF files found in sarif-results/." >> "$GITHUB_STEP_SUMMARY"
-            echo "Check CodeQL analyze output path." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          # ✅ TOTAL findings (always correct)
           TOTAL=$(jq -s '[.[]?.runs[]?.results[]?] | length' sarif-results/*.sarif)
           TOTAL=${TOTAL:-0}
 
-          # ✅ Severity breakdown with fallback:
-          # - Prefer rule.properties.security-severity when present
-          # - Else fallback to result.level (error/warning/note)
           read CRITICAL HIGH MEDIUM LOW UNKNOWN < <(
             jq -s -r '
-              def secsev($run; $res):
+              # Collect rules from driver + extensions (GitHub SARIF can store rules in both)
+              def allrules($run):
                 (
-                  if ($res.ruleIndex? != null) and (($run.tool.driver.rules? | type) == "array") then
-                    ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity"? // null)
-                  else
-                    (
-                      ($run.tool.driver.rules? // [])
-                      | map(select(.id? == $res.ruleId?))
-                      | .[0].properties."security-severity"? // null
-                    )
-                  end
+                  ($run.tool.driver.rules? // [])
+                  + ([($run.tool.extensions? // [])[]? | .rules? // []] | add // [])
                 );
 
-              def bucket($run; $res):
-                (secsev($run; $res)) as $s
-                | if $s != null then
-                    ($s | tonumber) as $n
-                    | if $n > 9.0 then "critical"
-                      elif $n >= 7.0 then "high"
-                      elif $n >= 4.0 then "medium"
-                      elif $n >= 0.1 then "low"
-                      else "unknown" end
-                  else
-                    # fallback by SARIF level
-                    ($res.level? // "warning") as $lvl
-                    | if $lvl == "error" then "high"
-                      elif $lvl == "warning" then "medium"
-                      elif $lvl == "note" then "low"
-                      else "unknown" end
-                  end;
+              # Find rule object by ruleIndex or ruleId
+              def ruleobj($run; $res):
+                if ($res.ruleIndex? != null) then
+                  (allrules($run)[$res.ruleIndex]?)
+                else
+                  ((allrules($run) | map(select(.id? == $res.ruleId?)) | .[0])? )
+                end;
+
+              def secsev($run; $res):
+                (ruleobj($run; $res).properties."security-severity"? // null);
+
+              def bucket_by_secsev($s):
+                ($s | tonumber) as $n
+                | if $n > 9.0 then "critical"
+                  elif $n >= 7.0 then "high"
+                  elif $n >= 4.0 then "medium"
+                  elif $n >= 0.1 then "low"
+                  else "unknown" end;
 
               reduce (
                 .[]?.runs[]? as $run
                 | (($run.results // [])[]? as $res
-                  | bucket($run; $res))
+                  | (secsev($run; $res)) as $s
+                  | if $s == null then "unknown"
+                    else bucket_by_secsev($s)
+                    end
+                )
               ) as $b
               ({critical:0, high:0, medium:0, low:0, unknown:0};
                 if $b=="critical" then .critical += 1
@@ -1011,13 +1005,9 @@ jobs:
           echo "| **Total** | **$TOTAL** |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "$TOTAL" -eq 0 ]; then
-            echo "✅ No CodeQL results in SARIF." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "🔗 **View findings:** https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
+          echo "🔗 **View findings:** https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+
           echo "### 📈 Scan Statistics:" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Status:** Analysis Complete" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Language(s):** ${{ steps.resolve.outputs.codeql_languages }}" >> "$GITHUB_STEP_SUMMARY"
