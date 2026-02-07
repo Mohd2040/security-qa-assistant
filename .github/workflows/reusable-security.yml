@@ -158,7 +158,8 @@ jobs:
           echo "REPORTS_DIR=security-reports" >> "$GITHUB_ENV"
           mkdir -p "security-reports/depcheck-output" "security-reports/zap-output"
       # ═══════════════════════════════════════════
-      # 1) Detect local or shared
+      #  Detect local or shared
+      # ═══════════════════════════════════════════
       - name: 🧠Detect project type
         id: detect
         shell: bash
@@ -175,7 +176,9 @@ jobs:
           echo "✅ Using SHARED detect script"
           chmod +x .github-shared/.github/scripts/detect_project.sh
           bash .github-shared/.github/scripts/detect_project.sh
-
+      # ═══════════════════════════════════════════
+      # 🔎 Debug detect outputs
+      # ═══════════════════════════════════════════
       - name: 🔎 Debug detect outputs
         shell: bash
         run: |
@@ -188,8 +191,9 @@ jobs:
           echo "has_go=${{ steps.detect.outputs.has_go }}"
           echo "has_docker=${{ steps.detect.outputs.has_docker }}"
           echo "has_k8s=${{ steps.detect.outputs.has_k8s }}"
-
-      #Resolve effective config
+      # ═══════════════════════════════════════════
+      #  🧭 Resolve effective config
+      # ═══════════════════════════════════════════
       - name: 🧭 Resolve effective config (auto/manual)
         id: resolve
         shell: bash
@@ -898,14 +902,6 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          # Scan Statistics
-          echo "### 📈 Scan Statistics:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status:** Analysis Complete" >> $GITHUB_STEP_SUMMARY
-          echo "- **Language:** ${{ steps.resolve.outputs.codeql_languages }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Query Pack:** ${{ inputs.codeql_queries }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Total Findings:** $FINDINGS" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
           echo "### 🔍 What CodeQL Checked:" >> $GITHUB_STEP_SUMMARY
           echo "- **SQL Injection** vulnerabilities" >> $GITHUB_STEP_SUMMARY
           echo "- **Cross-Site Scripting (XSS)** issues" >> $GITHUB_STEP_SUMMARY
@@ -932,96 +928,91 @@ jobs:
             echo "CodeQL generated SARIF files for integration with other tools." >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "## 🔬 SAST - Summary CodeQL" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "## 🔬 SAST - Summary CodeQL" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## 🔬 SAST - Summary CodeQL" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          # Initialize variables
-          CRITICAL=0
-          HIGH=0
-          MEDIUM=0
-          LOW=0
-          FINDINGS=0
+            # Defaults
+            CRITICAL=0
+            HIGH=0
+            MEDIUM=0
+            LOW=0
+            FINDINGS=0
 
-          # Count findings from SARIF file
-          if [ -d sarif-results ]; then
-            # GitHub mapping for security-severity (numeric):
-            # >9.0 Critical, 7.0-8.9 High, 4.0-6.9 Medium, 0.1-3.9 Low
-            # Source behavior documented by GitHub community & aligns with GitHub code scanning. 
+            if ls sarif-results/*.sarif >/dev/null 2>&1; then
+              read CRITICAL HIGH MEDIUM LOW < <(
+                jq -s -r '
+                  # secsev: try ruleIndex first, else match by ruleId, else 0
+                  def secsev($run; $res):
+                    (
+                      if ($res.ruleIndex? != null) and (($run.tool.driver.rules? | type) == "array") then
+                        ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity"? // 0)
+                      else
+                        (
+                          ($run.tool.driver.rules? // [])
+                          | map(select(.id? == $res.ruleId?))
+                          | .[0].properties."security-severity"? // 0
+                        )
+                      end
+                    ) | tonumber;
 
-            CRITICAL=$(find sarif-results -name "*.sarif" -exec jq -r '
-              def secsev($run; $res):
-                ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity" // 0) | tonumber;
+                  def bucket($s):
+                    if $s > 9.0 then "critical"
+                    elif $s >= 7.0 then "high"
+                    elif $s >= 4.0 then "medium"
+                    elif $s >= 0.1 then "low"
+                    else "none" end;
 
-              [ .runs[] as $run
-                | (($run.results // [])[] as $res
-                  | select(secsev($run; $res) > 9.0)
-                  | 1)
-              ] | add // 0
-            ' {} + | awk '{s+=$1} END {print s}')
+                  # Reduce across all SARIF files
+                  reduce (
+                    .[]?.runs[]? as $run
+                    | (($run.results // [])[]? as $res
+                      | bucket(secsev($run; $res)))
+                  ) as $b
+                  ({critical:0, high:0, medium:0, low:0};
+                    if $b=="critical" then .critical += 1
+                    elif $b=="high" then .high += 1
+                    elif $b=="medium" then .medium += 1
+                    elif $b=="low" then .low += 1
+                    else . end
+                  )
+                  | "\(.critical) \(.high) \(.medium) \(.low)"
+                ' sarif-results/*.sarif
+              )
 
-            HIGH=$(find sarif-results -name "*.sarif" -exec jq -r '
-              def secsev($run; $res):
-                ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity" // 0) | tonumber;
+              CRITICAL=${CRITICAL:-0}
+              HIGH=${HIGH:-0}
+              MEDIUM=${MEDIUM:-0}
+              LOW=${LOW:-0}
+              FINDINGS=$((CRITICAL + HIGH + MEDIUM + LOW))
+            fi
 
-              [ .runs[] as $run
-                | (($run.results // [])[] as $res
-                  | select(secsev($run; $res) >= 7.0 and secsev($run; $res) <= 8.9)
-                  | 1)
-              ] | add // 0
-            ' {} + | awk '{s+=$1} END {print s}')
+            if [ "$FINDINGS" -eq 0 ]; then
+              echo "✅ **Excellent! CodeQL found ZERO vulnerabilities**" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "ℹ️ This is expected: Security → Code scanning may show no alerts." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "⚠️ **CodeQL found $FINDINGS security issue(s)**" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Severity | Count |" >> "$GITHUB_STEP_SUMMARY"
+              echo "|---|---:|" >> "$GITHUB_STEP_SUMMARY"
+              echo "| 🔴 Critical | $CRITICAL |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| 🟠 High | $HIGH |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| 🟡 Medium | $MEDIUM |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| 🟢 Low | $LOW |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| **Total** | **$FINDINGS** |" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "🔗 **View findings:** https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+            fi
 
-            MEDIUM=$(find sarif-results -name "*.sarif" -exec jq -r '
-              def secsev($run; $res):
-                ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity" // 0) | tonumber;
-
-              [ .runs[] as $run
-                | (($run.results // [])[] as $res
-                  | select(secsev($run; $res) >= 4.0 and secsev($run; $res) <= 6.9)
-                  | 1)
-              ] | add // 0
-            ' {} + | awk '{s+=$1} END {print s}')
-
-            LOW=$(find sarif-results -name "*.sarif" -exec jq -r '
-              def secsev($run; $res):
-                ($run.tool.driver.rules[$res.ruleIndex].properties."security-severity" // 0) | tonumber;
-
-              [ .runs[] as $run
-                | (($run.results // [])[] as $res
-                  | select(secsev($run; $res) >= 0.1 and secsev($run; $res) <= 3.9)
-                  | 1)
-              ] | add // 0
-            ' {} + | awk '{s+=$1} END {print s}')
-
-            CRITICAL=${CRITICAL:-0}; HIGH=${HIGH:-0}; MEDIUM=${MEDIUM:-0}; LOW=${LOW:-0}
-            FINDINGS=$((CRITICAL + HIGH + MEDIUM + LOW))
-          fi
-
-          # Display Status Based on Findings
-          if [ "$FINDINGS" = "0" ]; then
-            echo "✅ **Excellent! CodeQL found ZERO vulnerabilities**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⚠️ **CodeQL found $FINDINGS security issue(s)**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### 📊 Results Breakdown:" >> $GITHUB_STEP_SUMMARY
-            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
-            echo "| **Total** | **$FINDINGS** |" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🔗 **[View detailed findings in Security tab](https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }})**" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-                    echo "" >> $GITHUB_STEP_SUMMARY
-                    echo "---" >> $GITHUB_STEP_SUMMARY
-                    echo "" >> $GITHUB_STEP_SUMMARY
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### 📈 Scan Statistics:" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Status:** Analysis Complete" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Language(s):** ${{ steps.resolve.outputs.codeql_languages }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Query Pack:** ${{ inputs.codeql_queries }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Total Findings:** $FINDINGS" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "---" >> "$GITHUB_STEP_SUMMARY"
       # ═══════════════════════════════════════════
       # DAST - Dynamic Application Security Testing
       # ═══════════════════════════════════════════
