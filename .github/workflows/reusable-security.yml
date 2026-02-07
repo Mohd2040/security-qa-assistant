@@ -560,10 +560,10 @@ jobs:
           set +x
           set -e
 
-          echo "➡️ Running npm audit in: $PWD"
+          #echo "➡️ Running npm audit in: $PWD"
 
           # Generate JSON report
-          npm audit --json > npm-audit.json || true
+          npm audit --json > "$GITHUB_WORKSPACE/npm-audit.json" || true
 
           # Defaults
           CRITICAL=0
