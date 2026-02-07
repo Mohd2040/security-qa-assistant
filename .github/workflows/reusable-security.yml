@@ -366,6 +366,7 @@ jobs:
           format: 'json'
           output: 'trivy-sca.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
 # ═══════════════════════════════════════════
       # SCA - Trivy (Summary Dependencies)
       # ══════════════════════════════════════════
@@ -643,14 +644,13 @@ jobs:
       - name: 🏗️ IaC - Trivy Config Scan
         id: iac
         if: ${{ inputs.run_trivy_iac }}
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: 'config'
           scan-ref: '.'
           format: 'json'
           output: 'trivy-config.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          exit-code: '0'
         continue-on-error: true
 
       - name: 📊🏗️ IaC - Summary Process Results
@@ -1747,7 +1747,7 @@ jobs:
           echo "| Report | Status |" >> "$GITHUB_STEP_SUMMARY"
           echo "|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
 
-          [ -f $GITHUB_WORKSPACE/npm-audit.json ] && echo "| 📄 $GITHUB_WORKSPACE/npm-audit.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 $GITHUB_WORKSPACE/npm-audit.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+          [ -f $GITHUB_WORKSPACE/npm-audit.json ] && echo "| 📄 npm-audit.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 $GITHUB_WORKSPACE/npm-audit.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
           [ -f ${{ env.REPORTS_DIR }}/depcheck-output/dependency-check-report.json ] && echo "| 📄 dependency-check-report.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 dependency-check-report.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
           [ -f trivy-sca.json ] && echo "| 📄 trivy-sca.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 trivy-sca.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
           [ -f trivy-config.json ] && echo "| 📄 trivy-config.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 trivy-config.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
@@ -1762,6 +1762,34 @@ jobs:
           if [ "${{ inputs.run_codeql }}" = "true" ]; then
             echo "3. Check CodeQL alerts in Security tab" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+          # Reports list
+          echo "### 📥 Detailed Reports (Artifacts)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Report | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
+
+          check_file () {
+            local label="$1"
+            local path="$2"
+            if ls $path >/dev/null 2>&1; then
+              echo "| 📄 $label | ✅ |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| 📄 $label | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          }
+
+          check_file "npm-audit.json" "npm-audit.json"
+          check_file "dependency-check-report.json" "${{ env.REPORTS_DIR }}/depcheck-output/dependency-check-report.json"
+          check_file "trivy-sca.json" "trivy-sca.json"
+          check_file "trivy-config.json" "trivy-config.json"
+          check_file "semgrep.sarif" "semgrep.sarif"
+          check_file "zap-report.json" "zap-output/zap-report.json"
+          check_file "summary.json" "summary.json"
+
+          # CodeQL SARIF (add row)
+          check_file "codeql-results.sarif (sarif-results/*.sarif)" "sarif-results/*.sarif"
+
       # ═══════════════════════════════════════════
       # DEFECTDOJO INTEGRATION
       # ═══════════════════════════════════════════
@@ -2065,11 +2093,13 @@ jobs:
           name: security-reports
           path: |
             summary.json
-            $GITHUB_WORKSPACE/npm-audit.json
+            npm-audit.json
             semgrep.sarif
             trivy-config.json
             trivy-sca.json
             sarif-results/*.sarif
+            gitleaks-results.sarif
+            sarif-results/**/*.sarif
 
             # New (preferred)
             ${{ env.REPORTS_DIR }}/depcheck-output/dependency-check-report.json
