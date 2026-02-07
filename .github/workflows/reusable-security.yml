@@ -1630,13 +1630,20 @@ jobs:
           sg_t=$((sg_h + sg_m + sg_l))
           echo "| 🔬 SAST | Semgrep | 0 | $sg_h | $sg_m | $sg_l | $sg_t |" >> "$GITHUB_STEP_SUMMARY"
 
-          # CodeQL row (link only)
+          # CodeQL row 
+          CQ_C=$(jq -r '.breakdown.codeql.critical // 0' summary.json || echo "0")
+          CQ_H=$(jq -r '.breakdown.codeql.high // 0' summary.json || echo "0")
+          CQ_M=$(jq -r '.breakdown.codeql.medium // 0' summary.json || echo "0")
+          CQ_L=$(jq -r '.breakdown.codeql.low // 0' summary.json || echo "0")
+
           # CodeQL row (Dynamic numbers)
           if [ "${{ inputs.run_codeql }}" = "true" ]; then
-            # استخراج الأرقام من ملف summary.json بعد تحديثه
+            # حساب المجموع الكلي لـ CodeQL
             cq_t=$((CQ_C + CQ_H + CQ_M + CQ_L))
             echo "| 🔬 SAST | CodeQL | $CQ_C | $CQ_H | $CQ_M | $CQ_L | $cq_t |" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+          # zap row
           zap_h=$(jq -r '.breakdown.zap.high' summary.json)
           zap_m=$(jq -r '.breakdown.zap.medium' summary.json)
           zap_l=$(jq -r '.breakdown.zap.low' summary.json)
