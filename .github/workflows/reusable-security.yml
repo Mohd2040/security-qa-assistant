@@ -775,7 +775,7 @@ jobs:
         continue-on-error: true
 
       # ═══════════════════════════════════════════
-      # SAST - Reporting Summary
+      # SAST -Semgrep  Reporting Summary
       # ═══════════════════════════════════════════
       - name: 📊🛡️ SAST - Semgrep Summary Results
         if: ${{ inputs.run_Semgrep_sca }}
@@ -1015,6 +1015,26 @@ jobs:
           echo "- **Total Findings:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "---" >> "$GITHUB_STEP_SUMMARY"
+          # ═══════════════════════════════════════════
+          # SAST - CodeQL Reporting Summary
+          # ═══════════════════════════════════════════
+          if ls sarif-results/*.sarif >/dev/null 2>&1; then
+            jq -s '
+              [ .[]?.runs[]? as $run | $run.results[]? | {
+                severity: (
+                  if .level == "error" then "HIGH" 
+                  elif .level == "warning" then "MEDIUM" 
+                  else "LOW" end
+                ),
+                title: (.message.text // "CodeQL Finding" | tostring | .[0:140]),
+                package: .ruleId,
+                source: "SAST (CodeQL)",
+                fix: "See Security Tab for details"
+              } ] | map(select(.severity == "HIGH" or .severity == "CRITICAL")) | .[0:10]
+            ' sarif-results/*.sarif > codeql-findings.json
+          else
+            echo "[]" > codeql-findings.json
+          fi
       # ═══════════════════════════════════════════
       # DAST - Dynamic Application Security Testing
       # ═══════════════════════════════════════════
@@ -1215,7 +1235,7 @@ jobs:
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
       # ═══════════════════════════════════════════
-      # AGGREGATION & SUMMARY (FIXED)
+      # AGGREGATION & SUMMARY 
       # ═══════════════════════════════════════════
 
       - name: 📊 Process & Aggregate Results (summary.json)
@@ -1244,6 +1264,7 @@ jobs:
           IAC_C=0; IAC_H=0; IAC_M=0; IAC_L=0
           SG_C=0;  SG_H=0;  SG_M=0;  SG_L=0
           ZAP_C=0; ZAP_H=0; ZAP_M=0; ZAP_L=0
+          CQ_C=0; CQ_H=0; CQ_M=0; CQ_L=0
 
           # findings temp files
           echo "[]" > npm-findings.json
@@ -1252,7 +1273,24 @@ jobs:
           echo "[]" > iac-findings.json
           echo "[]" > semgrep-findings.json
           echo "[]" > zap-findings.json
+          echo "[]" > codeql-findings.json
 
+          # ---------------------------
+          # CodeQL Processing
+          # ---------------------------
+          if ls sarif-results/*.sarif >/dev/null 2>&1; then
+             # نستخدم المتغيرات التي استخرجتها أنت سابقاً (CRITICAL, HIGH, etc.) 
+             # أو نعيد حسابها هنا للتأكد
+             CQ_H=$HIGH
+             CQ_M=$MEDIUM
+             CQ_L=$LOW
+             # ملاحظة: CodeQL غالباً ما يصنف error كـ High في SARIF
+             
+             CRITICAL=$((CRITICAL + CQ_C))
+             HIGH=$((HIGH + CQ_H))
+             MEDIUM=$((MEDIUM + CQ_M))
+             LOW=$((LOW + CQ_L))
+          fi
           # ---------------------------
           # npm audit
           # ---------------------------
@@ -1592,10 +1630,12 @@ jobs:
           echo "| 🔬 SAST | Semgrep | 0 | $sg_h | $sg_m | $sg_l | $sg_t |" >> "$GITHUB_STEP_SUMMARY"
 
           # CodeQL row (link only)
+          # CodeQL row (Dynamic numbers)
           if [ "${{ inputs.run_codeql }}" = "true" ]; then
-            echo "| 🔬 SAST | CodeQL | - | - | - | - | [View Security Tab](https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }}) |" >> "$GITHUB_STEP_SUMMARY"
+            # استخراج الأرقام من ملف summary.json بعد تحديثه
+            cq_t=$((CQ_C + CQ_H + CQ_M + CQ_L))
+            echo "| 🔬 SAST | CodeQL | $CQ_C | $CQ_H | $CQ_M | $CQ_L | $cq_t |" >> "$GITHUB_STEP_SUMMARY"
           fi
-
           zap_h=$(jq -r '.breakdown.zap.high' summary.json)
           zap_m=$(jq -r '.breakdown.zap.medium' summary.json)
           zap_l=$(jq -r '.breakdown.zap.low' summary.json)
@@ -1908,7 +1948,7 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           # --- NPM Audit ---
-          report_upload "NPM Audit" "NPM Audit Scan" "GITHUB_WORKSPACE/npm-audit.json" "NPM Audit - ${BRANCH}"
+          report_upload "NPM Audit" "NPM Audit Scan" "$GITHUB_WORKSPACE/npm-audit.json" "NPM Audit - ${BRANCH}"
 
           # --- CodeQL SARIF ---
           if [ -d sarif-results ] && ls -1 sarif-results/*.sarif >/dev/null 2>&1; then
@@ -1971,7 +2011,7 @@ jobs:
           name: security-reports
           path: |
             summary.json
-            GITHUB_WORKSPACE/npm-audit.json
+            $GITHUB_WORKSPACE/npm-audit.json
             semgrep.sarif
             trivy-config.json
             trivy-sca.json
