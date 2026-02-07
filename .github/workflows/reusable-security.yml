@@ -1284,6 +1284,7 @@ jobs:
              CQ_H=$HIGH
              CQ_M=$MEDIUM
              CQ_L=$LOW
+             CQ_C=$CRITICAL
              # ملاحظة: CodeQL غالباً ما يصنف error كـ High في SARIF
              
              CRITICAL=$((CRITICAL + CQ_C))
