@@ -1024,7 +1024,7 @@ jobs:
           echo "- **Query Pack:** ${{ inputs.codeql_queries }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Total Findings:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-    echo "---" >> "$GITHUB_STEP_SUMMARY"
+          echo "---" >> "$GITHUB_STEP_SUMMARY"
       # ═══════════════════════════════════════════
       # DAST - Dynamic Application Security Testing
       # ═══════════════════════════════════════════
