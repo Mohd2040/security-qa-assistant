@@ -577,12 +577,12 @@ jobs:
           TOTAL=0
 
           # Extract metrics (use arithmetic to avoid secrets masking of numeric values)
-          if [ -f GITHUB_WORKSPACE/npm-audit.json ]; then
-            CRITICAL=$(( $(jq -r '.metadata.vulnerabilities.critical // 0' GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
-            HIGH=$(( $(jq -r '.metadata.vulnerabilities.high // 0' GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
-            MODERATE=$(( $(jq -r '.metadata.vulnerabilities.moderate // 0' GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
-            LOW=$(( $(jq -r '.metadata.vulnerabilities.low // 0' GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
-            TOTAL=$(( $(jq -r '.metadata.vulnerabilities.total // 0' GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
+          if [ -f $GITHUB_WORKSPACE/npm-audit.json ]; then
+            CRITICAL=$(( $(jq -r '.metadata.vulnerabilities.critical // 0' $GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
+            HIGH=$(( $(jq -r '.metadata.vulnerabilities.high // 0' $GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
+            MODERATE=$(( $(jq -r '.metadata.vulnerabilities.moderate // 0' $GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
+            LOW=$(( $(jq -r '.metadata.vulnerabilities.low // 0' $GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
+            TOTAL=$(( $(jq -r '.metadata.vulnerabilities.total // 0' $GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
           fi
 
           # Write summary
@@ -627,7 +627,7 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Top Vulnerable Packages:**" >> $GITHUB_STEP_SUMMARY
-            jq -r '.vulnerabilities | to_entries | sort_by(.value.severity) | reverse | .[0:5] | .[] | "- `\(.key)` - \(.value.severity | ascii_upcase) - \(.value.via[0].title // \"No title\")"' GITHUB_WORKSPACE/npm-audit.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            jq -r '.vulnerabilities | to_entries | sort_by(.value.severity) | reverse | .[0:5] | .[] | "- `\(.key)` - \(.value.severity | ascii_upcase) - \(.value.via[0].title // \"No title\")"' $GITHUB_WORKSPACE/npm-audit.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
           else
             echo "✅ No critical or high vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
           fi
@@ -1256,11 +1256,11 @@ jobs:
           # ---------------------------
           # npm audit
           # ---------------------------
-          if [ -f GITHUB_WORKSPACE/npm-audit.json ]; then
-            NPM_C=$(jq_safe -r '.metadata.vulnerabilities.critical // 0' GITHUB_WORKSPACE/npm-audit.json); NPM_C=${NPM_C:-0}
-            NPM_H=$(jq_safe -r '.metadata.vulnerabilities.high // 0' GITHUB_WORKSPACE/npm-audit.json);     NPM_H=${NPM_H:-0}
-            NPM_M=$(jq_safe -r '.metadata.vulnerabilities.moderate // 0' GITHUB_WORKSPACE/npm-audit.json); NPM_M=${NPM_M:-0}
-            NPM_L=$(jq_safe -r '.metadata.vulnerabilities.low // 0' GITHUB_WORKSPACE/npm-audit.json);      NPM_L=${NPM_L:-0}
+          if [ -f $GITHUB_WORKSPACE/npm-audit.json ]; then
+            NPM_C=$(jq_safe -r '.metadata.vulnerabilities.critical // 0' $GITHUB_WORKSPACE/npm-audit.json); NPM_C=${NPM_C:-0}
+            NPM_H=$(jq_safe -r '.metadata.vulnerabilities.high // 0' $GITHUB_WORKSPACE/npm-audit.json);     NPM_H=${NPM_H:-0}
+            NPM_M=$(jq_safe -r '.metadata.vulnerabilities.moderate // 0' $GITHUB_WORKSPACE/npm-audit.json); NPM_M=${NPM_M:-0}
+            NPM_L=$(jq_safe -r '.metadata.vulnerabilities.low // 0' $GITHUB_WORKSPACE/npm-audit.json);      NPM_L=${NPM_L:-0}
 
             CRITICAL=$((CRITICAL + NPM_C))
             HIGH=$((HIGH + NPM_H))
@@ -1281,7 +1281,7 @@ jobs:
                     }
                 )
               | .[0:10]
-            ' GITHUB_WORKSPACE/npm-audit.json > npm-findings.json
+            ' $GITHUB_WORKSPACE/npm-audit.json > npm-findings.json
           fi
 
           # ---------------------------
@@ -1625,7 +1625,7 @@ jobs:
           echo "### 🔧 Quick Fixes" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          if [ -f GITHUB_WORKSPACE/npm-audit.json ] && { [ "$npm_c" -gt 0 ] || [ "$npm_h" -gt 0 ]; }; then
+          if [ -f $GITHUB_WORKSPACE/npm-audit.json ] && { [ "$npm_c" -gt 0 ] || [ "$npm_h" -gt 0 ]; }; then
             echo "**For Node.js/npm vulnerabilities:**" >> "$GITHUB_STEP_SUMMARY"
             echo '```bash' >> "$GITHUB_STEP_SUMMARY"
             echo "npm audit fix" >> "$GITHUB_STEP_SUMMARY"
@@ -1653,7 +1653,7 @@ jobs:
           echo "| Report | Status |" >> "$GITHUB_STEP_SUMMARY"
           echo "|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
 
-          [ -f GITHUB_WORKSPACE/npm-audit.json ] && echo "| 📄 GITHUB_WORKSPACE/npm-audit.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 GITHUB_WORKSPACE/npm-audit.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+          [ -f $GITHUB_WORKSPACE/npm-audit.json ] && echo "| 📄 $GITHUB_WORKSPACE/npm-audit.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 $GITHUB_WORKSPACE/npm-audit.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
           [ -f ${{ env.REPORTS_DIR }}/depcheck-output/dependency-check-report.json ] && echo "| 📄 dependency-check-report.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 dependency-check-report.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
           [ -f trivy-sca.json ] && echo "| 📄 trivy-sca.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 trivy-sca.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
           [ -f trivy-config.json ] && echo "| 📄 trivy-config.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 trivy-config.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
