@@ -466,8 +466,71 @@ jobs:
       # ═══════════════════════════════════════════
       - name: 📦 Install dependencies npm Audit
         if: ${{ steps.resolve.outputs.project_type == 'node' }}
-        run: npm ci --prefer-offline --no-audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "🔎 Detecting Node project directory..."
+
+          # 1) Check root first
+          if [[ -f "package.json" && -f "package-lock.json" ]]; then
+            TARGET_DIR="."
+            echo "✅ Found package.json + package-lock.json in root."
+          else
+            echo "ℹ️ Not found in root. Searching subfolders..."
+
+            # 2) Find first directory that contains BOTH package.json and package-lock.json
+            TARGET_DIR="$(find . -mindepth 2 -maxdepth 6 -type f -name package-lock.json \
+              -not -path "*/node_modules/*" -not -path "*/.git/*" -print0 \
+              | xargs -0 -n1 dirname \
+              | while read -r d; do
+                  if [[ -f "$d/package.json" ]]; then
+                    echo "$d"
+                    break
+                  fi
+                done
+            )"
+
+            if [[ -z "${TARGET_DIR:-}" ]]; then
+              echo "❌ Could not find any folder containing BOTH package.json and package-lock.json."
+              echo "   Please commit package-lock.json next to package.json."
+              echo "   Searched up to 6 levels deep."
+              exit 1
+            fi
+
+            # Clean leading "./"
+            TARGET_DIR="${TARGET_DIR#./}"
+            echo "✅ Found project in: $TARGET_DIR"
+          fi
+
+          echo "➡️ Running npm ci in: $TARGET_DIR"
+          cd "$TARGET_DIR"
+          npm ci --prefer-offline --no-auditno-audit
+
+        #run: npm ci --prefer-offline --no-audit
         continue-on-error: true
+      - name: Auto-detect project dir and run npm ci
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Prefer backend if exists
+          if [ -f "backend/package.json" ]; then
+            DIR="backend"
+          else
+            # Find first directory that has BOTH package.json and package-lock.json
+            DIR="$(find . -name package-lock.json -not -path "*/node_modules/*" -print0 | \
+                  xargs -0 -n1 dirname | head -n1 | sed 's|^\./||')"
+            if [ -z "${DIR:-}" ]; then
+              # fallback: first package.json
+              DIR="$(dirname "$(find . -name package.json -not -path "*/node_modules/*" | head -n1)")"
+              DIR="${DIR#./}"
+            fi
+          fi
+
+          echo "✅ Selected project directory: $DIR"
+          cd "$DIR"
+          npm ci --prefer-offline --no-audit
       # ═══════════════════════════════════════════
       # SCA - npm Audit Software Composition Analysis
       # ═══════════════════════════════════════════
