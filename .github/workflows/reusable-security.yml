@@ -601,7 +601,7 @@ jobs:
           echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
           echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          printf "| 🟠 High | %s |\n" "$HIGH" >> $GITHUB_STEP_SUMMARY
           echo "| 🟡 Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
           echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
           echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
@@ -1276,21 +1276,65 @@ jobs:
           echo "[]" > codeql-findings.json
 
           # ---------------------------
-          # CodeQL Processing
+          # CodeQL Processing (RE-CALC from SARIF)
           # ---------------------------
           if ls sarif-results/*.sarif >/dev/null 2>&1; then
-             # نستخدم المتغيرات التي استخرجتها أنت سابقاً (CRITICAL, HIGH, etc.) 
-             # أو نعيد حسابها هنا للتأكد
-             CQ_H=$HIGH
-             CQ_M=$MEDIUM
-             CQ_L=$LOW
-             CQ_C=$CRITICAL
-             # ملاحظة: CodeQL غالباً ما يصنف error كـ High في SARIF
-             
-             CRITICAL=$((CRITICAL + CQ_C))
-             HIGH=$((HIGH + CQ_H))
-             MEDIUM=$((MEDIUM + CQ_M))
-             LOW=$((LOW + CQ_L))
+
+            read CQ_C CQ_H CQ_M CQ_L CQ_U < <(
+              jq -s -r '
+                def allrules($run):
+                  (
+                    ($run.tool.driver.rules? // [])
+                    + ([($run.tool.extensions? // [])[]? | .rules? // []] | add // [])
+                  );
+
+                def ruleobj($run; $res):
+                  if ($res.ruleIndex? != null) then
+                    (allrules($run)[$res.ruleIndex]?)
+                  else
+                    ((allrules($run) | map(select(.id? == $res.ruleId?)) | .[0])? )
+                  end;
+
+                def secsev($run; $res):
+                  (ruleobj($run; $res).properties."security-severity"? // null);
+
+                def bucket_by_secsev($s):
+                  ($s | tonumber) as $n
+                  | if $n > 9.0 then "critical"
+                    elif $n >= 7.0 then "high"
+                    elif $n >= 4.0 then "medium"
+                    elif $n >= 0.1 then "low"
+                    else "unknown" end;
+
+                reduce (
+                  .[]?.runs[]? as $run
+                  | (($run.results // [])[]? as $res
+                    | (secsev($run; $res)) as $s
+                    | if $s == null then "unknown" else bucket_by_secsev($s) end
+                  )
+                ) as $b
+                ({critical:0, high:0, medium:0, low:0, unknown:0};
+                  if $b=="critical" then .critical += 1
+                  elif $b=="high" then .high += 1
+                  elif $b=="medium" then .medium += 1
+                  elif $b=="low" then .low += 1
+                  else .unknown += 1 end
+                )
+                | "\(.critical) \(.high) \(.medium) \(.low) \(.unknown)"
+              ' sarif-results/*.sarif
+            )
+
+            CQ_C=${CQ_C:-0}
+            CQ_H=${CQ_H:-0}
+            CQ_M=${CQ_M:-0}
+            CQ_L=${CQ_L:-0}
+            CQ_U=${CQ_U:-0}
+
+            #=============================== add CodeQL to totals
+            CRITICAL=$((CRITICAL + CQ_C))
+            HIGH=$((HIGH + CQ_H))
+            MEDIUM=$((MEDIUM + CQ_M))
+            LOW=$((LOW + CQ_L))
           fi
           # ---------------------------
           # npm audit
@@ -1525,6 +1569,7 @@ jobs:
           --arg IAC_C "${IAC_C:-0}" --arg IAC_H "${IAC_H:-0}" --arg IAC_M "${IAC_M:-0}" --arg IAC_L "${IAC_L:-0}" \
           --arg SG_C  "${SG_C:-0}"  --arg SG_H  "${SG_H:-0}"  --arg SG_M  "${SG_M:-0}"  --arg SG_L  "${SG_L:-0}" \
           --arg ZAP_C "${ZAP_C:-0}" --arg ZAP_H "${ZAP_H:-0}" --arg ZAP_M "${ZAP_M:-0}" --arg ZAP_L "${ZAP_L:-0}" \
+          --arg CQ_C "${CQ_C:-0}" --arg CQ_H "${CQ_H:-0}" --arg CQ_M "${CQ_M:-0}" --arg CQ_L "${CQ_L:-0}" \
           --slurpfile findings all-findings.json \
           'def tobool: ascii_downcase | if .=="true" then true elif .=="false" then false else false end;
           def tonumber0: (gsub("[^0-9.-]";"") | if .=="" then 0 else tonumber end);
@@ -1549,6 +1594,7 @@ jobs:
               trivy_sca:        { critical: ($TV_C|tonumber0),  high: ($TV_H|tonumber0),  medium: ($TV_M|tonumber0),  low: ($TV_L|tonumber0)  },
               trivy_config:     { critical: ($IAC_C|tonumber0), high: ($IAC_H|tonumber0), medium: ($IAC_M|tonumber0), low: ($IAC_L|tonumber0) },
               semgrep:          { critical: ($SG_C|tonumber0),  high: ($SG_H|tonumber0),  medium: ($SG_M|tonumber0),  low: ($SG_L|tonumber0)  },
+              codeql:           { critical: ($CQ_C|tonumber0),  high: ($CQ_H|tonumber0),  medium: ($CQ_M|tonumber0),  low: ($CQ_L|tonumber0)  },
               zap:              { critical: ($ZAP_C|tonumber0), high: ($ZAP_H|tonumber0), medium: ($ZAP_M|tonumber0), low: ($ZAP_L|tonumber0) }
             },
             summary: {
