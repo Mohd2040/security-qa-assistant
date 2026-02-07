@@ -549,14 +549,18 @@ jobs:
       # ═══════════════════════════════════════════
       # SCA - npm Audit Software Composition Analysis
       # ═══════════════════════════════════════════
-      - name: 🔍 SCA Summary - npm Audit 
+      - name: 🔍 SCA Summary - npm Audit
         id: sca
-        if: ${{ steps.resolve.outputs.project_type == 'node' && inputs.run_npm_audit }}
+        if: ${{ steps.resolve.outputs.project_type == 'node' && inputs.run_npm_audit && steps.node_detect.outputs.dir != '' }}
         env:
           ACTIONS_STEP_DEBUG: 'false'
+        working-directory: ${{ steps.node_detect.outputs.dir }}
+        shell: bash
         run: |
           set +x
           set -e
+
+          echo "➡️ Running npm audit in: $PWD"
 
           # Generate JSON report
           npm audit --json > npm-audit.json || true
