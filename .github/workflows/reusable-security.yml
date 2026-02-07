@@ -464,7 +464,8 @@ jobs:
       # ═══════════════════════════════════════════
       # SCA - 📦 Install dependencies npm ci
       # ═══════════════════════════════════════════
-      - name: 📦 Install dependencies npm Audit
+      - name: ✅ Detect Node project directory
+        id: node_detect
         if: ${{ steps.resolve.outputs.project_type == 'node' }}
         shell: bash
         run: |
@@ -472,42 +473,78 @@ jobs:
 
           echo "🔎 Detecting Node project directory..."
 
-          # 1) Check root first
-          if [[ -f "package.json" && -f "package-lock.json" ]]; then
-            TARGET_DIR="."
-            echo "✅ Found package.json + package-lock.json in root."
-          else
-            echo "ℹ️ Not found in root. Searching subfolders..."
+          detect_info () {
+            local dir="$1"
+            echo "✅ Detected: Node.js (package.json found)"
+            echo "📌 Project dir: $dir"
 
-            # 2) Find first directory that contains BOTH package.json and package-lock.json
-            TARGET_DIR="$(find . -mindepth 2 -maxdepth 6 -type f -name package-lock.json \
-              -not -path "*/node_modules/*" -not -path "*/.git/*" -print0 \
-              | xargs -0 -n1 dirname \
-              | while read -r d; do
-                  if [[ -f "$d/package.json" ]]; then
-                    echo "$d"
-                    break
-                  fi
-                done
-            )"
-
-            if [[ -z "${TARGET_DIR:-}" ]]; then
-              echo "❌ Could not find any folder containing BOTH package.json and package-lock.json."
-              echo "   Please commit package-lock.json next to package.json."
-              echo "   Searched up to 6 levels deep."
-              exit 1
+            # Extra checks
+            if grep -q "\"type\"[[:space:]]*:[[:space:]]*\"module\"" "$dir/package.json" 2>/dev/null; then
+              echo "📦 ESM module detected"
             fi
+            if grep -q "\"typescript\"" "$dir/package.json" 2>/dev/null; then
+              echo "📘 TypeScript detected"
+            fi
+          }
 
-            # Clean leading "./"
-            TARGET_DIR="${TARGET_DIR#./}"
-            echo "✅ Found project in: $TARGET_DIR"
+          TARGET_DIR=""
+
+          # 1) Prefer root if package.json exists
+          if [[ -f "package.json" ]]; then
+            TARGET_DIR="."
+            detect_info "."
+          else
+            echo "ℹ️ Root package.json not found. Searching subfolders..."
+
+            # 2) Prefer the first folder that has BOTH package.json and package-lock.json
+            while IFS= read -r lockfile; do
+              d="$(dirname "$lockfile")"
+              if [[ -f "$d/package.json" ]]; then
+                TARGET_DIR="${d#./}"
+                detect_info "$TARGET_DIR"
+                break
+              fi
+            done < <(find . -mindepth 2 -maxdepth 10 -type f -name package-lock.json \
+                      -not -path "*/node_modules/*" -not -path "*/.git/*" -print)
+
+            # 3) Fallback: first package.json anywhere (if no lock found)
+            if [[ -z "$TARGET_DIR" ]]; then
+              pkg="$(find . -mindepth 2 -maxdepth 10 -type f -name package.json \
+                    -not -path "*/node_modules/*" -not -path "*/.git/*" -print | head -n 1 || true)"
+
+              if [[ -n "$pkg" ]]; then
+                TARGET_DIR="$(dirname "$pkg")"
+                TARGET_DIR="${TARGET_DIR#./}"
+                detect_info "$TARGET_DIR"
+                echo "⚠️ package-lock.json not found next to package.json in: $TARGET_DIR"
+                echo "   npm ci requires package-lock.json. Please commit it."
+              else
+                echo "❌ No package.json found in repo."
+                exit 1
+              fi
+            fi
           fi
 
-          echo "➡️ Running npm ci in: $TARGET_DIR"
-          cd "$TARGET_DIR"
-          npm ci --prefer-offline --no-auditno-audit
+          # Save output for next steps
+          echo "dir=$TARGET_DIR" >> "$GITHUB_OUTPUT"
+          echo "📤 Output dir: $TARGET_DIR"
+        continue-on-error: true
+      - name: 📦 Install dependencies (npm ci)
+        if: ${{ steps.resolve.outputs.project_type == 'node' && steps.node_detect.outputs.dir != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "➡️ Running npm ci in: ${{ steps.node_detect.outputs.dir }}"
 
-        #run: npm ci --prefer-offline --no-audit
+          # Fail fast if lock missing (npm ci needs it)
+          if [[ ! -f "package-lock.json" ]]; then
+            echo "❌ package-lock.json missing in this directory."
+            echo "   Fix: run npm install locally and commit package-lock.json."
+            exit 1
+          fi
+
+          npm ci --prefer-offline --no-audit
+        working-directory: ${{ steps.node_detect.outputs.dir }}
         continue-on-error: true
       # ═══════════════════════════════════════════
       # SCA - npm Audit Software Composition Analysis
