@@ -27,16 +27,28 @@ has_k8s=false
 # ═══════════════════════════════════════════
 # 1. Node.js Detection
 # ═══════════════════════════════════════════
-if [ -f package.json ]; then
+node_pkg=""
+
+# Root first
+if [ -f "package.json" ]; then
+  node_pkg="package.json"
+else
+  # Search only in folders directly under root
+  node_pkg="$(find . -mindepth 2 -maxdepth 2 -type f -name package.json \
+            -not -path "*/node_modules/*" -not -path "*/.git/*" \
+            -print | head -n 1 || true)"
+fi
+
+if [ -n "$node_pkg" ]; then
   has_node=true
   echo "✅ Detected: Node.js (package.json found)"
   
   # فحص إضافي لنوع المشروع
-  if grep -q "\"type\": \"module\"" package.json 2>/dev/null; then
+  if grep -q "\"type\": \"module\"" "$node_pkg" 2>/dev/null; then
     echo "   📦 ESM module detected"
   fi
   
-  if grep -q "\"typescript\"" package.json 2>/dev/null; then
+  if grep -q "\"typescript\"" "$node_pkg" 2>/dev/null; then
     echo "   📘 TypeScript detected"
   fi
 fi
