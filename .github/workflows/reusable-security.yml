@@ -509,28 +509,6 @@ jobs:
 
         #run: npm ci --prefer-offline --no-audit
         continue-on-error: true
-      - name: Auto-detect project dir and run npm ci
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # Prefer backend if exists
-          if [ -f "backend/package.json" ]; then
-            DIR="backend"
-          else
-            # Find first directory that has BOTH package.json and package-lock.json
-            DIR="$(find . -name package-lock.json -not -path "*/node_modules/*" -print0 | \
-                  xargs -0 -n1 dirname | head -n1 | sed 's|^\./||')"
-            if [ -z "${DIR:-}" ]; then
-              # fallback: first package.json
-              DIR="$(dirname "$(find . -name package.json -not -path "*/node_modules/*" | head -n1)")"
-              DIR="${DIR#./}"
-            fi
-          fi
-
-          echo "✅ Selected project directory: $DIR"
-          cd "$DIR"
-          npm ci --prefer-offline --no-audit
       # ═══════════════════════════════════════════
       # SCA - npm Audit Software Composition Analysis
       # ═══════════════════════════════════════════
