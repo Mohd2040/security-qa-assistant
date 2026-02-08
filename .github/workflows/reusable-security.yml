@@ -67,7 +67,7 @@ on:
         description: 'Enable authenticated DAST scanning'
         required: false
         type: boolean
-        default: true
+        default: false
       dast_login_url:
         description: 'Login page URL for authenticated scanning'
         required: false
