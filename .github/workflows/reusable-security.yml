@@ -645,7 +645,7 @@ jobs:
       - name: 🏗️ IaC - Trivy Config Scan
         id: iac
         if: ${{ inputs.run_trivy_iac }}
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.65.0
         with:
           scan-type: 'config'
           scan-ref: '.'
