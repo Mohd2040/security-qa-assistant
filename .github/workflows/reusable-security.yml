@@ -1128,80 +1128,105 @@ jobs:
       # ═══════════════════════════════════════════
       # DAST -🔐 Configure ZAP Authentication
       # ═══════════════════════════════════════════
-      - name: 🔐 Configure ZAP Authentication
+      - name: 🔐 Configure ZAP Authentication (Automation Framework Plan)
         if: ${{ inputs.dast_url != '' && inputs.dast_auth_enabled }}
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p zap-config
-          
-          cat > zap-config/auth-config.yaml << 'EOF'
+
+          cat > zap-config/zap-plan.yaml << 'EOF'
           env:
+            vars:
+              zapUser: ${ZAP_USERNAME}
+              zapPass: ${ZAP_PASSWORD}
+
             contexts:
-            - name: "Authenticated Context"
-              urls:
-              - "${{ inputs.dast_url }}"
-              authentication:
-                method: "formBasedAuthentication"
-                parameters:
-                  loginUrl: "${{ inputs.dast_login_url }}"
-                  loginRequestData: "${{ inputs.dast_username_field }}={%username%}&${{ inputs.dast_password_field }}={%password%}"
-                verification:
-                  method: "response"
-                  loggedInRegex: "${{ inputs.dast_success_indicator }}"
-                  loggedOutRegex: "(?:Sign in|Login|log in)"
-              users:
-              - name: "test-user"
-                credentials:
-                  username: "${{ secrets.dast_username }}"
-                  password: "${{ secrets.dast_password }}"
-              sessionManagement:
-                method: "cookieBasedSessionManagement"
+              - name: "Authenticated Context"
+                urls:
+                  - "${{ inputs.dast_url }}"
+                authentication:
+                  method: "form"
+                  parameters:
+                    loginPageUrl: "${{ inputs.dast_login_url }}"
+                    loginRequestUrl: "${{ inputs.dast_login_url }}"
+                    loginRequestBody: "${{ inputs.dast_username_field }}={%username%}&${{ inputs.dast_password_field }}={%password%}"
+                  verification:
+                    method: "response"
+                    loggedInRegex: "${{ inputs.dast_success_indicator }}"
+                    loggedOutRegex: "(?:Sign in|Login|log in)"
+                sessionManagement:
+                  method: "cookie"
+                users:
+                  - name: "test-user"
+                    credentials:
+                      username: "${zapUser}"
+                      password: "${zapPass}"
+
+          jobs:
+            - type: spider
+              parameters:
+                context: "Authenticated Context"
+                user: "test-user"
+                url: "${{ inputs.dast_url }}"
+                maxDuration: 10
+
+            - type: ajaxSpider
+              parameters:
+                context: "Authenticated Context"
+                user: "test-user"
+                url: "${{ inputs.dast_url }}"
+                maxDuration: 10
+
+            - type: activeScan
+              parameters:
+                context: "Authenticated Context"
+                user: "test-user"
+                url: "${{ inputs.dast_url }}"
+
+            # Reports (اختَر اللي بدك ياه)
+            - type: report
+              parameters:
+                template: "traditional-html"
+                reportDir: "/zap/wrk"
+                reportFile: "zap-report.html"
+
+            - type: report
+              parameters:
+                template: "traditional-xml"
+                reportDir: "/zap/wrk"
+                reportFile: "zap-report.xml"
+
+            - type: report
+              parameters:
+                template: "traditional-json"
+                reportDir: "/zap/wrk"
+                reportFile: "zap-report.json"
           EOF
-          
-          echo "✅ ZAP authentication configuration created"
-          #cat zap-config/auth-config.yaml
+
+          echo "✅ ZAP automation plan created at zap-config/zap-plan.yaml"
         continue-on-error: true
       # ═══════════════════════════════════════════
       # DAST - DAST - OWASP ZAP Baseline
       # ═══════════════════════════════════════════
-      - name: 🌐 DAST - OWASP ZAP Baseline
+      - name: 🌐 DAST - OWASP ZAP (Automation Framework)
         id: dast
         if: ${{ inputs.dast_url != '' }}
         run: |
           mkdir -p zap-output
-          # Fix permissions for ZAP container to write reports
           chmod 777 zap-output
-          
-          # Verify target is accessible before running ZAP
-          echo "Verifying target accessibility..."
-          HTTP_CODE=$(curl -sL -w "%{http_code}" "${{ inputs.dast_url }}" -o /dev/null || echo "000")
-          
-          if [ "$HTTP_CODE" = "000" ] || [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "500" ]; then
-            echo "⚠️ Target URL returned HTTP $HTTP_CODE or is not accessible"
-            echo "Skipping DAST scan - target may be down or rate-limited"
-            echo "http_code=$HTTP_CODE" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          echo "✅ Target is accessible (HTTP $HTTP_CODE), starting ZAP scan..."
+
           docker pull ghcr.io/zaproxy/zaproxy:stable
 
           if [ "${{ inputs.dast_auth_enabled }}" = "true" ]; then
-            echo "🔐 Running authenticated ZAP scan..."
+            echo "🔐 Running authenticated ZAP scan via Automation Framework..."
             docker run --rm \
               -v "$PWD/zap-output:/zap/wrk:rw" \
               -v "$PWD/zap-config:/zap/config:ro" \
-              -u zap \
+              -e ZAP_USERNAME='${{ secrets.dast_username }}' \
+              -e ZAP_PASSWORD='${{ secrets.dast_password }}' \
               -t ghcr.io/zaproxy/zaproxy:stable \
-              zap-full-scan.py \
-              -t "${{ inputs.dast_url }}" \
-              -J zap-report.json \
-              -x zap-report.xml \
-              -r zap-report.html \
-              -T 180 \
-              -n /zap/config/auth-config.yaml \
-              -U "test-user" \
-              -z "-config spider.maxDuration=10 -config ajaxSpider.maxDuration=10" \
-              || true
+              zap.sh -cmd -autorun /zap/config/zap-plan.yaml || true
           else
             echo "🌐 Running baseline ZAP scan..."
             docker run --rm \
@@ -1214,25 +1239,13 @@ jobs:
               -x zap-report.xml \
               -r zap-report.html \
               -T 180 \
-              -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" \
-              || true
+              -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" || true
           fi
 
           echo "📄 Reports generated:"
           ls -lah zap-output/ || true
-
-          if [ -f zap-output/zap-report.json ]; then
-            echo "✅ JSON report exists"
-          else
-            echo "⚠️ JSON report missing"
-          fi
-
-          if [ -f zap-output/zap-report.xml ]; then
-            echo "✅ XML report exists (for DefectDojo)"
-          else
-            echo "⚠️ XML report missing (DefectDojo needs XML)"
-          fi
         continue-on-error: true
+
       # ═══════════════════════════════════════════
       # ═══════════════════════════════════════════
       - name: 📊 DAST - Process Results
