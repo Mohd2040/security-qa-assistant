@@ -111,10 +111,10 @@ on:
       
 
     secrets:
-      dast_username:
+      DAST_USERNAME:
         description: 'Username for authenticated DAST scanning'
         required: false
-      dast_password:
+      DAST_PASSWORD:
         description: 'Password for authenticated DAST scanning'
         required: false
       DEFECTDOJO_URL:
@@ -1223,8 +1223,8 @@ jobs:
             docker run --rm \
               -v "$PWD/zap-output:/zap/wrk:rw" \
               -v "$PWD/zap-config:/zap/config:ro" \
-              -e ZAP_USERNAME='${{ secrets.dast_username }}' \
-              -e ZAP_PASSWORD='${{ secrets.dast_password }}' \
+              -e ZAP_USERNAME='${{ secrets.DAST_USERNAME }}' \
+              -e ZAP_PASSWORD='${{ secrets.DAST_PASSWORD }}' \
               -t ghcr.io/zaproxy/zaproxy:stable \
               zap.sh -cmd -autorun /zap/config/zap-plan.yaml || true
           else
