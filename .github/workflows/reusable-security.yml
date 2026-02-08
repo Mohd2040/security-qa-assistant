@@ -27,7 +27,7 @@ on:
         description: 'Run Trivy (Dependencies)'
         required: false
         type: boolean
-        default: false  # Enabled by default
+        default: true  # Enabled by default
       run_npm_audit:
         description: 'Run npm audit'
         required: false

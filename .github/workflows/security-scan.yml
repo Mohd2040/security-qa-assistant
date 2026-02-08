@@ -19,13 +19,13 @@ on:
         description: 'Target URL for DAST scan (optional)'
         required: false
         type: string
-        default: ''
-        #default: 'https://security-qa-assistant.onrender.com/'
+        #default: ''
+        default: 'https://security-qa-assistant.onrender.com/'
       dast_login_url:
         description: 'Login page URL for authenticated scanning'
         required: false
         type: string
-        default: ''
+        default: 'https://security-qa-assistant.onrender.com/login'
       dast_username_field:
         description: 'Username field name in login form'
         required: false
