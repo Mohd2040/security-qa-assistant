@@ -22,7 +22,7 @@ on:
         description: 'Project type (node, dotnet, python, go, java)'
         required: false
         type: string
-        default: 'outo'
+        default: 'auto'
       run_trivy_sca:
         description: 'Run Trivy (Dependencies)'
         required: false
@@ -67,7 +67,7 @@ on:
         description: 'Enable authenticated DAST scanning'
         required: false
         type: boolean
-        default: false
+        default: true
       dast_login_url:
         description: 'Login page URL for authenticated scanning'
         required: false
@@ -103,6 +103,12 @@ on:
         required: false
         type: boolean
         default: true
+      run_dotnet_scan:
+        description: 'Run .NET Dependencies Scanning'
+        required: false
+        type: boolean
+        default: false
+      
 
     secrets:
       dast_username:
@@ -223,22 +229,81 @@ jobs:
         continue-on-error: true
       # ═══════════════════════════════════════════
       # SAST - 🐍 Python - Bandit (SAST)
-      # ══════════════════════════════════════════
+      # ═══════════════════════════════════════════
       - name: 🐍 Python - Bandit (SAST)
         if: ${{ steps.detect.outputs.has_python == 'true' }}
         shell: bash
         run: |
           pip install bandit
-          bandit -r . -q || true
-        continue-on-error: true
+          bandit -r . -f json -o bandit-report.json || true
       # ═══════════════════════════════════════════
-      # SECRET SCANNING (Gitleaks)
+      # SAST - 🐍📝 Generate Bandit Summary
+      # ═══════════════════════════════════════════
+      - name: 🐍📝 Generate Bandit Summary
+        if: ${{ steps.detect.outputs.has_python == 'true' && hashFiles('bandit-report.json') != '' }}
+        shell: bash
+        run: |
+          echo "### 🐍 Python Bandit (SAST) Results" >> $GITHUB_STEP_SUMMARY
+          
+          NUM_ISSUES=$(jq '.results | length' bandit-report.json)
+
+          if [ "$NUM_ISSUES" -eq "0" ]; then
+            echo "✅ No security issues found in Python code." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Found **$NUM_ISSUES** potential security vulnerabilities." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Confidence | File | Issue | Line |" >> $GITHUB_STEP_SUMMARY
+            echo "| :--- | :--- | :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+            
+            jq -r '.results[] | "| \(.issue_severity) | \(.issue_confidence) | \(.filename) | \(.issue_text) | \(.line_number) |"' bandit-report.json >> $GITHUB_STEP_SUMMARY
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+            echo "> High severity issues should be prioritized for review." >> $GITHUB_STEP_SUMMARY
+          fi
+      # ═══════════════════════════════════════════
+      # 🔑SECRET SCANNING (Gitleaks)
       # ═══════════════════════════════════════════
       - name: 🔑 Run Gitleaks
         if: inputs.run_gitleaks == true
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          report-path: gitleaks-report.json
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # 🔑📝 Generate Gitleaks Summary
+      # ═══════════════════════════════════════════
+      - name: 🔑📝 Generate Gitleaks Summary
+        if: inputs.run_gitleaks == true && hashFiles('gitleaks-report.json') != ''
+        run: |
+          echo "### 🔑 Gitleaks Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$(jq 'length' gitleaks-report.json)" -eq "0" ]; then
+            echo "✅ No secrets found in the repository." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Warning:** Potential secrets detected!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| File | Secret Type | Line | Commit |" >> $GITHUB_STEP_SUMMARY
+            echo "| :--- | :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+            
+            # Markdown
+            jq -r '.[] | "| \(.File) | \(.RuleID) | \(.StartLine) | \(.Commit[:7]) |"' gitleaks-report.json >> $GITHUB_STEP_SUMMARY
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!CAUTION]" >> $GITHUB_STEP_SUMMARY
+            echo "> If these are valid secrets, revoke them immediately and remove them from git history." >> $GITHUB_STEP_SUMMARY
+          fi
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # .NET Dependencies
+      # ═══════════════════════════════════════════
+      - name: 🔵 .NET Vulnerability Scan
+        if: ${{ steps.detect.outputs.has_dotnet == 'true' }}
+        run: |
+          echo "🔍 Running .NET vulnerability check..."
+          dotnet list package --vulnerable --include-transitive || true
         continue-on-error: true
       # ═══════════════════════════════════════════
       # 🟢 Setup Node.js
@@ -368,7 +433,7 @@ jobs:
           output: 'trivy-sca.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
         continue-on-error: true
-# ═══════════════════════════════════════════
+      # ═══════════════════════════════════════════
       # SCA - Trivy (Summary Dependencies)
       # ══════════════════════════════════════════
       - name: 📊 SCA Summary - Trivy (Dependencies)
@@ -380,7 +445,7 @@ jobs:
           set -e
 
           # Run Trivy filesystem scan (includes dependency vulnerabilities)
-          trivy fs --scanners vuln --format json --output trivy-sca.json . || true
+          #trivy fs --scanners vuln --format json --output trivy-sca.json . || true
 
           # Defaults
           CRITICAL=0
@@ -1060,7 +1125,9 @@ jobs:
           echo "Waiting additional 30 seconds for app to stabilize..."
           sleep 30
         continue-on-error: true
-
+      # ═══════════════════════════════════════════
+      # DAST -🔐 Configure ZAP Authentication
+      # ═══════════════════════════════════════════
       - name: 🔐 Configure ZAP Authentication
         if: ${{ inputs.dast_url != '' && inputs.dast_auth_enabled }}
         run: |
@@ -1091,7 +1158,7 @@ jobs:
           EOF
           
           echo "✅ ZAP authentication configuration created"
-          cat zap-config/auth-config.yaml
+          #cat zap-config/auth-config.yaml
         continue-on-error: true
       # ═══════════════════════════════════════════
       # DAST - DAST - OWASP ZAP Baseline
