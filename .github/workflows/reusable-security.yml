@@ -844,11 +844,30 @@ jobs:
               --exclude node_modules \
               --exclude dist --exclude build \
               --exclude .venv --exclude venv \
-              --sarif --output semgrep.sarif \
-              --json --output semgrep.json \
+              --output semgrep.sarif \
               . || true
-          chmod 644 semgrep.json semgrep.sarif 2>/dev/null || true
-          ls -lah semgrep.json semgrep.sarif || true
+          chmod 644  semgrep.sarif 2>/dev/null || true
+          ls -lah  semgrep.sarif || true
+
+                    docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/src \
+            -e SEMGREP_USER_HOME=/src/.semgrep \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            returntocorp/semgrep:1.90.0 \
+            semgrep scan \
+              --config p/security-audit \
+              --config p/secrets \
+              --config p/ci \
+              --no-git-ignore \
+              --exclude node_modules \
+              --exclude dist --exclude build \
+              --exclude .venv --exclude venv \
+              --output semgrep.json \
+              . || true
+          chmod 644 semgrep.json  2>/dev/null || true
+          ls -lah semgrep.json || true
         continue-on-error: true
 
       # ═══════════════════════════════════════════
