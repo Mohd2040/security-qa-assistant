@@ -849,7 +849,7 @@ jobs:
           chmod 644  semgrep.sarif 2>/dev/null || true
           ls -lah  semgrep.sarif || true
 
-                    docker run --rm \
+          docker run --rm \
             --user "$(id -u):$(id -g)" \
             -e HOME=/src \
             -e SEMGREP_USER_HOME=/src/.semgrep \
@@ -885,7 +885,7 @@ jobs:
             exit 0
           fi
 
-          python3 - <<'PY'
+                python3 - <<'PY'
             import json, os
             from collections import Counter
 
@@ -995,7 +995,7 @@ jobs:
 
             with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
                 s.write("\n".join(lines))
-            PY
+          PY
         continue-on-error: true
       # ═══════════════════════════════════════════
       # SAST - CodeQL - Initialize FIRST (before builds)
