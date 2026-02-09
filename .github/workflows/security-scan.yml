@@ -52,8 +52,8 @@ jobs:
       run_trivy_sca: false
       run_npm_audit: false
       run_codeql: true
-    #  defectdojo_enabled: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
-    #  defectdojo_auto_create: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+      defectdojo_enabled: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+      defectdojo_auto_create: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
       dast_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_url || 'https://security-qa-assistant.onrender.com/' }}
       dast_login_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_login_url || 'https://security-qa-assistant.onrender.com/login' }}
     secrets: inherit
