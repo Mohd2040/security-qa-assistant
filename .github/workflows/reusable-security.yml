@@ -712,6 +712,7 @@ jobs:
         if: ${{ inputs.run_trivy_iac }}
         uses: aquasecurity/trivy-action@0.33.1
         with:
+          skip-dirs: .github-shared
           scan-type: 'config'
           scan-ref: '.'
           format: 'json'
@@ -837,6 +838,7 @@ jobs:
             -w /src \
             returntocorp/semgrep:1.90.0 \
             semgrep scan \
+              --exclude .github-shared \
               --config p/security-audit \
               --config p/secrets \
               --config p/ci \
@@ -857,6 +859,7 @@ jobs:
             -w /src \
             returntocorp/semgrep:1.90.0 \
             semgrep scan \
+              --exclude .github-shared \
               --config p/security-audit \
               --config p/secrets \
               --config p/ci \
