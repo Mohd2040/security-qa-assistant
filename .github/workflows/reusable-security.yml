@@ -31,8 +31,8 @@ on:
       run_npm_audit:
         description: 'Run npm audit'
         required: false
-        type: boolean
-        default: false
+        type: string
+        default: 'auto'
       run_Semgrep_sca:
         description: 'Run Semgrep SAST  '
         required: false
@@ -41,8 +41,8 @@ on:
       run_dependency_check:
         description: 'Run OWASP Dependency-Check '
         required: false
-        type: boolean
-        default: false
+        type: string
+        default: 'auto'
       run_codeql:
         description: 'Run CodeQL analysis'
         required: false
@@ -101,13 +101,13 @@ on:
       run_trivy_iac:
         description: 'Run Trivy (IaC Scanning)'
         required: false
-        type: boolean
-        default: true
+        type: string
+        default: 'auto'
       run_dotnet_scan:
         description: 'Run .NET Dependencies Scanning'
         required: false
-        type: boolean
-        default: false
+        type: string
+        default: 'auto'
       
     secrets:
       DAST_USERNAME:
@@ -316,7 +316,7 @@ jobs:
       # 🧪 SCA Run OWASP Dependency-Check
       # ══════════════════════════════════════════
       - name: 🧪 SCA Run OWASP Dependency-Check
-        if: ${{ inputs.run_dependency_check == true && (steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_dotnet == 'true') }}
+        if: ${{ inputs.run_dependency_check == 'true' || (inputs.run_dependency_check == 'auto' && (steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_dotnet == 'true')) }}
         uses: dependency-check/Dependency-Check_Action@main
         with:
           project: "${{ github.repository }}-${{ github.ref_name }}"
@@ -329,7 +329,7 @@ jobs:
       # ══════════════════════════════════════════
       - name: 📊 SCA Summary - OWASP Dependency-Check
         id: sca_depcheck
-        if: ${{ inputs.run_dependency_check == true && (steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_dotnet == 'true') }}
+        if: ${{ inputs.run_dependency_check == 'true' || (inputs.run_dependency_check == 'auto' && (steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_dotnet == 'true')) }}
         env:
           ACTIONS_STEP_DEBUG: 'false'
         run: |
@@ -422,7 +422,7 @@ jobs:
       - name: 🔍 SCA - Trivy (Dependencies)
         uses: aquasecurity/trivy-action@0.28.0
         id: sca_trivy
-        if: ${{ inputs.run_trivy_sca == true }}
+        if: ${{ inputs.run_trivy_sca == 'true' || (inputs.run_trivy_sca == 'auto' && (steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_python == 'true' || steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_dotnet == 'true' || steps.detect.outputs.has_go == 'true')) }}
         with:
           scan-type: 'fs'
           format: 'json'
@@ -433,7 +433,7 @@ jobs:
       # SCA - Trivy (Summary Dependencies)
       # ══════════════════════════════════════════
       - name: 📊 SCA Summary - Trivy (Dependencies)
-        if: ${{ inputs.run_trivy_sca == true }}
+        if: ${{ inputs.run_trivy_sca == 'true' || (inputs.run_trivy_sca == 'auto' && (steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_python == 'true' || steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_dotnet == 'true' || steps.detect.outputs.has_go == 'true')) }}
         env:
           ACTIONS_STEP_DEBUG: 'false'
         run: |
@@ -618,7 +618,7 @@ jobs:
       # ═══════════════════════════════════════════
       - name: 🔍 SCA Summary - npm Audit
         id: sca
-        if: ${{ steps.resolve.outputs.project_type == 'node' && steps.node_detect.outputs.dir != '' && inputs.run_npm_audit == 'true' }}
+        if: ${{ inputs.run_npm_audit == 'true' || (inputs.run_npm_audit == 'auto' && steps.detect.outputs.has_node == 'true') }}
         env:
           ACTIONS_STEP_DEBUG: 'false'
         working-directory: ${{ steps.node_detect.outputs.dir }}
