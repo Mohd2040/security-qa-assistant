@@ -13,8 +13,8 @@ on:
       runner_labels:
         required: false
         type: string
-        #default: '["self-hosted", "ubuntudevops"]'
-        default: '["ubuntu-latest"]'
+        default: '["self-hosted", "ubuntudevops"]'
+        #default: '["ubuntu-latest"]'
       dast_url:
         description: 'Target URL for DAST scan (optional)'
         required: false
@@ -47,7 +47,7 @@ jobs:
     name: Run Security Scan
     uses: Mohd2040/security-qa-assistant/.github/workflows/reusable-security.yml@devops3
     with:
-      runner_labels: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_labels || '["ubuntu-latest"]' }}
+      runner_labels: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_labels || '["ubuntudevops"]' }}
       project_type: 'auto'
       run_trivy_sca: false
       run_npm_audit: false

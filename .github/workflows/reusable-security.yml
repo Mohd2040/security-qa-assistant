@@ -109,7 +109,6 @@ on:
         type: boolean
         default: false
       
-
     secrets:
       DAST_USERNAME:
         description: 'Username for authenticated DAST scanning'
@@ -122,9 +121,6 @@ on:
         required: false
       DEFECTDOJO_TOKEN:
         description: 'DefectDojo API token'
-        required: false
-      DEFECTDOJO_PRODUCT_ID:
-        description: 'DefectDojo product ID'
         required: false
 
 permissions:
@@ -819,9 +815,9 @@ jobs:
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
       # ═══════════════════════════════════════════
-      # SAST - Semgrep Testing (Docker)
+      # SAST - Semgrep Testing 
       # ═══════════════════════════════════════════
-      - name: 🛡️ SAST - Semgrep (Docker) Scan
+      - name: 🛡️ SAST - Semgrep  Scan
         id: semgrep_sast
         if: ${{ inputs.run_Semgrep_sca }}
         run: |
