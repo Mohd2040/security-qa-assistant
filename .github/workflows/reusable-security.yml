@@ -210,11 +210,11 @@ jobs:
             echo "project_type=${INPUT_PROJECT_TYPE }" >> "$GITHUB_OUTPUT"
           fi
 
-          if [ "${{ inputs.codeql_languages }}" = "auto" ] || [ -z "${{ inputs.codeql_languages }}" ]; then
-            echo "codeql_languages=${{ steps.detect.outputs.codeql_languages }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "codeql_languages=${{ inputs.codeql_languages }}" >> "$GITHUB_OUTPUT"
-          fi
+    #  #    if [ "${{ inputs.codeql_languages }}" = "auto" ] || [ -z "${{ inputs.codeql_languages }}" ]; then
+      #      echo "codeql_languages=${{ steps.detect.outputs.codeql_languages }}" >> "$GITHUB_OUTPUT"
+      #    else
+      #      echo "codeql_languages=${{ inputs.codeql_languages }}" >> "$GITHUB_OUTPUT"
+      #    fi
       # ═══════════════════════════════════════════
       # SCA - 🐍 Python - pip-audit (SCA)
       # ══════════════════════════════════════════
