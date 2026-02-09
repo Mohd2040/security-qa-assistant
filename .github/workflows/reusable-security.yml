@@ -67,7 +67,7 @@ on:
         description: 'Enable authenticated DAST scanning'
         required: false
         type: boolean
-        default: false
+        default: true
       dast_login_url:
         description: 'Login page URL for authenticated scanning'
         required: false
@@ -1171,7 +1171,7 @@ jobs:
                 url: "${{ inputs.dast_url }}"
                 maxDuration: 10
 
-            - type: ajaxSpider
+            - type: spiderAjax
               parameters:
                 context: "Authenticated Context"
                 user: "test-user"
@@ -1184,7 +1184,7 @@ jobs:
                 user: "test-user"
                 url: "${{ inputs.dast_url }}"
 
-            # Reports (اختَر اللي بدك ياه)
+            # Reports 
             - type: report
               parameters:
                 template: "traditional-html"
