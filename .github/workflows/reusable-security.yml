@@ -262,11 +262,16 @@ jobs:
       # ═══════════════════════════════════════════
       - name: 🔑 Run Gitleaks
         if: inputs.run_gitleaks == true
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          report-path: gitleaks-report.json
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Run Gitleaks via Docker and output JSON report
+          docker run --rm \
+            -v "${{ github.workspace }}:/repo" \
+            -w /repo \
+            zricethezav/gitleaks:latest \
+            detect --source . --report-format json --report-path gitleaks-report.json || true
         continue-on-error: true
       # ═══════════════════════════════════════════
       # 🔑📝 Generate Gitleaks Summary
@@ -305,12 +310,11 @@ jobs:
       # 🟢 Setup Node.js
       # ══════════════════════════════════════════
       - name: 🟢 Setup Node.js
-      #  if: ${{ steps.resolve.outputs.project_type == 'node' }}
         if: ${{ steps.detect.outputs.has_node == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          #cache: 'npm'
         continue-on-error: true
       # ═══════════════════════════════════════════
       # 🧪 SCA Run OWASP Dependency-Check
@@ -831,10 +835,15 @@ jobs:
             -e SEMGREP_USER_HOME=/src/.semgrep \
             -v "${{ github.workspace }}:/src" \
             -w /src \
-            returntocorp/semgrep:1.65.0 \
+            returntocorp/semgrep:1.90.0 \
             semgrep scan \
               --config p/security-audit \
+              --config p/secrets \
+              --config p/ci \
+              --no-git-ignore \
               --exclude node_modules \
+              --exclude dist --exclude build \
+              --exclude .venv --exclude venv \
               --sarif --output semgrep.sarif \
               . || true
         continue-on-error: true
