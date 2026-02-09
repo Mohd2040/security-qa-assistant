@@ -880,121 +880,103 @@ jobs:
           set -euo pipefail
 
           if [ ! -f semgrep.json ]; then
-            echo "## 🛡️ Semgrep" >> $GITHUB_STEP_SUMMARY
-            echo "❌ semgrep.json not found (scan may have failed to write output)" >> $GITHUB_STEP_SUMMARY
+            echo "## 🛡️ Semgrep" >> "$GITHUB_STEP_SUMMARY"
+            echo "❌ semgrep.json not found (scan may have failed to write output)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-                python3 - <<'PY'
-            import json, os
-            from collections import Counter
+              python3 - <<'PY'
+          import json, os
+          from collections import Counter
 
-            with open("semgrep.json", "r", encoding="utf-8") as f:
-                data = json.load(f)
+          with open("semgrep.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
 
-            results = data.get("results", []) or []
-            errors = [r for r in results if (r.get("extra", {}).get("severity") or "").upper() == "ERROR"]
-            warnings = [r for r in results if (r.get("extra", {}).get("severity") or "").upper() == "WARNING"]
-            infos = [r for r in results if (r.get("extra", {}).get("severity") or "").upper() in ("INFO", "NOTICE")]
+          results = data.get("results", []) or []
 
-            total = len(results)
+          def sev(r):
+              return (r.get("extra", {}).get("severity") or "").upper()
 
-            # Helpers
-            def safe(s, limit=160):
-                s = (s or "").strip().replace("\n", " ")
-                if len(s) > limit:
-                    return s[:limit-3] + "..."
-                return s
+          errors = [r for r in results if sev(r) == "ERROR"]
+          warnings = [r for r in results if sev(r) == "WARNING"]
+          infos = [r for r in results if sev(r) in ("INFO", "NOTICE")]
 
-            def loc(r):
-                path = r.get("path") or "unknown"
-                line = (r.get("start") or {}).get("line") or 0
-                return path, line
+          total = len(results)
 
-            # Counters
-            rule_counter = Counter()
-            file_counter = Counter()
-            for r in results:
-                rule = r.get("check_id") or "unknown_rule"
-                rule_counter[rule] += 1
-                file_counter[loc(r)[0]] += 1
+          def safe(s, limit=160):
+              s = (s or "").strip().replace("\n", " ")
+              return s if len(s) <= limit else s[:limit-3] + "..."
 
-            top_rules = rule_counter.most_common(5)
-            top_files = file_counter.most_common(5)
+          def loc(r):
+              path = r.get("path") or "unknown"
+              line = (r.get("start") or {}).get("line") or 0
+              return path, line
 
-            # Some scan meta (optional in JSON)
-            paths_scanned = data.get("paths", {}).get("scanned")  # may exist in some outputs
-            paths_skipped = data.get("paths", {}).get("skipped")  # may exist
-            errors_meta = data.get("errors", [])
+          rule_counter = Counter()
+          file_counter = Counter()
 
-            lines = []
-            lines.append("## 🛡️ Semgrep SAST Results")
-            lines.append("")
-            lines.append("### 📌 Overview")
-            lines.append(f"- **Total findings:** **{total}**")
-            lines.append(f"- 🔴 **ERROR:** {len(errors)} | 🟠 **WARNING:** {len(warnings)} | 🔵 **INFO/NOTICE:** {len(infos)}")
-            lines.append("")
+          for r in results:
+              rule = r.get("check_id") or "unknown_rule"
+              rule_counter[rule] += 1
+              file_counter[loc(r)[0]] += 1
 
-            lines.append("### 📊 Findings Summary")
-            lines.append("| Severity | Count |")
-            lines.append("| :--- | ---: |")
-            lines.append(f"| 🔴 Error | {len(errors)} |")
-            lines.append(f"| 🟠 Warning | {len(warnings)} |")
-            lines.append(f"| 🔵 Info/Notice | {len(infos)} |")
-            lines.append(f"| **Total** | **{total}** |")
-            lines.append("")
+          top_rules = rule_counter.most_common(5)
+          top_files = file_counter.most_common(5)
 
-            # Top findings (prioritize ERROR then WARNING then INFO)
-            ordered = errors + warnings + infos
-            if total > 0:
-                lines.append("### 🔎 Top Findings (up to 10)")
-                for r in ordered[:10]:
-                    sev = (r.get("extra", {}).get("severity") or "UNKNOWN").upper()
-                    msg = safe(r.get("extra", {}).get("message") or r.get("message") or r.get("check_id"))
-                    rule = r.get("check_id") or "unknown_rule"
-                    path, line = loc(r)
-                    lines.append(f"- **[{sev}]** {msg}  ")
-                    lines.append(f"  - 🧩 Rule: `{rule}`")
-                    lines.append(f"  - 📍 Location: `{path}` (Line: {line})")
-            else:
-                lines.append("✅ **Clean Scan:** No findings detected by the selected rulesets.")
-            lines.append("")
+          ordered = errors + warnings + infos
 
-            # Top rules / files
-            if total > 0:
-                lines.append("### 🧠 Most Frequent Rules (Top 5)")
-                lines.append("| Rule | Count |")
-                lines.append("| :--- | ---: |")
-                for rule, cnt in top_rules:
-                    lines.append(f"| `{rule}` | {cnt} |")
-                lines.append("")
+          lines = []
+          lines.append("## 🛡️ Semgrep SAST Results")
+          lines.append("")
+          lines.append("### 📌 Overview")
+          lines.append(f"- **Total findings:** **{total}**")
+          lines.append(f"- 🔴 **ERROR:** {len(errors)} | 🟠 **WARNING:** {len(warnings)} | 🔵 **INFO/NOTICE:** {len(infos)}")
+          lines.append("")
+          lines.append("### 📊 Findings Summary")
+          lines.append("| Severity | Count |")
+          lines.append("| :--- | ---: |")
+          lines.append(f"| 🔴 Error | {len(errors)} |")
+          lines.append(f"| 🟠 Warning | {len(warnings)} |")
+          lines.append(f"| 🔵 Info/Notice | {len(infos)} |")
+          lines.append(f"| **Total** | **{total}** |")
+          lines.append("")
 
-                lines.append("### 🗂️ Most Affected Files (Top 5)")
-                lines.append("| File | Findings |")
-                lines.append("| :--- | ---: |")
-                for fpath, cnt in top_files:
-                    lines.append(f"| `{fpath}` | {cnt} |")
-                lines.append("")
+          if total > 0:
+              lines.append("### 🔎 Top Findings (up to 10)")
+              for r in ordered[:10]:
+                  severity = sev(r) or "UNKNOWN"
+                  msg = safe(r.get("extra", {}).get("message") or r.get("check_id"))
+                  rule = r.get("check_id") or "unknown_rule"
+                  path, line = loc(r)
+                  lines.append(f"- **[{severity}]** {msg}  ")
+                  lines.append(f"  - 🧩 Rule: `{rule}`")
+                  lines.append(f"  - 📍 Location: `{path}` (Line: {line})")
+          else:
+              lines.append("✅ **Clean Scan:** No findings detected by the selected rulesets.")
 
-            # Scan notes (best-effort)
-            lines.append("### 📝 Scan Notes")
-            notes = []
-            if paths_scanned is not None:
-                notes.append(f"- Files scanned: {paths_scanned}")
-            if paths_skipped is not None:
-                notes.append(f"- Files skipped: {paths_skipped}")
-            if errors_meta:
-                notes.append(f"- Semgrep reported {len(errors_meta)} internal error(s) (check logs).")
-            if not notes:
-                notes.append("- (No additional scan metadata available in JSON output.)")
-            lines.extend(notes)
+          lines.append("")
+          if total > 0:
+              lines.append("### 🧠 Most Frequent Rules (Top 5)")
+              lines.append("| Rule | Count |")
+              lines.append("| :--- | ---: |")
+              for rule, cnt in top_rules:
+                  lines.append(f"| `{rule}` | {cnt} |")
+              lines.append("")
+              lines.append("### 🗂️ Most Affected Files (Top 5)")
+              lines.append("| File | Findings |")
+              lines.append("| :--- | ---: |")
+              for fpath, cnt in top_files:
+                  lines.append(f"| `{fpath}` | {cnt} |")
+              lines.append("")
 
-            lines.append("")
-            lines.append("---")
-            lines.append("")
+          lines.append("### 📝 Scan Notes")
+          lines.append("- Parsed from `semgrep.json` (reliable results source).")
+          lines.append("")
+          lines.append("---")
+          lines.append("")
 
-            with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
-                s.write("\n".join(lines))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+              s.write("\n".join(lines))
           PY
         continue-on-error: true
       # ═══════════════════════════════════════════
