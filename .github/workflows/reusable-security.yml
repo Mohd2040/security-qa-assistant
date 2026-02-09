@@ -864,8 +864,12 @@ jobs:
               --exclude node_modules \
               --exclude dist --exclude build \
               --exclude .venv --exclude venv \
+              --metrics=off \
+              --json \
               --output semgrep.json \
               . || true
+
+          python3 -c "import json; json.load(open('semgrep.json','r',encoding='utf-8')); print('semgrep.json OK')" || true
           chmod 644 semgrep.json  2>/dev/null || true
           ls -lah semgrep.json || true
         continue-on-error: true
