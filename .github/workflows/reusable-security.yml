@@ -36,8 +36,8 @@ on:
       run_Semgrep_sca:
         description: 'Run Semgrep SAST  '
         required: false
-        type: boolean
-        default: false
+        type: string
+        default: 'auto'
       run_dependency_check:
         description: 'Run OWASP Dependency-Check '
         required: false
@@ -819,7 +819,7 @@ jobs:
       # ═══════════════════════════════════════════
       - name: 🛡️ SAST - Semgrep  Scan
         id: semgrep_sast
-        if: ${{ inputs.run_Semgrep_sca }}
+        if: ${{ inputs.run_Semgrep_sca == 'true' || (inputs.run_Semgrep_sca == 'auto' && (steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_python == 'true' || steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_dotnet == 'true' || steps.detect.outputs.has_go == 'true')) }}
         run: |
           set -e
           # Running Semgrep via Docker for environment consistency
@@ -840,7 +840,7 @@ jobs:
       # SAST -Semgrep  Reporting Summary
       # ═══════════════════════════════════════════
       - name: 📊🛡️ SAST - Semgrep Summary Results
-        if: ${{ inputs.run_Semgrep_sca }}
+        if: ${{ inputs.run_Semgrep_sca == 'true' || (inputs.run_Semgrep_sca == 'auto' && (steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_python == 'true' || steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_dotnet == 'true' || steps.detect.outputs.has_go == 'true')) }}
         run: |
           # Check if the results file exists to prevent script failure
           if [ ! -f semgrep.sarif ]; then

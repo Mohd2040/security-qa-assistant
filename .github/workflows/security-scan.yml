@@ -50,6 +50,7 @@ jobs:
       runner_labels: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_labels || '["ubuntu-latest"]' }}
       project_type: 'auto'
       run_trivy_sca: 'auto'
+      run_Semgrep_sca: auto
       run_npm_audit: 'false'
       run_codeql: true
       #defectdojo_enabled: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
