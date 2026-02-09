@@ -853,60 +853,90 @@ jobs:
       # ═══════════════════════════════════════════
       - name: 📊🛡️ SAST - Semgrep Summary Results
         if: ${{ inputs.run_Semgrep_sca == 'true' || (inputs.run_Semgrep_sca == 'auto' && (steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_python == 'true' || steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_dotnet == 'true' || steps.detect.outputs.has_go == 'true')) }}
+        shell: bash
         run: |
-          # Check if the results file exists to prevent script failure
+          set -euo pipefail
+
           if [ ! -f semgrep.sarif ]; then
             echo "❌ Semgrep results not found!" >> $GITHUB_STEP_SUMMARY
             exit 0
           fi
 
-          # Extract findings using jq (Semgrep severity levels: ERROR, WARNING, INFO)
-          # Ensure jq is working on a valid file
-          if [ -s semgrep.sarif ]; then
-              # We use a single variable to avoid reading the file multiple times
-              RESULTS_ARRAY=".runs[]?.results[]?"
+          python3 - <<'PY'
+          import json
 
-              ERROR=$(jq "[$RESULTS_ARRAY | select((.level // .rule.properties.severity // \"\") | tostring | ascii_downcase | . == \"error\")] | length" semgrep.sarif || echo 0)
-              
-              WARNING=$(jq "[$RESULTS_ARRAY | select((.level // .rule.properties.severity // \"\") | tostring | ascii_downcase | . == \"warning\")] | length" semgrep.sarif || echo 0)
-              
-              # Semgrep maps 'note' to low-level findings in SARIF
-              INFO=$(jq "[$RESULTS_ARRAY | select((.level // .rule.properties.severity // \"\") | tostring | ascii_downcase | (. == \"note\" or . == \"info\"))] | length" semgrep.sarif || echo 0)
+          path = "semgrep.sarif"
+          with open(path, "r", encoding="utf-8") as f:
+              data = json.load(f)
 
-              TOTAL=$((ERROR + WARNING + INFO))
-          else
-              ERROR=0; WARNING=0; INFO=0; TOTAL=0
-          fi
+          runs = data.get("runs", [])
+          results = []
+          for r in runs:
+              results.extend(r.get("results", []) or [])
 
-          echo "## 🛡️🛡️ SAST - Semgrep Summary Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🛠️ Technology Stack:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tool:** Semgrep (Dockerized)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Ruleset:** p/security-audit" >> $GITHUB_STEP_SUMMARY
-          echo "- **Scan Scope:** Source Code Analysis" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          def lvl(res):
+              return (res.get("level") or "").lower()
 
-          echo "### 📊 Findings Statistics:" >> $GITHUB_STEP_SUMMARY
-          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🔴 Error (High Risk) | $ERROR |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🟠 Warning (Medium Risk) | $WARNING |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🔵 Info (Low Risk) | $INFO |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Total Issues** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          error = sum(1 for r in results if lvl(r) == "error")
+          warning = sum(1 for r in results if lvl(r) == "warning")
+          note = sum(1 for r in results if lvl(r) in ("note", "info"))
 
-          # Displaying Top Vulnerabilities if any Errors are found
-          if [ "$ERROR" -gt 0 ]; then
-            echo "### ⚠️ Top Critical Findings:" >> $GITHUB_STEP_SUMMARY
-            # Parse top 10 errors and format for Markdown display
-            jq -r '.results[] | select(.extra.severity == "ERROR") | "- **\(.extra.message)**\n  - 📍 File: `\(.path)` (Line: \(.start.line))"' semgrep.sarif | head -n 10 >> $GITHUB_STEP_SUMMARY
-          else
-            echo "✅ **Clean Scan:** No high-risk security patterns detected in your code." >> $GITHUB_STEP_SUMMARY
-          fi
+          total = error + warning + note
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          # Write summary
+          with open("/proc/self/fd/1", "w", encoding="utf-8") as out:
+              pass
+
+          summary_lines = []
+          summary_lines.append("## 🛡️🛡️ SAST - Semgrep Summary Results")
+          summary_lines.append("")
+          summary_lines.append("### 🛠️ Technology Stack:")
+          summary_lines.append("- **Tool:** Semgrep (Dockerized)")
+          summary_lines.append("- **Rulesets:** p/security-audit + p/secrets + p/ci")
+          summary_lines.append("- **Scan Scope:** Source Code Analysis")
+          summary_lines.append("")
+          summary_lines.append("### 📊 Findings Statistics:")
+          summary_lines.append("| Severity | Count |")
+          summary_lines.append("| :--- | :--- |")
+          summary_lines.append(f"| 🔴 Error (High Risk) | {error} |")
+          summary_lines.append(f"| 🟠 Warning (Medium Risk) | {warning} |")
+          summary_lines.append(f"| 🔵 Note/Info (Low Risk) | {note} |")
+          summary_lines.append(f"| **Total Issues** | **{total}** |")
+          summary_lines.append("")
+
+          # Show top findings (any severity)
+          if total > 0:
+              summary_lines.append("### 🔎 Sample Findings (Top 10):")
+              shown = 0
+              for res in results:
+                  level = (res.get("level") or "unknown").upper()
+                  msg = (res.get("message") or {}).get("text") or "No message"
+                  locs = res.get("locations") or []
+                  file_uri = "unknown"
+                  line = 0
+                  if locs:
+                      pl = (locs[0].get("physicalLocation") or {})
+                      al = (pl.get("artifactLocation") or {})
+                      file_uri = al.get("uri") or "unknown"
+                      region = pl.get("region") or {}
+                      line = region.get("startLine") or 0
+
+                  summary_lines.append(f"- **[{level}]** {msg}  \n  - 📍 `{file_uri}` (Line: {line})")
+                  shown += 1
+                  if shown >= 10:
+                      break
+          else:
+              summary_lines.append("✅ **Clean Scan:** No security patterns detected by the selected rulesets.")
+
+          summary_lines.append("")
+          summary_lines.append("---")
+          summary_lines.append("")
+
+          # Append to GitHub step summary
+          import os
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+              s.write("\n".join(summary_lines))
+          PY
         continue-on-error: true
       # ═══════════════════════════════════════════
       # SAST - CodeQL - Initialize FIRST (before builds)
