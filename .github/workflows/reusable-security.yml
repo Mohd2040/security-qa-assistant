@@ -845,8 +845,9 @@ jobs:
               --exclude dist --exclude build \
               --exclude .venv --exclude venv \
               --sarif --output semgrep.sarif \
+              --json --output semgrep.json \
               . || true
-            sudo chmod 644 semgrep.sarif
+          sudo chmod 644 semgrep.sarif semgrep.json
         continue-on-error: true
 
       # ═══════════════════════════════════════════

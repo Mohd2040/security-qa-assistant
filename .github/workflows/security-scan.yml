@@ -60,8 +60,8 @@ jobs:
       run_npm_audit: 'false'
       #defectdojo_enabled: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
       #defectdojo_auto_create: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
-      dast_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_url || 'https://security-qa-assistant.onrender.com/' }}
-      dast_login_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_login_url || 'https://security-qa-assistant.onrender.com/login' }}
-      dast_success_indicator: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_success_indicator || 'https://security-qa-assistant.onrender.com/admin' }}
+      #dast_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_url || 'https://security-qa-assistant.onrender.com/' }}
+      #dast_login_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_login_url || 'https://security-qa-assistant.onrender.com/login' }}
+      #dast_success_indicator: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_success_indicator || 'https://security-qa-assistant.onrender.com/admin' }}
     secrets: inherit
     
