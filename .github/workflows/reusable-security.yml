@@ -87,7 +87,7 @@ on:
         description: 'URL pattern or text indicating successful login'
         required: false
         type: string
-        default: ''
+        default: 'https://security-qa-assistant.onrender.com/admin'
       defectdojo_enabled:
         description: 'Enable DefectDojo integration'
         required: false
@@ -492,13 +492,13 @@ jobs:
             echo "total=$TOTAL"
           } >> "$GITHUB_OUTPUT"
 
-          # تفحص النتائج قبل المتابعة
+          # 
           if [ -f trivy-sca.json ]; then
             echo "**Languages Detected:**" >> $GITHUB_STEP_SUMMARY
             jq -r '.Results[]? | select(.Target) | "- \(.Type // "Unknown"): \(.Target)"' trivy-sca.json | sort -u >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
             echo "" >> $GITHUB_STEP_SUMMARY
             
-            # Recommendations (الجزء الأول)
+            # Recommendations 
             echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
             if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
               echo "**⚠️ Action Required:**" >> $GITHUB_STEP_SUMMARY
@@ -601,7 +601,7 @@ jobs:
           echo "📤 Output dir: $TARGET_DIR"
         continue-on-error: true
       - name: 📦 Install dependencies (npm ci)
-        if: ${{ steps.resolve.outputs.project_type == 'node' && steps.node_detect.outputs.dir != '' }}
+        if: ${{ steps.resolve.outputs.project_type == 'node' && steps.node_detect.outputs.dir != '' && inputs.run_npm_audit == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -622,7 +622,7 @@ jobs:
       # ═══════════════════════════════════════════
       - name: 🔍 SCA Summary - npm Audit
         id: sca
-        if: ${{ steps.resolve.outputs.project_type == 'node' && steps.node_detect.outputs.dir != '' }}
+        if: ${{ steps.resolve.outputs.project_type == 'node' && steps.node_detect.outputs.dir != '' && inputs.run_npm_audit == 'true' }}
         env:
           ACTIONS_STEP_DEBUG: 'false'
         working-directory: ${{ steps.node_detect.outputs.dir }}
