@@ -828,7 +828,7 @@ jobs:
           set -e
           mkdir -p .semgrep
           # Running Semgrep via Docker for environment consistency
-          # Using :latest for newest rules, but :1.65.0 is recommended for production stability
+          # Using :latest for newest rules, but :1.90.0 is recommended for production stability
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -e HOME=/src \
@@ -846,6 +846,7 @@ jobs:
               --exclude .venv --exclude venv \
               --sarif --output semgrep.sarif \
               . || true
+            sudo chmod 644 semgrep.sarif
         continue-on-error: true
 
       # ═══════════════════════════════════════════
