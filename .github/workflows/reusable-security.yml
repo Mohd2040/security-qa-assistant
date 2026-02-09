@@ -46,8 +46,8 @@ on:
       run_codeql:
         description: 'Run CodeQL analysis'
         required: false
-        type: boolean
-        default: true  # Enabled by default
+        type: string
+        default: 'auto'  # Enabled by default
       codeql_languages:
         description: 'CodeQL languages (javascript-typescript, python, go, java, etc.)'
         required: false
@@ -822,10 +822,13 @@ jobs:
         if: ${{ inputs.run_Semgrep_sca == 'true' || (inputs.run_Semgrep_sca == 'auto' && (steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_python == 'true' || steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_dotnet == 'true' || steps.detect.outputs.has_go == 'true')) }}
         run: |
           set -e
+          mkdir -p .semgrep
           # Running Semgrep via Docker for environment consistency
           # Using :latest for newest rules, but :1.65.0 is recommended for production stability
           docker run --rm \
             --user "$(id -u):$(id -g)" \
+            -e HOME=/src \
+            -e SEMGREP_USER_HOME=/src/.semgrep \
             -v "${{ github.workspace }}:/src" \
             -w /src \
             returntocorp/semgrep:1.65.0 \

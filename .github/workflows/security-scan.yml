@@ -26,6 +26,11 @@ on:
         required: false
         type: string
         default: 'https://security-qa-assistant.onrender.com/login'
+      dast_success_indicator:
+        description: 'URL pattern or text indicating successful login'
+        required: false
+        type: string
+        default: 'https://security-qa-assistant.onrender.com/admin'
       dast_username_field:
         description: 'Username field name in login form'
         required: false
@@ -50,12 +55,13 @@ jobs:
       runner_labels: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_labels || '["ubuntu-latest"]' }}
       project_type: 'auto'
       run_trivy_sca: 'auto'
-      run_Semgrep_sca: auto
+      run_Semgrep_sca: 'auto'
+      run_codeql: 'true'
       run_npm_audit: 'false'
-      run_codeql: true
       #defectdojo_enabled: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
       #defectdojo_auto_create: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
       dast_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_url || 'https://security-qa-assistant.onrender.com/' }}
       dast_login_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_login_url || 'https://security-qa-assistant.onrender.com/login' }}
+      dast_success_indicator: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_success_indicator || 'https://security-qa-assistant.onrender.com/admin' }}
     secrets: inherit
     
