@@ -199,12 +199,15 @@ jobs:
       # ═══════════════════════════════════════════
       - name: 🧭 Resolve effective config (auto/manual)
         id: resolve
+        env:
+          INPUT_PROJECT_TYPE: ${{ inputs.project_type }}
+          DETECT_PROJECT_TYPE: ${{ steps.detect.outputs.project_type }}
         shell: bash
         run: |
-          if [ "${{ inputs.project_type }}" = "auto" ] || [ -z "${{ inputs.project_type }}" ]; then
+          if [ "${INPUT_PROJECT_TYPE}" = "auto" ] || [ -z "${INPUT_PROJECT_TYPE}" ]; then
             echo "project_type=${{ steps.detect.outputs.project_type }}" >> "$GITHUB_OUTPUT"
           else
-            echo "project_type=${{ inputs.project_type }}" >> "$GITHUB_OUTPUT"
+            echo "project_type=${INPUT_PROJECT_TYPE }" >> "$GITHUB_OUTPUT"
           fi
 
           if [ "${{ inputs.codeql_languages }}" = "auto" ] || [ -z "${{ inputs.codeql_languages }}" ]; then
@@ -993,7 +996,7 @@ jobs:
         if: ${{ inputs.run_codeql }}
         uses: github/codeql-action/init@v4
         with:
-          languages: ${{ steps.resolve.outputs.codeql_languages }}
+          languages: ${{ steps.detect.outputs.codeql_languages }}
           queries: ${{ inputs.codeql_queries }}
           # For compiled languages, add build-mode
           # build-mode: manual
@@ -1005,7 +1008,7 @@ jobs:
         if: ${{ inputs.run_codeql }}
         uses: github/codeql-action/analyze@v4
         with:
-          category: "/language:${{ steps.resolve.outputs.codeql_languages }}"
+          category: "/language:${{ steps.detect.outputs.codeql_languages }}"
           output: sarif-results
           upload: true
         continue-on-error: true
@@ -1162,7 +1165,7 @@ jobs:
 
           echo "### 📈 Scan Statistics:" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Status:** Analysis Complete" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Language(s):** ${{ steps.resolve.outputs.codeql_languages }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Language(s):** ${{ steps.detect.outputs.codeql_languages }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Query Pack:** ${{ inputs.codeql_queries }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Total Findings:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
