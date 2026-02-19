@@ -1,10 +1,10 @@
 name: Security Vulnerability Test
 
 on:
-  push:
-    branches: [ "devops3" ]
-  pull_request:
-    branches: [ "devops3" ]
+  #push:
+  #  branches: [ "devops3" ]
+  #pull_request:
+  #  branches: [ "devops3" ]
   #schedule:
     # Run every Monday at 2 AM UTC for periodic assessment
     #- cron: '0 2 * * 1'
