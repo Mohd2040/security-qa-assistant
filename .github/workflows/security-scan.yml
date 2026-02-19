@@ -1,8 +1,8 @@
 name: Security Vulnerability Test
 
 on:
-  #push:
-  #  branches: [ "devops3" ]
+  push:
+    branches: [ "devops3" ]
   #pull_request:
   #  branches: [ "devops3" ]
   #schedule:
