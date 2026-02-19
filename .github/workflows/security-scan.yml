@@ -50,7 +50,7 @@ permissions:
 jobs:
   call-security-scan:
     name: Run Security Scan
-    uses: Mohd2040/security-qa-assistant/.github/workflows/reusable-security.yml@devops3
+    uses: Mohd2040/vulnerability-test-tools/.github/workflows/reusable-security.yml@main
     with:
       runner_labels: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_labels || '["ubuntu-latest"]' }}
       project_type: 'auto'
