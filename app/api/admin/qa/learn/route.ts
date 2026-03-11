@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { learnFromFeedback, getFeedbackInsights, getLearnedWeights } from "@/lib/adaptive-learning";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
  * POST /api/admin/qa/learn

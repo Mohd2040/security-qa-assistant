@@ -5,6 +5,7 @@ import { getEmbedding } from "@/lib/embeddings";
 import { isOpenAIEnabled } from "@/lib/ai";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
  * Diagnostic endpoint to test Atlas Search functionality

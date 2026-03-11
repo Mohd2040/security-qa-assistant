@@ -1,13 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // ✅ ضروري إذا كنت تستخدم الصور في Next.js
+  images: {
+    unoptimized: true,
+  },
 
-  // 🚀 هذا الإعداد يحل مشكلة Dockerfile ويُنشئ مجلد .next/standalone
-  output: 'standalone',
-
-  // يُبقي إعداد React Compiler الذي أضفته
-  reactCompiler: true,
+  // Required for GitHub Pages deployment
+  output: "export",
 
   // ✅ SECURITY: Add security headers
   async headers() {
@@ -39,6 +39,12 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
+  /* ملاحظة أمنية: 
+     دالة headers() لا تعمل مع output: 'export'. 
+     لحماية موقعك على GitHub Pages، يفضل استخدام إضافة 
+     أو ضبط الإعدادات من داخل لوحة تحكم الاستضافة إذا كانت تدعم ذلك.
+  */
 };
 
 export default nextConfig;
