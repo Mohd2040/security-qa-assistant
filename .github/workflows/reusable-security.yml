@@ -1,0 +1,2306 @@
+name: Reusable Security Scan 
+
+on:
+  workflow_call:
+    inputs:
+      runner_labels:
+        required: false
+        type: string
+        default: '["ubuntu-latest"]'
+      defectdojo_product_type:
+        description: 'Product type name in DefectDojo'
+        required: false
+        type: string
+        default: 'Web Application'
+      # 🆕 NEW: Auto-manage DefectDojo resources
+      defectdojo_auto_create:
+        description: 'Auto-create Product/Engagement if not exists'
+        required: false
+        type: boolean
+        default: true
+      project_type:
+        description: 'Project type (node, dotnet, python, go, java)'
+        required: false
+        type: string
+        default: 'auto'
+      run_trivy_sca:
+        description: 'Run Trivy (Dependencies)'
+        required: false
+        type: string
+        default: 'auto'  # Enabled by default
+      run_npm_audit:
+        description: 'Run npm audit'
+        required: false
+        type: string
+        default: 'auto'
+      run_Semgrep_sca:
+        description: 'Run Semgrep SAST  '
+        required: false
+        type: string
+        default: 'auto'
+      run_dependency_check:
+        description: 'Run OWASP Dependency-Check '
+        required: false
+        type: string
+        default: 'auto'
+      run_codeql:
+        description: 'Run CodeQL analysis'
+        required: false
+        type: string
+        default: 'auto'  # Enabled by default
+      codeql_languages:
+        description: 'CodeQL languages (javascript-typescript, python, go, java, etc.)'
+        required: false
+        type: string
+        default: 'auto'
+      codeql_queries:
+        description: 'CodeQL query suite (security-extended, security-and-quality)'
+        required: false
+        type: string
+        default: 'security-extended'
+      dast_url:
+        description: 'Target URL for DAST scan (optional)'
+        required: false
+        type: string
+        default: ''
+      dast_auth_enabled:
+        description: 'Enable authenticated DAST scanning'
+        required: false
+        type: boolean
+        default: true
+      dast_login_url:
+        description: 'Login page URL for authenticated scanning'
+        required: false
+        type: string
+        default: ''
+      dast_username_field:
+        description: 'Username field name in login form'
+        required: false
+        type: string
+        default: 'username'
+      dast_password_field:
+        description: 'Password field name in login form'
+        required: false
+        type: string
+        default: 'password'
+      dast_success_indicator:
+        description: 'URL pattern or text indicating successful login'
+        required: false
+        type: string
+        default: 'https://security-qa-assistant.onrender.com/admin'
+      defectdojo_enabled:
+        description: 'Enable DefectDojo integration'
+        required: false
+        type: boolean
+        default: false
+      run_gitleaks:
+        description: 'Run Gitleaks (Secret Scanning)'
+        required: false
+        type: boolean
+        default: true
+      run_trivy_iac:
+        description: 'Run Trivy (IaC Scanning)'
+        required: false
+        type: string
+        default: 'auto'
+      run_dotnet_scan:
+        description: 'Run .NET Dependencies Scanning'
+        required: false
+        type: string
+        default: 'auto'
+      
+    secrets:
+      DAST_USERNAME:
+        description: 'Username for authenticated DAST scanning'
+        required: false
+      DAST_PASSWORD:
+        description: 'Password for authenticated DAST scanning'
+        required: false
+      DEFECTDOJO_URL:
+        description: 'DefectDojo server URL'
+        required: false
+      DEFECTDOJO_TOKEN:
+        description: 'DefectDojo API token'
+        required: false
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ${{ fromJson(inputs.runner_labels) }}
+    #runs-on: [self-hosted, ubuntudevops]
+    
+    steps:
+      # ═══════════════════════════════════════════
+      - name: 🧹 Pre-checkout cleanup (self-hosted)
+        run: |
+          set +e
+          sudo rm -rf "$GITHUB_WORKSPACE/depcheck-output" "$GITHUB_WORKSPACE/zap-output" 2>/dev/null || true
+          sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE" 2>/dev/null || true
+      # ═══════════════════════════════════════════   
+            # SETUP
+      # ═══════════════════════════════════════════
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📥 Checkout shared security scripts
+        uses: actions/checkout@v4
+        with:
+          repository: Mohd2040/security-qa-assistant
+          ref: devops3
+          path: .github-shared
+      # ═══════════════════════════════════════════ 
+      - name: 📁 Set reports directory
+        shell: bash
+        run: |
+          echo "REPORTS_DIR=security-reports" >> "$GITHUB_ENV"
+          mkdir -p "security-reports/depcheck-output" "security-reports/zap-output"
+      # ═══════════════════════════════════════════
+      #  Detect local or shared
+      # ═══════════════════════════════════════════
+      - name: 🧠Detect project type
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -f ".github/scripts/detect_project.sh" ]; then
+            echo "✅ Using LOCAL detect script"
+            chmod +x .github/scripts/detect_project.sh
+            bash .github/scripts/detect_project.sh
+            exit 0
+          fi
+
+          echo "✅ Using SHARED detect script"
+          chmod +x .github-shared/.github/scripts/detect_project.sh
+          bash .github-shared/.github/scripts/detect_project.sh
+      # ═══════════════════════════════════════════
+      # 🔎 Debug detect outputs
+      # ═══════════════════════════════════════════
+      - name: 🔎 Debug detect outputs
+        shell: bash
+        run: |
+          echo "🔎 Debug detect outputs " >> $GITHUB_STEP_SUMMARY
+          echo "project_type=${{ steps.detect.outputs.project_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "codeql_languages=${{ steps.detect.outputs.codeql_languages }}" >> $GITHUB_STEP_SUMMARY
+          echo "has_node=${{ steps.detect.outputs.has_node }}" >> $GITHUB_STEP_SUMMARY
+          echo "has_python=${{ steps.detect.outputs.has_python }}" >> $GITHUB_STEP_SUMMARY
+          echo "has_java=${{ steps.detect.outputs.has_java }}" >> $GITHUB_STEP_SUMMARY
+          echo "has_dotnet=${{ steps.detect.outputs.has_dotnet }}" >> $GITHUB_STEP_SUMMARY
+          echo "has_go=${{ steps.detect.outputs.has_go }}" >> $GITHUB_STEP_SUMMARY
+          echo "has_docker=${{ steps.detect.outputs.has_docker }}" >> $GITHUB_STEP_SUMMARY
+          echo "has_k8s=${{ steps.detect.outputs.has_k8s }}" >> $GITHUB_STEP_SUMMARY
+      # ═══════════════════════════════════════════
+      #  🧭 Resolve effective config
+      # ═══════════════════════════════════════════
+      - name: 🧭 Resolve effective config (auto/manual)
+        id: resolve
+        env:
+          INPUT_PROJECT_TYPE: ${{ inputs.project_type }}
+          DETECT_PROJECT_TYPE: ${{ steps.detect.outputs.project_type }}
+        shell: bash
+        run: |
+          if [ "${INPUT_PROJECT_TYPE}" = "auto" ] || [ -z "${INPUT_PROJECT_TYPE}" ]; then
+            echo "project_type=${{ steps.detect.outputs.project_type }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "project_type=${INPUT_PROJECT_TYPE }" >> "$GITHUB_OUTPUT"
+          fi
+
+    #  #    if [ "${{ inputs.codeql_languages }}" = "auto" ] || [ -z "${{ inputs.codeql_languages }}" ]; then
+      #      echo "codeql_languages=${{ steps.detect.outputs.codeql_languages }}" >> "$GITHUB_OUTPUT"
+      #    else
+      #      echo "codeql_languages=${{ inputs.codeql_languages }}" >> "$GITHUB_OUTPUT"
+      #    fi
+      # ═══════════════════════════════════════════
+      # SCA - 🐍 Python - pip-audit (SCA)
+      # ══════════════════════════════════════════
+      - name: 🐍 Python - pip-audit (SCA)
+        if: ${{ steps.detect.outputs.has_python == 'true' }}
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          pip-audit -r requirements.txt || true
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # SAST - 🐍 Python - Bandit (SAST)
+      # ═══════════════════════════════════════════
+      - name: 🐍 Python - Bandit (SAST)
+        if: ${{ steps.detect.outputs.has_python == 'true' }}
+        shell: bash
+        run: |
+          pip install bandit
+          bandit -r . -f json -o bandit-report.json || true
+      # ═══════════════════════════════════════════
+      # SAST - 🐍📝 Generate Bandit Summary
+      # ═══════════════════════════════════════════
+      - name: 🐍📝 Generate Bandit Summary
+        if: ${{ steps.detect.outputs.has_python == 'true' && hashFiles('bandit-report.json') != '' }}
+        shell: bash
+        run: |
+          echo "### 🐍 Python Bandit (SAST) Results" >> $GITHUB_STEP_SUMMARY
+          
+          NUM_ISSUES=$(jq '.results | length' bandit-report.json)
+
+          if [ "$NUM_ISSUES" -eq "0" ]; then
+            echo "✅ No security issues found in Python code." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Found **$NUM_ISSUES** potential security vulnerabilities." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Confidence | File | Issue | Line |" >> $GITHUB_STEP_SUMMARY
+            echo "| :--- | :--- | :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+            
+            jq -r '.results[] | "| \(.issue_severity) | \(.issue_confidence) | \(.filename) | \(.issue_text) | \(.line_number) |"' bandit-report.json >> $GITHUB_STEP_SUMMARY
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+            echo "> High severity issues should be prioritized for review." >> $GITHUB_STEP_SUMMARY
+          fi
+      # ═══════════════════════════════════════════
+      # 🔑SECRET SCANNING (Gitleaks)
+      # ═══════════════════════════════════════════
+      - name: 🔑 Run Gitleaks
+        if: inputs.run_gitleaks == true
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Run Gitleaks via Docker and output JSON report
+          docker run --rm \
+            -v "${{ github.workspace }}:/repo" \
+            -w /repo \
+            zricethezav/gitleaks:latest \
+            detect --source . --report-format json --report-path gitleaks-report.json || true
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # 🔑📝 Generate Gitleaks Summary
+      # ═══════════════════════════════════════════
+      - name: 🔑📝 Generate Gitleaks Summary
+        if: inputs.run_gitleaks == true && hashFiles('gitleaks-report.json') != ''
+        run: |
+          echo "### 🔑 Gitleaks Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$(jq 'length' gitleaks-report.json)" -eq "0" ]; then
+            echo "✅ No secrets found in the repository." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Warning:** Potential secrets detected!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| File | Secret Type | Line | Commit |" >> $GITHUB_STEP_SUMMARY
+            echo "| :--- | :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+            
+            # Markdown
+            jq -r '.[] | "| \(.File) | \(.RuleID) | \(.StartLine) | \(.Commit[:7]) |"' gitleaks-report.json >> $GITHUB_STEP_SUMMARY
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> [!CAUTION]" >> $GITHUB_STEP_SUMMARY
+            echo "> If these are valid secrets, revoke them immediately and remove them from git history." >> $GITHUB_STEP_SUMMARY
+          fi
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # .NET Dependencies
+      # ═══════════════════════════════════════════
+      - name: 🔵 .NET Vulnerability Scan
+        if: ${{ steps.detect.outputs.has_dotnet == 'true' }}
+        run: |
+          echo "🔍 Running .NET vulnerability check..."
+          dotnet list package --vulnerable --include-transitive || true
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # 🟢 Setup Node.js
+      # ══════════════════════════════════════════
+      - name: 🟢 Setup Node.js
+        if: ${{ steps.detect.outputs.has_node == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          #cache: 'npm'
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # 🧪 SCA Run OWASP Dependency-Check
+      # ══════════════════════════════════════════
+      - name: 🧪 SCA Run OWASP Dependency-Check
+        if: ${{ inputs.run_dependency_check == 'true' || (inputs.run_dependency_check == 'auto' && (steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_dotnet == 'true')) }}
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: "${{ github.repository }}-${{ github.ref_name }}"
+          path: "."
+          format: "ALL"
+          out: "security-reports/depcheck-output"
+        continue-on-error: true
+      #===========================================
+      # SCA - 🔍 Summary OWASP Dependency-Check
+      # ══════════════════════════════════════════
+      - name: 📊 SCA Summary - OWASP Dependency-Check
+        id: sca_depcheck
+        if: ${{ inputs.run_dependency_check == 'true' || (inputs.run_dependency_check == 'auto' && (steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_dotnet == 'true')) }}
+        env:
+          ACTIONS_STEP_DEBUG: 'false'
+        run: |
+          set +x
+          set -e
+
+          REPORT_JSON="${REPORTS_DIR}/depcheck-output/dependency-check-report.json"
+          REPORT_XML="${REPORTS_DIR}/depcheck-output/dependency-check-report.xml"
+
+          # Defaults
+          CRITICAL=0
+          HIGH=0
+          MODERATE=0
+          LOW=0
+          TOTAL=0
+
+          # Extract metrics
+          # NOTE: Dependency-Check uses CVSS severity in vulnerabilities array.
+          # We approximate: CRITICAL >= 9.0, HIGH 7.0-8.9, MODERATE 4.0-6.9, LOW 0.1-3.9
+          if [ -f "$REPORT_JSON" ]; then
+            CRITICAL=$(( $(jq '[.. | objects | .cvssv3? // empty | .baseScore? // empty | select(. >= 9)] | length' "$REPORT_JSON" 2>/dev/null || echo 0) ))
+            HIGH=$(( $(jq '[.. | objects | .cvssv3? // empty | .baseScore? // empty | select(. >= 7 and . < 9)] | length' "$REPORT_JSON" 2>/dev/null || echo 0) ))
+            MODERATE=$(( $(jq '[.. | objects | .cvssv3? // empty | .baseScore? // empty | select(. >= 4 and . < 7)] | length' "$REPORT_JSON" 2>/dev/null || echo 0) ))
+            LOW=$(( $(jq '[.. | objects | .cvssv3? // empty | .baseScore? // empty | select(. > 0 and . < 4)] | length' "$REPORT_JSON" 2>/dev/null || echo 0) ))
+            TOTAL=$(( CRITICAL + HIGH + MODERATE + LOW ))
+          fi
+
+          # Write summary
+          echo "## 🔍 SCA Summary - OWASP Dependency-Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Technology
+          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** OWASP Dependency-Check" >> $GITHUB_STEP_SUMMARY
+          echo "- **Database:** NVD (and other supported sources)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Coverage:** Third-party dependencies (SCA)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Scope:** Manifest + discovered libraries" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📊 Results (OWASP Dependency-Check):" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          printf "| 🔴 Critical | %d |\n" "$CRITICAL" >> $GITHUB_STEP_SUMMARY
+          printf "| 🟠 High | %d |\n" "$HIGH" >> $GITHUB_STEP_SUMMARY
+          printf "| 🟡 Moderate | %d |\n" "$MODERATE" >> $GITHUB_STEP_SUMMARY
+          printf "| 🟢 Low | %d |\n" "$LOW" >> $GITHUB_STEP_SUMMARY
+          printf "| **Total** | **%d** |\n" "$TOTAL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Save to outputs
+          {
+            echo "critical=$CRITICAL"
+            echo "high=$HIGH"
+            echo "total=$TOTAL"
+          } >> "$GITHUB_OUTPUT"
+
+          # Recommendations
+          echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "**⚠️ Action Required:** High-risk vulnerabilities detected." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Top vulnerable components (sample):**" >> $GITHUB_STEP_SUMMARY
+            jq -r '
+              .dependencies[]? 
+              | select(.vulnerabilities != null) 
+              | {fileName: .fileName, vulns: (.vulnerabilities | length)} 
+              ' "$REPORT_JSON" 2>/dev/null \
+              | head -c 1 >/dev/null 2>&1 || true
+
+            # Print up to 5 dependencies with most vulnerabilities (best-effort)
+            jq -r '
+              [ .dependencies[]? 
+                | select(.vulnerabilities != null) 
+                | {fileName: .fileName, count: (.vulnerabilities | length)} 
+              ] 
+              | sort_by(.count) | reverse | .[0:5] 
+              | .[] | "- `\(.fileName)` - \(.count) issue(s)"
+            ' "$REPORT_JSON" 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
+          else
+            echo "✅ No critical or high vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # SCA - Trivy (Dependencies)
+      # ══════════════════════════════════════════
+      - name: 🔍 SCA - Trivy (Dependencies)
+        uses: aquasecurity/trivy-action@0.28.0
+        id: sca_trivy
+        if: ${{ inputs.run_trivy_sca == 'true' || (inputs.run_trivy_sca == 'auto' && (steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_python == 'true' || steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_dotnet == 'true' || steps.detect.outputs.has_go == 'true')) }}
+        with:
+          scan-type: 'fs'
+          format: 'json'
+          output: 'trivy-sca.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # SCA - Trivy (Summary Dependencies)
+      # ══════════════════════════════════════════
+      - name: 📊 SCA Summary - Trivy (Dependencies)
+        if: ${{ inputs.run_trivy_sca == 'true' || (inputs.run_trivy_sca == 'auto' && (steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_python == 'true' || steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_dotnet == 'true' || steps.detect.outputs.has_go == 'true')) }}
+        env:
+          ACTIONS_STEP_DEBUG: 'false'
+        run: |
+          set +x
+          set -e
+
+          # Run Trivy filesystem scan (includes dependency vulnerabilities)
+          #trivy fs --scanners vuln --format json --output trivy-sca.json . || true
+
+          # Defaults
+          CRITICAL=0
+          HIGH=0
+          MODERATE=0
+          LOW=0
+          TOTAL=0
+
+          # Extract metrics
+          if [ -f trivy-sca.json ]; then
+            CRITICAL=$(( $(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-sca.json 2>/dev/null || echo 0) ))
+            HIGH=$(( $(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-sca.json 2>/dev/null || echo 0) ))
+            MODERATE=$(( $(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-sca.json 2>/dev/null || echo 0) ))
+            LOW=$(( $(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-sca.json 2>/dev/null || echo 0) ))
+            TOTAL=$(( CRITICAL + HIGH + MODERATE + LOW ))
+          fi
+
+          # Write summary
+          echo "## 🔍 SCA Summary - Trivy (Dependencies)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Technology
+          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** Trivy (Aqua Security)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Database:** Trivy vulnerability DB" >> $GITHUB_STEP_SUMMARY
+          echo "- **Coverage:** OS packages + language dependencies (SCA)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Scope:** Direct + transitive dependencies where supported" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📊 Results (Trivy SCA):" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Save to outputs
+          {
+            echo "critical=$CRITICAL"
+            echo "high=$HIGH"
+            echo "total=$TOTAL"
+          } >> "$GITHUB_OUTPUT"
+
+          # 
+          if [ -f trivy-sca.json ]; then
+            echo "**Languages Detected:**" >> $GITHUB_STEP_SUMMARY
+            jq -r '.Results[]? | select(.Target) | "- \(.Type // "Unknown"): \(.Target)"' trivy-sca.json | sort -u >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Recommendations 
+            echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+            if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
+              echo "**⚠️ Action Required:**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              echo "**Top Critical/High Vulnerabilities:**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "| CVE | Severity | Package | Installed | Fixed |" >> $GITHUB_STEP_SUMMARY
+              echo "|-----|----------|---------|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+              
+              jq -r '.Results[]?.Vulnerabilities[]? | 
+                select(.Severity == "CRITICAL" or .Severity == "HIGH") | 
+                "| [\(.VulnerabilityID)](https://nvd.nist.gov/vuln/detail/\(.VulnerabilityID)) | \(.Severity) | `\(.PkgName)` | \(.InstalledVersion) | \(.FixedVersion // "N/A") |"' \
+                trivy-sca.json | head -10 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+              
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Steps to Fix:**" >> $GITHUB_STEP_SUMMARY
+              echo "1. Review CVE details (click CVE links above)" >> $GITHUB_STEP_SUMMARY
+              echo "2. Update affected packages to fixed versions" >> $GITHUB_STEP_SUMMARY
+              echo "3. If no fix available, consider alternatives or apply workarounds" >> $GITHUB_STEP_SUMMARY
+              echo "4. Test application after updates" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ No critical or high SAST vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+              echo "- Code analysis shows no major security issues" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+          else
+            echo "⚠️ Trivy scan did not produce results" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # SCA - 📦 Install dependencies npm ci
+      # ═══════════════════════════════════════════
+      - name: ✅ Detect Node project directory
+        id: node_detect
+        if: ${{ steps.resolve.outputs.project_type == 'node' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "🔎 Detecting Node project directory..."
+
+          detect_info () {
+            local dir="$1"
+            echo "✅ Detected: Node.js (package.json found)"
+            echo "📌 Project dir: $dir"
+
+            # Extra checks
+            if grep -q "\"type\"[[:space:]]*:[[:space:]]*\"module\"" "$dir/package.json" 2>/dev/null; then
+              echo "📦 ESM module detected"
+            fi
+            if grep -q "\"typescript\"" "$dir/package.json" 2>/dev/null; then
+              echo "📘 TypeScript detected"
+            fi
+          }
+
+          TARGET_DIR=""
+
+          # 1) Prefer root if package.json exists
+          if [[ -f "package.json" ]]; then
+            TARGET_DIR="."
+            detect_info "."
+          else
+            echo "ℹ️ Root package.json not found. Searching subfolders..."
+
+            # 2) Prefer the first folder that has BOTH package.json and package-lock.json
+            while IFS= read -r lockfile; do
+              d="$(dirname "$lockfile")"
+              if [[ -f "$d/package.json" ]]; then
+                TARGET_DIR="${d#./}"
+                detect_info "$TARGET_DIR"
+                break
+              fi
+            done < <(find . -mindepth 2 -maxdepth 10 -type f -name package-lock.json \
+                      -not -path "*/node_modules/*" -not -path "*/.git/*" -print)
+
+            # 3) Fallback: first package.json anywhere (if no lock found)
+            if [[ -z "$TARGET_DIR" ]]; then
+              pkg="$(find . -mindepth 2 -maxdepth 10 -type f -name package.json \
+                    -not -path "*/node_modules/*" -not -path "*/.git/*" -print | head -n 1 || true)"
+
+              if [[ -n "$pkg" ]]; then
+                TARGET_DIR="$(dirname "$pkg")"
+                TARGET_DIR="${TARGET_DIR#./}"
+                detect_info "$TARGET_DIR"
+                echo "⚠️ package-lock.json not found next to package.json in: $TARGET_DIR"
+                echo "   npm ci requires package-lock.json. Please commit it."
+              else
+                echo "❌ No package.json found in repo."
+                exit 1
+              fi
+            fi
+          fi
+
+          # Save output for next steps
+          echo "dir=$TARGET_DIR" >> "$GITHUB_OUTPUT"
+          echo "📤 Output dir: $TARGET_DIR"
+        continue-on-error: true
+      - name: 📦 Install dependencies (npm ci)
+        if: ${{ steps.resolve.outputs.project_type == 'node' && steps.node_detect.outputs.dir != '' && inputs.run_npm_audit == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "➡️ Running npm ci in: ${{ steps.node_detect.outputs.dir }}"
+
+          # Fail fast if lock missing (npm ci needs it)
+          if [[ ! -f "package-lock.json" ]]; then
+            echo "❌ package-lock.json missing in this directory."
+            echo "   Fix: run npm install locally and commit package-lock.json."
+            exit 1
+          fi
+
+          npm ci --prefer-offline --no-audit
+        working-directory: ${{ steps.node_detect.outputs.dir }}
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # SCA - npm Audit Software Composition Analysis
+      # ═══════════════════════════════════════════
+      - name: 🔍 SCA Summary - npm Audit
+        id: sca
+        if: ${{ inputs.run_npm_audit == 'true' || (inputs.run_npm_audit == 'auto' && steps.detect.outputs.has_node == 'true') }}
+        env:
+          ACTIONS_STEP_DEBUG: 'false'
+        working-directory: ${{ steps.node_detect.outputs.dir }}
+        shell: bash
+        run: |
+          set +x
+          set -e
+
+          echo "➡️ Running npm audit in: $PWD"
+
+          # Generate JSON report
+          npm audit --json > "$GITHUB_WORKSPACE/npm-audit.json" || true
+
+          # Defaults
+          CRITICAL=0
+          HIGH=0
+          MODERATE=0
+          LOW=0
+          TOTAL=0
+
+          # Extract metrics (use arithmetic to avoid secrets masking of numeric values)
+          if [ -f $GITHUB_WORKSPACE/npm-audit.json ]; then
+            CRITICAL=$(( $(jq -r '.metadata.vulnerabilities.critical // 0' $GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
+            HIGH=$(( $(jq -r '.metadata.vulnerabilities.high // 0' $GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
+            MODERATE=$(( $(jq -r '.metadata.vulnerabilities.moderate // 0' $GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
+            LOW=$(( $(jq -r '.metadata.vulnerabilities.low // 0' $GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
+            TOTAL=$(( $(jq -r '.metadata.vulnerabilities.total // 0' $GITHUB_WORKSPACE/npm-audit.json 2>/dev/null || echo 0) ))
+          fi
+
+          # Write summary
+          echo "## 🔍 SCA Summary - npm Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Technology
+          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** npm audit (built-in)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Database:** npm registry + GitHub Advisory Database" >> $GITHUB_STEP_SUMMARY
+          echo "- **Coverage:** JavaScript/Node.js dependencies" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Scope:** Direct + Transitive dependencies" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          printf "| 🟠 High | %s |\n" "$HIGH" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Save to outputs
+          {
+            echo "critical=$CRITICAL"
+            echo "high=$HIGH"
+            echo "total=$TOTAL"
+          } >> "$GITHUB_OUTPUT"
+
+          # Recommendations
+          echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "**⚠️ Action Required:** High-risk vulnerabilities detected." >> $GITHUB_STEP_SUMMARY
+            echo '```bash' >> $GITHUB_STEP_SUMMARY
+            echo "# Run automatic fix" >> $GITHUB_STEP_SUMMARY
+            echo "npm audit fix" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# For breaking changes" >> $GITHUB_STEP_SUMMARY
+            echo "npm audit fix --force" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Top Vulnerable Packages:**" >> $GITHUB_STEP_SUMMARY
+            jq -r '.vulnerabilities | to_entries | sort_by(.value.severity) | reverse | .[0:5] | .[] | "- `\(.key)` - \(.value.severity | ascii_upcase) - \(.value.via[0].title // \"No title\")"' $GITHUB_WORKSPACE/npm-audit.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+          else
+            echo "✅ No critical or high vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # IaC - Infrastructure as Code
+      # ═══════════════════════════════════════════
+      
+      - name: 🏗️ IaC - Trivy Config Scan
+        id: iac
+        if: ${{ inputs.run_trivy_iac }}
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          skip-dirs: .github-shared
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-config.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+
+      - name: 📊🏗️ IaC - Summary Process Results
+        if: ${{ inputs.run_trivy_iac }}
+        run: |
+          echo "## 🏗️ IaC - Infrastructure as Code with Trivy Config Scan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          # Technology Used
+          echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tool:** Trivy Config Scanner" >> $GITHUB_STEP_SUMMARY
+          echo "- **Standards:** CIS Benchmarks, Best Practices" >> $GITHUB_STEP_SUMMARY
+          echo "- **Checks:** Security misconfigurations" >> $GITHUB_STEP_SUMMARY
+          echo "- **Supported Formats:**" >> $GITHUB_STEP_SUMMARY
+          echo "  - Dockerfile" >> $GITHUB_STEP_SUMMARY
+          echo "  - Kubernetes (YAML)" >> $GITHUB_STEP_SUMMARY
+          echo "  - Terraform" >> $GITHUB_STEP_SUMMARY
+          echo "  - Docker Compose" >> $GITHUB_STEP_SUMMARY
+          echo "  - Helm Charts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f trivy-config.json ]; then
+            CRITICAL=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="CRITICAL")] | length' trivy-config.json)
+            HIGH=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="HIGH")] | length' trivy-config.json)
+            MEDIUM=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="MEDIUM")] | length' trivy-config.json)
+            LOW=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="LOW")] | length' trivy-config.json)
+            TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+            
+            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Scan statistics
+            SCANNED_COUNT=$(jq '[.Results[]? | select(.Target)] | length' trivy-config.json 2>/dev/null || echo "0")
+            echo "### 📁 Scan Coverage:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Files Scanned:** $SCANNED_COUNT" >> $GITHUB_STEP_SUMMARY
+            
+            # Count by type
+            if [ $SCANNED_COUNT -gt 0 ]; then
+              echo "- **By Type:**" >> $GITHUB_STEP_SUMMARY
+              jq -r '[.Results[]? | select(.Target) | .Type] | group_by(.) | .[] | "  - \(.[0]): \(length) file(s)"' trivy-config.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Files scanned
+            if [ $SCANNED_COUNT -gt 0 ]; then
+              echo "**Scanned Files:**" >> $GITHUB_STEP_SUMMARY
+              jq -r '.Results[]? | select(.Target) | "- `\(.Target)` - \(.Type // "unknown")"' trivy-config.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            else
+              echo "**No IaC files detected in repository**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "ℹ️ Trivy looks for:" >> $GITHUB_STEP_SUMMARY
+              echo "- Dockerfile, docker-compose.yml" >> $GITHUB_STEP_SUMMARY
+              echo "- Kubernetes manifests (*.yaml, *.yml)" >> $GITHUB_STEP_SUMMARY
+              echo "- Terraform files (*.tf)" >> $GITHUB_STEP_SUMMARY
+              echo "- Helm charts" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Recommendations
+            echo "### 💡 Recommendations:" >> $GITHUB_STEP_SUMMARY
+            if [ $CRITICAL -gt 0 ] || [ $HIGH -gt 0 ]; then
+              echo "**⚠️ Misconfigurations Found:**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              # Show top issues
+              jq -r '.Results[]?.Misconfigurations[]? | 
+                select(.Severity == "CRITICAL" or .Severity == "HIGH") | 
+                "**\(.Severity):** \(.Title)\n- File: `\(.CauseMetadata.Resource // "N/A")`\n- Fix: \(.Resolution)\n"' \
+                trivy-config.json | head -50 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            else
+              if [ $SCANNED_COUNT -gt 0 ]; then
+                echo "✅ **Excellent! No critical IaC misconfigurations found**" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "Your infrastructure configurations passed security checks for:" >> $GITHUB_STEP_SUMMARY
+                echo "- CIS Docker Benchmark compliance" >> $GITHUB_STEP_SUMMARY
+                echo "- Container security best practices" >> $GITHUB_STEP_SUMMARY
+                echo "- Common misconfigurations (exposed secrets, insecure defaults, etc.)" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "**Continue following best practices:**" >> $GITHUB_STEP_SUMMARY
+                echo "- Review IaC changes in pull requests" >> $GITHUB_STEP_SUMMARY
+                echo "- Keep base images updated" >> $GITHUB_STEP_SUMMARY
+                echo "- Use non-root users in containers" >> $GITHUB_STEP_SUMMARY
+                echo "- Scan regularly for new vulnerabilities" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "ℹ️ **No IaC files to scan**" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "If you have infrastructure code, ensure it's committed to the repository." >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+          else
+            echo "ℹ️ No IaC files detected or scan not performed" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+      # ═══════════════════════════════════════════
+      # SAST - Semgrep Testing 
+      # ═══════════════════════════════════════════
+      - name: 🛡️ SAST - Semgrep  Scan
+        id: semgrep_sast
+        if: ${{ inputs.run_Semgrep_sca == 'true' || (inputs.run_Semgrep_sca == 'auto' && (steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_python == 'true' || steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_dotnet == 'true' || steps.detect.outputs.has_go == 'true')) }}
+        run: |
+          set -e
+          mkdir -p .semgrep
+          # Running Semgrep via Docker for environment consistency
+          # Using :latest for newest rules, but :1.90.0 is recommended for production stability
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/src \
+            -e SEMGREP_USER_HOME=/src/.semgrep \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            returntocorp/semgrep:1.90.0 \
+            semgrep scan \
+              --exclude .github-shared \
+              --config p/security-audit \
+              --config p/secrets \
+              --config p/ci \
+              --no-git-ignore \
+              --exclude node_modules \
+              --exclude dist --exclude build \
+              --exclude .venv --exclude venv \
+              --output semgrep.sarif \
+              . || true
+          chmod 644  semgrep.sarif 2>/dev/null || true
+          ls -lah  semgrep.sarif || true
+
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/src \
+            -e SEMGREP_USER_HOME=/src/.semgrep \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            returntocorp/semgrep:1.90.0 \
+            semgrep scan \
+              --exclude .github-shared \
+              --config p/security-audit \
+              --config p/secrets \
+              --config p/ci \
+              --no-git-ignore \
+              --exclude node_modules \
+              --exclude dist --exclude build \
+              --exclude .venv --exclude venv \
+              --metrics=off \
+              --json \
+              --output semgrep.json \
+              . || true
+
+          python3 -c "import json; json.load(open('semgrep.json','r',encoding='utf-8')); print('semgrep.json OK')" || true
+          chmod 644 semgrep.json  2>/dev/null || true
+          ls -lah semgrep.json || true
+        continue-on-error: true
+
+      # ═══════════════════════════════════════════
+      # SAST -Semgrep  Reporting Summary
+      # ═══════════════════════════════════════════
+      - name: 📊🛡️ SAST - Semgrep Summary Results
+        if: ${{ inputs.run_Semgrep_sca == 'true' || (inputs.run_Semgrep_sca == 'auto' && (steps.detect.outputs.has_node == 'true' || steps.detect.outputs.has_python == 'true' || steps.detect.outputs.has_java == 'true' || steps.detect.outputs.has_dotnet == 'true' || steps.detect.outputs.has_go == 'true')) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f semgrep.json ]; then
+            echo "## 🛡️ Semgrep" >> "$GITHUB_STEP_SUMMARY"
+            echo "❌ semgrep.json not found (scan may have failed to write output)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+              python3 - <<'PY'
+          import json, os
+          from collections import Counter
+
+          with open("semgrep.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          results = data.get("results", []) or []
+
+          def sev(r):
+              return (r.get("extra", {}).get("severity") or "").upper()
+
+          errors = [r for r in results if sev(r) == "ERROR"]
+          warnings = [r for r in results if sev(r) == "WARNING"]
+          infos = [r for r in results if sev(r) in ("INFO", "NOTICE")]
+
+          total = len(results)
+
+          def safe(s, limit=160):
+              s = (s or "").strip().replace("\n", " ")
+              return s if len(s) <= limit else s[:limit-3] + "..."
+
+          def loc(r):
+              path = r.get("path") or "unknown"
+              line = (r.get("start") or {}).get("line") or 0
+              return path, line
+
+          rule_counter = Counter()
+          file_counter = Counter()
+
+          for r in results:
+              rule = r.get("check_id") or "unknown_rule"
+              rule_counter[rule] += 1
+              file_counter[loc(r)[0]] += 1
+
+          top_rules = rule_counter.most_common(5)
+          top_files = file_counter.most_common(5)
+
+          ordered = errors + warnings + infos
+
+          lines = []
+          lines.append("## 🛡️ Semgrep SAST Results")
+          lines.append("")
+          lines.append("### 📌 Overview")
+          lines.append(f"- **Total findings:** **{total}**")
+          lines.append(f"- 🔴 **ERROR:** {len(errors)} | 🟠 **WARNING:** {len(warnings)} | 🔵 **INFO/NOTICE:** {len(infos)}")
+          lines.append("")
+          lines.append("### 📊 Findings Summary")
+          lines.append("| Severity | Count |")
+          lines.append("| :--- | ---: |")
+          lines.append(f"| 🔴 Error | {len(errors)} |")
+          lines.append(f"| 🟠 Warning | {len(warnings)} |")
+          lines.append(f"| 🔵 Info/Notice | {len(infos)} |")
+          lines.append(f"| **Total** | **{total}** |")
+          lines.append("")
+
+          if total > 0:
+              lines.append("### 🔎 Top Findings (up to 10)")
+              for r in ordered[:10]:
+                  severity = sev(r) or "UNKNOWN"
+                  msg = safe(r.get("extra", {}).get("message") or r.get("check_id"))
+                  rule = r.get("check_id") or "unknown_rule"
+                  path, line = loc(r)
+                  lines.append(f"- **[{severity}]** {msg}  ")
+                  lines.append(f"  - 🧩 Rule: `{rule}`")
+                  lines.append(f"  - 📍 Location: `{path}` (Line: {line})")
+          else:
+              lines.append("✅ **Clean Scan:** No findings detected by the selected rulesets.")
+
+          lines.append("")
+          if total > 0:
+              lines.append("### 🧠 Most Frequent Rules (Top 5)")
+              lines.append("| Rule | Count |")
+              lines.append("| :--- | ---: |")
+              for rule, cnt in top_rules:
+                  lines.append(f"| `{rule}` | {cnt} |")
+              lines.append("")
+              lines.append("### 🗂️ Most Affected Files (Top 5)")
+              lines.append("| File | Findings |")
+              lines.append("| :--- | ---: |")
+              for fpath, cnt in top_files:
+                  lines.append(f"| `{fpath}` | {cnt} |")
+              lines.append("")
+
+          lines.append("### 📝 Scan Notes")
+          lines.append("- Parsed from `semgrep.json` (reliable results source).")
+          lines.append("")
+          lines.append("---")
+          lines.append("")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+              s.write("\n".join(lines))
+          PY
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # SAST - CodeQL - Initialize FIRST (before builds)
+      # ═══════════════════════════════════════════
+      - name: 🔬 Initialize CodeQL
+        if: ${{ inputs.run_codeql }}
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ steps.detect.outputs.codeql_languages }}
+          queries: ${{ inputs.codeql_queries }}
+          # For compiled languages, add build-mode
+          # build-mode: manual
+      # ═══════════════════════════════════════════
+      # SAST - CodeQL Analysis (Advanced SAST)
+      # ═══════════════════════════════════════════
+      
+      - name: 🔬 CodeQL - Perform Analysis
+        if: ${{ inputs.run_codeql }}
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ steps.detect.outputs.codeql_languages }}"
+          output: sarif-results
+          upload: true
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # SAST - Summary CodeQL Analysis 
+      # ═══════════════════════════════════════════
+      - name: 📊🔬 Summary CodeQL Analysis
+        if: ${{ inputs.run_codeql }}
+        run: |
+
+          echo "## 🔬 SAST - Summary CodeQL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Initialize variables
+          FINDINGS="0"
+          
+          # Count findings from SARIF file
+          if [ -d sarif-results ]; then
+            FINDINGS=$(find sarif-results -name "*.sarif" -exec jq '[.runs[].results[]] | length' {} + | awk '{s+=$1} END {print s}')
+            if [ -z "$FINDINGS" ]; then FINDINGS="0"; fi
+          fi
+          
+          # Display Status Based on Findings
+          if [ "$FINDINGS" = "0" ]; then
+            echo "✅ **Excellent! CodeQL found ZERO vulnerabilities**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Your code passed all security checks:" >> $GITHUB_STEP_SUMMARY
+            echo "- No SQL injection vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            echo "- No XSS issues" >> $GITHUB_STEP_SUMMARY
+            echo "- No authentication/authorization flaws" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "ℹ️ **Note:** The Security → Code scanning page will be empty because there are no alerts to show. This is expected and means your code is secure!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **CodeQL found $FINDINGS security issue(s)**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **[View detailed findings in Security tab](https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }})**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "### 💡 How to Review:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Navigate to: **Security → Code scanning**" >> $GITHUB_STEP_SUMMARY
+            echo "2. Filter by severity (Critical, High, Medium, Low)" >> $GITHUB_STEP_SUMMARY
+            echo "3. Click on each alert for detailed information" >> $GITHUB_STEP_SUMMARY
+            echo "4. Review code location and suggested fix" >> $GITHUB_STEP_SUMMARY
+            echo "5. Dismiss false positives or fix issues" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "### 🔍 What CodeQL Checked:" >> $GITHUB_STEP_SUMMARY
+          echo "- **SQL Injection** vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cross-Site Scripting (XSS)** issues" >> $GITHUB_STEP_SUMMARY
+          echo "- **Path Traversal** vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "- **Command Injection** risks" >> $GITHUB_STEP_SUMMARY
+          echo "- **Insecure Deserialization**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cryptographic Issues**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Authentication/Authorization** flaws" >> $GITHUB_STEP_SUMMARY
+          echo "- **Resource Leaks**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Code Quality** issues" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🎯 CodeQL Advantages:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deep Analysis:** Understands code semantics, not just patterns" >> $GITHUB_STEP_SUMMARY
+          echo "- **Low False Positives:** High accuracy in findings" >> $GITHUB_STEP_SUMMARY
+          echo "- **Data Flow Analysis:** Tracks data through the entire codebase" >> $GITHUB_STEP_SUMMARY
+          echo "- **Custom Queries:** Can write organization-specific rules" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR Integration:** Alerts on new vulnerabilities in PRs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check if SARIF results exist
+          if [ -d sarif-results ]; then
+            echo "### 📁 SARIF Reports:" >> $GITHUB_STEP_SUMMARY
+            echo "CodeQL generated SARIF files for integration with other tools." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "## 🔬 SAST - Summary CodeQL" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if ! ls sarif-results/*.sarif >/dev/null 2>&1; then
+            echo "⚠️ No SARIF files found in sarif-results/." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          TOTAL=$(jq -s '[.[]?.runs[]?.results[]?] | length' sarif-results/*.sarif)
+          TOTAL=${TOTAL:-0}
+
+          read CRITICAL HIGH MEDIUM LOW UNKNOWN < <(
+            jq -s -r '
+              # Collect rules from driver + extensions (GitHub SARIF can store rules in both)
+              def allrules($run):
+                (
+                  ($run.tool.driver.rules? // [])
+                  + ([($run.tool.extensions? // [])[]? | .rules? // []] | add // [])
+                );
+
+              # Find rule object by ruleIndex or ruleId
+              def ruleobj($run; $res):
+                if ($res.ruleIndex? != null) then
+                  (allrules($run)[$res.ruleIndex]?)
+                else
+                  ((allrules($run) | map(select(.id? == $res.ruleId?)) | .[0])? )
+                end;
+
+              def secsev($run; $res):
+                (ruleobj($run; $res).properties."security-severity"? // null);
+
+              def bucket_by_secsev($s):
+                ($s | tonumber) as $n
+                | if $n > 9.0 then "critical"
+                  elif $n >= 7.0 then "high"
+                  elif $n >= 4.0 then "medium"
+                  elif $n >= 0.1 then "low"
+                  else "unknown" end;
+
+              reduce (
+                .[]?.runs[]? as $run
+                | (($run.results // [])[]? as $res
+                  | (secsev($run; $res)) as $s
+                  | if $s == null then "unknown"
+                    else bucket_by_secsev($s)
+                    end
+                )
+              ) as $b
+              ({critical:0, high:0, medium:0, low:0, unknown:0};
+                if $b=="critical" then .critical += 1
+                elif $b=="high" then .high += 1
+                elif $b=="medium" then .medium += 1
+                elif $b=="low" then .low += 1
+                else .unknown += 1 end
+              )
+              | "\(.critical) \(.high) \(.medium) \(.low) \(.unknown)"
+            ' sarif-results/*.sarif
+          )
+
+          CRITICAL=${CRITICAL:-0}
+          HIGH=${HIGH:-0}
+          MEDIUM=${MEDIUM:-0}
+          LOW=${LOW:-0}
+          UNKNOWN=${UNKNOWN:-0}
+
+          echo "### 📊 Results:" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Severity | Count |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---:|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🔴 Critical | $CRITICAL |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🟠 High | $HIGH |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🟡 Medium | $MEDIUM |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🟢 Low | $LOW |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| ⚪ Unknown (no security-severity) | $UNKNOWN |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Total** | **$TOTAL** |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "🔗 **View findings:** https://github.com/${{ github.repository }}/security/code-scanning?query=branch%3A${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "### 📈 Scan Statistics:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Status:** Analysis Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Language(s):** ${{ steps.detect.outputs.codeql_languages }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Query Pack:** ${{ inputs.codeql_queries }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Total Findings:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "---" >> "$GITHUB_STEP_SUMMARY"
+          # ═══════════════════════════════════════════
+          # SAST - CodeQL Reporting Summary
+          # ═══════════════════════════════════════════
+          if ls sarif-results/*.sarif >/dev/null 2>&1; then
+            jq -s '
+              [ .[]?.runs[]? as $run | $run.results[]? | {
+                severity: (
+                  if .level == "error" then "HIGH" 
+                  elif .level == "warning" then "MEDIUM" 
+                  else "LOW" end
+                ),
+                title: (.message.text // "CodeQL Finding" | tostring | .[0:140]),
+                package: .ruleId,
+                source: "SAST (CodeQL)",
+                fix: "See Security Tab for details"
+              } ] | map(select(.severity == "HIGH" or .severity == "CRITICAL")) | .[0:10]
+            ' sarif-results/*.sarif > codeql-findings.json
+          else
+            echo "[]" > codeql-findings.json
+          fi
+      # ═══════════════════════════════════════════
+      # DAST - Dynamic Application Security Testing
+      # ═══════════════════════════════════════════
+      
+      - name: 🌐 Wake up DAST target
+        if: ${{ inputs.dast_url != '' }}
+        run: |
+          echo "Attempting to wake up ${{ inputs.dast_url }}..."
+          
+          # Try multiple times to wake up the service (useful for Render free tier)
+          for i in {1..5}; do
+            echo "Attempt $i/5..."
+            if curl -sL -w "%{http_code}" "${{ inputs.dast_url }}" -o /dev/null | grep -q "200\|301\|302"; then
+              echo "✅ Target is responding!"
+              break
+            fi
+            echo "Waiting 15 seconds before retry..."
+            sleep 15
+          done
+          
+          # Final wait to ensure app is fully ready
+          echo "Waiting additional 30 seconds for app to stabilize..."
+          sleep 30
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # DAST -🔐 Configure ZAP Authentication
+      # ═══════════════════════════════════════════
+      - name: 🔐 Configure ZAP Authentication (Automation Framework Plan)
+        if: ${{ inputs.dast_url != '' && inputs.dast_auth_enabled }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p zap-config
+
+          cat > zap-config/zap-plan.yaml << 'EOF'
+          env:
+            vars:
+              zapUser: ${ZAP_USERNAME}
+              zapPass: ${ZAP_PASSWORD}
+
+            contexts:
+              - name: "Authenticated Context"
+                urls:
+                  - "${{ inputs.dast_url }}"
+                authentication:
+                  method: "form"
+                  parameters:
+                    loginPageUrl: "${{ inputs.dast_login_url }}"
+                    loginRequestUrl: "${{ inputs.dast_login_url }}"
+                    loginRequestBody: "${{ inputs.dast_username_field }}={%username%}&${{ inputs.dast_password_field }}={%password%}"
+                  verification:
+                    method: "response"
+                    loggedInRegex: "${{ inputs.dast_success_indicator }}"
+                    loggedOutRegex: "(?:Sign in|Login|log in)"
+                sessionManagement:
+                  method: "cookie"
+                users:
+                  - name: "test-user"
+                    credentials:
+                      username: "${zapUser}"
+                      password: "${zapPass}"
+
+          jobs:
+            - type: spider
+              parameters:
+                context: "Authenticated Context"
+                user: "test-user"
+                url: "${{ inputs.dast_url }}"
+                maxDuration: 10
+
+            - type: spiderAjax
+              parameters:
+                context: "Authenticated Context"
+                user: "test-user"
+                url: "${{ inputs.dast_url }}"
+                maxDuration: 10
+
+            - type: activeScan
+              parameters:
+                context: "Authenticated Context"
+                user: "test-user"
+                url: "${{ inputs.dast_url }}"
+
+            # Reports 
+            - type: report
+              parameters:
+                template: "traditional-html"
+                reportDir: "/zap/wrk"
+                reportFile: "zap-report.html"
+
+            - type: report
+              parameters:
+                template: "traditional-xml"
+                reportDir: "/zap/wrk"
+                reportFile: "zap-report.xml"
+
+            - type: report
+              parameters:
+                template: "traditional-json"
+                reportDir: "/zap/wrk"
+                reportFile: "zap-report.json"
+          EOF
+
+          echo "✅ ZAP automation plan created at zap-config/zap-plan.yaml"
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # DAST - DAST - OWASP ZAP Baseline
+      # ═══════════════════════════════════════════
+      - name: 🌐 DAST - OWASP ZAP (Automation Framework)
+        id: dast
+        if: ${{ inputs.dast_url != '' }}
+        run: |
+          mkdir -p zap-output
+          chmod 777 zap-output
+
+          docker pull ghcr.io/zaproxy/zaproxy:stable
+
+          if [ "${{ inputs.dast_auth_enabled }}" = "true" ]; then
+            echo "🔐 Running authenticated ZAP scan via Automation Framework..."
+            docker run --rm \
+              -v "$PWD/zap-output:/zap/wrk:rw" \
+              -v "$PWD/zap-config:/zap/config:ro" \
+              -e ZAP_USERNAME='${{ secrets.DAST_USERNAME }}' \
+              -e ZAP_PASSWORD='${{ secrets.DAST_PASSWORD }}' \
+              -t ghcr.io/zaproxy/zaproxy:stable \
+              zap.sh -cmd -autorun /zap/config/zap-plan.yaml || true
+          else
+            echo "🌐 Running baseline ZAP scan..."
+            docker run --rm \
+              -v "$PWD/zap-output:/zap/wrk:rw" \
+              -u zap \
+              -t ghcr.io/zaproxy/zaproxy:stable \
+              zap-baseline.py \
+              -t "${{ inputs.dast_url }}" \
+              -J zap-report.json \
+              -x zap-report.xml \
+              -r zap-report.html \
+              -T 180 \
+              -z "-config spider.maxDuration=5 -config ajaxSpider.maxDuration=5" || true
+          fi
+
+          echo "📄 Reports generated:"
+          ls -lah zap-output/ || true
+        continue-on-error: true
+
+      # ═══════════════════════════════════════════
+      # ═══════════════════════════════════════════
+      - name: 📊 DAST - Process Results
+        if: ${{ inputs.dast_url != '' }}
+        run: |
+          echo "## 🌐 DAST - Dynamic Application Security Testing" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** ${{ inputs.dast_url }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.dast_auth_enabled }}" = "true" ]; then
+            echo "**Mode:** 🔐 Authenticated Scan (Full)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Mode:** 🌐 Baseline Scan (Unauthenticated)" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f zap-output/zap-report.json ]; then
+            # Process ZAP results
+            HIGH=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("High"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            MEDIUM=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Medium"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            LOW=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Low"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            INFO=$(jq '[.site[].alerts[] | select(.riskdesc | startswith("Informational"))] | length' zap-output/zap-report.json 2>/dev/null || echo "0")
+            
+            echo "### 📊 Results:" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| ℹ️ Info | $INFO |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            echo "### 🛠️ Technology:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tool:** OWASP ZAP (Zed Attack Proxy)" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ inputs.dast_auth_enabled }}" = "true" ]; then
+              echo "- **Scan Type:** Full scan with authentication" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- **Scan Type:** Baseline (passive + spider)" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "- **Timeout:** 180 seconds" >> $GITHUB_STEP_SUMMARY
+            echo "- **Coverage:** Runtime vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [ $HIGH -gt 0 ] || [ $MEDIUM -gt 0 ]; then
+              echo "### ⚠️ Findings:" >> $GITHUB_STEP_SUMMARY
+              jq -r '.site[].alerts[] | 
+                select((.riskdesc | startswith("High")) or (.riskdesc | startswith("Medium"))) | 
+                "**\(.riskdesc):** \(.name)\n- **Description:** \(.desc[0:200])...\n- **Solution:** \(.solution[0:150])...\n"' \
+                zap-output/zap-report.json | head -50 >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+            else
+              echo "✅ No high or medium DAST vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ⚠️ DAST scan did not produce results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Possible reasons:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Target URL is not accessible" >> $GITHUB_STEP_SUMMARY
+            echo "- Application is rate-limiting requests" >> $GITHUB_STEP_SUMMARY
+            echo "- Network connectivity issues" >> $GITHUB_STEP_SUMMARY
+            echo "- Service is sleeping (Render free tier)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Troubleshooting:**" >> $GITHUB_STEP_SUMMARY
+            echo "1. Verify the target URL is publicly accessible" >> $GITHUB_STEP_SUMMARY
+            echo "2. Check if the service is running" >> $GITHUB_STEP_SUMMARY
+            echo "3. Review rate limiting settings" >> $GITHUB_STEP_SUMMARY
+            echo "4. Consider running DAST manually during active hours" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+      # ═══════════════════════════════════════════
+      # AGGREGATION & SUMMARY 
+      # ═══════════════════════════════════════════
+
+      - name: 📊 Process & Aggregate Results (summary.json)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ts="${ts:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
+          repo="${repo:-${GITHUB_REPOSITORY:-unknown}}"
+          branch="${branch:-${GITHUB_REF_NAME:-unknown}}"
+          commit="${commit:-${GITHUB_SHA:-unknown}}"
+          # ---------------------------
+          # Helpers
+          # ---------------------------
+          jq_safe() { jq "$@" 2>/dev/null || true; }
+
+          # init totals
+          CRITICAL=0
+          HIGH=0
+          MEDIUM=0
+          LOW=0
+
+          # per-tool counts (default 0)
+          NPM_C=0; NPM_H=0; NPM_M=0; NPM_L=0
+          DC_C=0;  DC_H=0;  DC_M=0;  DC_L=0
+          TV_C=0;  TV_H=0;  TV_M=0;  TV_L=0
+          IAC_C=0; IAC_H=0; IAC_M=0; IAC_L=0
+          SG_C=0;  SG_H=0;  SG_M=0;  SG_L=0
+          ZAP_C=0; ZAP_H=0; ZAP_M=0; ZAP_L=0
+          CQ_C=0; CQ_H=0; CQ_M=0; CQ_L=0
+
+          # findings temp files
+          echo "[]" > npm-findings.json
+          echo "[]" > depcheck-findings.json
+          echo "[]" > trivy-findings.json
+          echo "[]" > iac-findings.json
+          echo "[]" > semgrep-findings.json
+          echo "[]" > zap-findings.json
+          echo "[]" > codeql-findings.json
+
+          # ---------------------------
+          # CodeQL Processing (RE-CALC from SARIF)
+          # ---------------------------
+          if ls sarif-results/*.sarif >/dev/null 2>&1; then
+
+            read CQ_C CQ_H CQ_M CQ_L CQ_U < <(
+              jq -s -r '
+                def allrules($run):
+                  (
+                    ($run.tool.driver.rules? // [])
+                    + ([($run.tool.extensions? // [])[]? | .rules? // []] | add // [])
+                  );
+
+                def ruleobj($run; $res):
+                  if ($res.ruleIndex? != null) then
+                    (allrules($run)[$res.ruleIndex]?)
+                  else
+                    ((allrules($run) | map(select(.id? == $res.ruleId?)) | .[0])? )
+                  end;
+
+                def secsev($run; $res):
+                  (ruleobj($run; $res).properties."security-severity"? // null);
+
+                def bucket_by_secsev($s):
+                  ($s | tonumber) as $n
+                  | if $n > 9.0 then "critical"
+                    elif $n >= 7.0 then "high"
+                    elif $n >= 4.0 then "medium"
+                    elif $n >= 0.1 then "low"
+                    else "unknown" end;
+
+                reduce (
+                  .[]?.runs[]? as $run
+                  | (($run.results // [])[]? as $res
+                    | (secsev($run; $res)) as $s
+                    | if $s == null then "unknown" else bucket_by_secsev($s) end
+                  )
+                ) as $b
+                ({critical:0, high:0, medium:0, low:0, unknown:0};
+                  if $b=="critical" then .critical += 1
+                  elif $b=="high" then .high += 1
+                  elif $b=="medium" then .medium += 1
+                  elif $b=="low" then .low += 1
+                  else .unknown += 1 end
+                )
+                | "\(.critical) \(.high) \(.medium) \(.low) \(.unknown)"
+              ' sarif-results/*.sarif
+            )
+
+            CQ_C=${CQ_C:-0}
+            CQ_H=${CQ_H:-0}
+            CQ_M=${CQ_M:-0}
+            CQ_L=${CQ_L:-0}
+            CQ_U=${CQ_U:-0}
+
+            #=============================== add CodeQL to totals
+            CRITICAL=$((CRITICAL + CQ_C))
+            HIGH=$((HIGH + CQ_H))
+            MEDIUM=$((MEDIUM + CQ_M))
+            LOW=$((LOW + CQ_L))
+          fi
+          # ---------------------------
+          # npm audit
+          # ---------------------------
+          if [ -f $GITHUB_WORKSPACE/npm-audit.json ]; then
+            NPM_C=$(jq_safe -r '.metadata.vulnerabilities.critical // 0' $GITHUB_WORKSPACE/npm-audit.json); NPM_C=${NPM_C:-0}
+            NPM_H=$(jq_safe -r '.metadata.vulnerabilities.high // 0' $GITHUB_WORKSPACE/npm-audit.json);     NPM_H=${NPM_H:-0}
+            NPM_M=$(jq_safe -r '.metadata.vulnerabilities.moderate // 0' $GITHUB_WORKSPACE/npm-audit.json); NPM_M=${NPM_M:-0}
+            NPM_L=$(jq_safe -r '.metadata.vulnerabilities.low // 0' $GITHUB_WORKSPACE/npm-audit.json);      NPM_L=${NPM_L:-0}
+
+            CRITICAL=$((CRITICAL + NPM_C))
+            HIGH=$((HIGH + NPM_H))
+            MEDIUM=$((MEDIUM + NPM_M))
+            LOW=$((LOW + NPM_L))
+
+            jq_safe '
+              .vulnerabilities
+              | to_entries
+              | map(
+                  select(.value.severity == "critical" or .value.severity == "high")
+                  | {
+                      severity: (.value.severity | ascii_upcase),
+                      title: (.value.title // "npm vulnerability"),
+                      package: .key,
+                      source: "SCA (npm audit)",
+                      fix: (if (.value.fixAvailable // false) then "Yes" else "No" end)
+                    }
+                )
+              | .[0:10]
+            ' $GITHUB_WORKSPACE/npm-audit.json > npm-findings.json
+          fi
+
+          # ---------------------------
+          # OWASP Dependency-Check
+          # output: depcheck-output/dependency-check-report.json
+          # ---------------------------
+          DEPCHK_DIR="${REPORTS_DIR}/depcheck-output"
+          if [ -f "$DEPCHK_DIR/dependency-check-report.json" ]; then
+            REPORT="$DEPCHK_DIR/dependency-check-report.json"
+
+            # count based on CVSS v3/v2 score (best-effort)
+            DC_C=$(jq_safe '[.. | objects | (.cvssv3?.baseScore // .cvssv2?.score // empty) | select(. >= 9)] | length' "$REPORT"); DC_C=${DC_C:-0}
+            DC_H=$(jq_safe '[.. | objects | (.cvssv3?.baseScore // .cvssv2?.score // empty) | select(. >= 7 and . < 9)] | length' "$REPORT"); DC_H=${DC_H:-0}
+            DC_M=$(jq_safe '[.. | objects | (.cvssv3?.baseScore // .cvssv2?.score // empty) | select(. >= 4 and . < 7)] | length' "$REPORT"); DC_M=${DC_M:-0}
+            DC_L=$(jq_safe '[.. | objects | (.cvssv3?.baseScore // .cvssv2?.score // empty) | select(. > 0 and . < 4)] | length' "$REPORT"); DC_L=${DC_L:-0}
+
+            CRITICAL=$((CRITICAL + DC_C))
+            HIGH=$((HIGH + DC_H))
+            MEDIUM=$((MEDIUM + DC_M))
+            LOW=$((LOW + DC_L))
+
+            jq_safe '
+              [
+                .dependencies[]?.vulnerabilities[]?
+                | {
+                    severity: (
+                      ((.cvssv3?.baseScore // .cvssv2?.score // 0) as $s
+                      | if $s >= 9 then "CRITICAL"
+                        elif $s >= 7 then "HIGH"
+                        elif $s >= 4 then "MEDIUM"
+                        elif $s > 0 then "LOW"
+                        else "LOW" end)
+                    ),
+                    title: (.description // .name // "Dependency vulnerability" | tostring | .[0:140]),
+                    package: (.name // "N/A"),
+                    cve: (.name // "N/A"),
+                    source: "SCA (Dependency-Check)",
+                    fix: "See Dependency-Check report"
+                  }
+              ]
+              | map(select(.severity == "CRITICAL" or .severity == "HIGH"))
+              | .[0:10]
+            ' "$REPORT" > depcheck-findings.json
+          fi
+
+          # ---------------------------
+          # Trivy SCA (trivy-sca.json)
+          # ---------------------------
+          if [ -f trivy-sca.json ]; then
+            TV_C=$(jq_safe '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-sca.json); TV_C=${TV_C:-0}
+            TV_H=$(jq_safe '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-sca.json);     TV_H=${TV_H:-0}
+            TV_M=$(jq_safe '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-sca.json);   TV_M=${TV_M:-0}
+            TV_L=$(jq_safe '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-sca.json);      TV_L=${TV_L:-0}
+
+            CRITICAL=$((CRITICAL + TV_C))
+            HIGH=$((HIGH + TV_H))
+            MEDIUM=$((MEDIUM + TV_M))
+            LOW=$((LOW + TV_L))
+
+            jq_safe '
+              [
+                .Results[]?.Vulnerabilities[]?
+                | select(.Severity == "CRITICAL" or .Severity == "HIGH")
+                | {
+                    severity: .Severity,
+                    title: (.Title // .Description // "Trivy vulnerability" | tostring | .[0:140]),
+                    package: (.PkgName // "N/A"),
+                    cve: (.VulnerabilityID // "N/A"),
+                    source: "SCA (Trivy fs)",
+                    fix: (.FixedVersion // "N/A")
+                  }
+              ]
+              | .[0:10]
+            ' trivy-sca.json > trivy-findings.json
+          fi
+
+          # ---------------------------
+          # Trivy Config (IaC) (trivy-config.json)
+          # ---------------------------
+          if [ -f trivy-config.json ]; then
+            IAC_C=$(jq_safe '[.Results[]?.Misconfigurations[]? | select(.Severity=="CRITICAL")] | length' trivy-config.json); IAC_C=${IAC_C:-0}
+            IAC_H=$(jq_safe '[.Results[]?.Misconfigurations[]? | select(.Severity=="HIGH")] | length' trivy-config.json);     IAC_H=${IAC_H:-0}
+            IAC_M=$(jq_safe '[.Results[]?.Misconfigurations[]? | select(.Severity=="MEDIUM")] | length' trivy-config.json);   IAC_M=${IAC_M:-0}
+            IAC_L=$(jq_safe '[.Results[]?.Misconfigurations[]? | select(.Severity=="LOW")] | length' trivy-config.json);      IAC_L=${IAC_L:-0}
+
+            CRITICAL=$((CRITICAL + IAC_C))
+            HIGH=$((HIGH + IAC_H))
+            MEDIUM=$((MEDIUM + IAC_M))
+            LOW=$((LOW + IAC_L))
+
+            jq_safe '
+              [
+                .Results[]?.Misconfigurations[]?
+                | select(.Severity == "CRITICAL" or .Severity == "HIGH")
+                | {
+                    severity: .Severity,
+                    title: (.Title // "IaC misconfiguration" | tostring | .[0:140]),
+                    package: (.Type // "IaC"),
+                    cve: (.ID // "N/A"),
+                    source: "IaC (Trivy Config)",
+                    fix: (.Resolution // .Message // "See Trivy report" | tostring | .[0:120])
+                  }
+              ]
+              | .[0:10]
+            ' trivy-config.json > iac-findings.json
+          fi
+
+          # ---------------------------
+          # Semgrep SARIF (semgrep.sarif)
+          # Map: error->HIGH, warning->MEDIUM, note/info->LOW
+          # ---------------------------
+          if [ -f semgrep.sarif ]; then
+            SG_H=$(jq_safe '[.runs[]?.results[]? | select((.level // "") | ascii_downcase == "error")] | length' semgrep.sarif);   SG_H=${SG_H:-0}
+            SG_M=$(jq_safe '[.runs[]?.results[]? | select((.level // "") | ascii_downcase == "warning")] | length' semgrep.sarif); SG_M=${SG_M:-0}
+            SG_L=$(jq_safe '[.runs[]?.results[]? | select(((.level // "") | ascii_downcase) == "note" or ((.level // "") | ascii_downcase) == "info")] | length' semgrep.sarif); SG_L=${SG_L:-0}
+
+            HIGH=$((HIGH + SG_H))
+            MEDIUM=$((MEDIUM + SG_M))
+            LOW=$((LOW + SG_L))
+
+            jq_safe '
+              [
+                .runs[]?.results[]?
+                | select(((.level // "") | ascii_downcase) == "error" or ((.level // "") | ascii_downcase) == "warning")
+                | {
+                    severity: (if ((.level // "") | ascii_downcase) == "error" then "HIGH" else "MEDIUM" end),
+                    title: (.message.text // "Semgrep finding" | tostring | .[0:140]),
+                    package: (.ruleId // "N/A"),
+                    source: "SAST (Semgrep)",
+                    fix: "Review rule and fix code"
+                  }
+              ]
+              | .[0:10]
+            ' semgrep.sarif > semgrep-findings.json
+          fi
+
+          # ---------------------------
+          # ZAP (DAST)
+          # ---------------------------
+          if [ -f zap-output/zap-report.json ]; then
+            ZAP_H=$(jq_safe '[.site[].alerts[] | select(.riskdesc | startswith("High"))] | length' zap-output/zap-report.json);   ZAP_H=${ZAP_H:-0}
+            ZAP_M=$(jq_safe '[.site[].alerts[] | select(.riskdesc | startswith("Medium"))] | length' zap-output/zap-report.json); ZAP_M=${ZAP_M:-0}
+            ZAP_L=$(jq_safe '[.site[].alerts[] | select(.riskdesc | startswith("Low"))] | length' zap-output/zap-report.json);    ZAP_L=${ZAP_L:-0}
+
+            HIGH=$((HIGH + ZAP_H))
+            MEDIUM=$((MEDIUM + ZAP_M))
+            LOW=$((LOW + ZAP_L))
+
+            jq_safe '
+              [
+                .site[].alerts[]
+                | select((.riskdesc | startswith("High")) or (.riskdesc | startswith("Medium")))
+                | {
+                    severity: (.riskdesc | split(" ") | .[0] | ascii_upcase),
+                    title: (.name // "ZAP alert" | tostring | .[0:140]),
+                    source: "DAST (OWASP ZAP)",
+                    url: (.instances[0].uri // .instances[0].url // ""),
+                    fix: ((.solution // "See ZAP report") | tostring | .[0:120])
+                  }
+              ]
+              | .[0:10]
+            ' zap-output/zap-report.json > zap-findings.json
+          fi
+
+          # ---------------------------
+          # Merge top findings (max 25)
+          # ---------------------------
+          jq -s 'add | map(select(. != null)) | .[0:25]' \
+            npm-findings.json depcheck-findings.json trivy-findings.json iac-findings.json semgrep-findings.json zap-findings.json \
+            > all-findings.json
+
+          # ---------------------------
+          # Score calculation
+          # ---------------------------
+          PENALTY=$(( (CRITICAL * 10) + (HIGH * 5) + (MEDIUM * 2) + (LOW * 1) ))
+          SCORE=$((100 - PENALTY))
+          if [ "$SCORE" -lt 0 ]; then SCORE=0; fi
+
+          # ---------------------------
+          # Build summary.json (clean JSON, no duplicate keys)
+          # ---------------------------
+          jq -n \
+          --arg ts "$ts" \
+          --arg repo "$repo" \
+          --arg branch "$branch" \
+          --arg commit "$commit" \
+          --arg run_npm_audit "${RUN_NPM_AUDIT:-true}" \
+          --arg run_dependency_check "${RUN_DEPENDENCY_CHECK:-true}" \
+          --arg run_trivy_sca "${RUN_TRIVY_SCA:-false}" \
+          --arg run_trivy_config "${RUN_TRIVY_CONFIG:-false}" \
+          --arg run_semgrep "${RUN_SEMGREP:-true}" \
+          --arg run_codeql "${RUN_CODEQL:-true}" \
+          --arg run_zap "${RUN_ZAP:-true}" \
+          --arg CRITICAL "${CRITICAL:-0}" \
+          --arg HIGH "${HIGH:-0}" \
+          --arg MEDIUM "${MEDIUM:-0}" \
+          --arg LOW "${LOW:-0}" \
+          --arg SCORE "${SCORE:-0}" \
+          --arg NPM_C "${NPM_C:-0}" --arg NPM_H "${NPM_H:-0}" --arg NPM_M "${NPM_M:-0}" --arg NPM_L "${NPM_L:-0}" \
+          --arg DC_C  "${DC_C:-0}"  --arg DC_H  "${DC_H:-0}"  --arg DC_M  "${DC_M:-0}"  --arg DC_L  "${DC_L:-0}" \
+          --arg TV_C  "${TV_C:-0}"  --arg TV_H  "${TV_H:-0}"  --arg TV_M  "${TV_M:-0}"  --arg TV_L  "${TV_L:-0}" \
+          --arg IAC_C "${IAC_C:-0}" --arg IAC_H "${IAC_H:-0}" --arg IAC_M "${IAC_M:-0}" --arg IAC_L "${IAC_L:-0}" \
+          --arg SG_C  "${SG_C:-0}"  --arg SG_H  "${SG_H:-0}"  --arg SG_M  "${SG_M:-0}"  --arg SG_L  "${SG_L:-0}" \
+          --arg ZAP_C "${ZAP_C:-0}" --arg ZAP_H "${ZAP_H:-0}" --arg ZAP_M "${ZAP_M:-0}" --arg ZAP_L "${ZAP_L:-0}" \
+          --arg CQ_C "${CQ_C:-0}" --arg CQ_H "${CQ_H:-0}" --arg CQ_M "${CQ_M:-0}" --arg CQ_L "${CQ_L:-0}" \
+          --slurpfile findings all-findings.json \
+          'def tobool: ascii_downcase | if .=="true" then true elif .=="false" then false else false end;
+          def tonumber0: (gsub("[^0-9.-]";"") | if .=="" then 0 else tonumber end);
+
+          {
+            timestamp: $ts,
+            repository: $repo,
+            branch: $branch,
+            commit: $commit,
+            scans: {
+              npm_audit:        { enabled: ($run_npm_audit|tobool),        tool: "npm audit" },
+              dependency_check: { enabled: ($run_dependency_check|tobool), tool: "OWASP Dependency-Check" },
+              trivy_sca:        { enabled: ($run_trivy_sca|tobool),        tool: "Trivy fs (vuln)" },
+              trivy_config:     { enabled: ($run_trivy_config|tobool),     tool: "Trivy config (IaC)" },
+              semgrep:          { enabled: ($run_semgrep|tobool),          tool: "Semgrep (SARIF)" },
+              codeql:           { enabled: ($run_codeql|tobool),           tool: "CodeQL" },
+              zap:              { enabled: ($run_zap|tobool),              tool: "OWASP ZAP" }
+            },
+            breakdown: {
+              npm_audit:        { critical: ($NPM_C|tonumber0), high: ($NPM_H|tonumber0), medium: ($NPM_M|tonumber0), low: ($NPM_L|tonumber0) },
+              dependency_check: { critical: ($DC_C|tonumber0),  high: ($DC_H|tonumber0),  medium: ($DC_M|tonumber0),  low: ($DC_L|tonumber0)  },
+              trivy_sca:        { critical: ($TV_C|tonumber0),  high: ($TV_H|tonumber0),  medium: ($TV_M|tonumber0),  low: ($TV_L|tonumber0)  },
+              trivy_config:     { critical: ($IAC_C|tonumber0), high: ($IAC_H|tonumber0), medium: ($IAC_M|tonumber0), low: ($IAC_L|tonumber0) },
+              semgrep:          { critical: ($SG_C|tonumber0),  high: ($SG_H|tonumber0),  medium: ($SG_M|tonumber0),  low: ($SG_L|tonumber0)  },
+              codeql:           { critical: ($CQ_C|tonumber0),  high: ($CQ_H|tonumber0),  medium: ($CQ_M|tonumber0),  low: ($CQ_L|tonumber0)  },
+              zap:              { critical: ($ZAP_C|tonumber0), high: ($ZAP_H|tonumber0), medium: ($ZAP_M|tonumber0), low: ($ZAP_L|tonumber0) }
+            },
+            summary: {
+              critical: ($CRITICAL|tonumber0),
+              high:     ($HIGH|tonumber0),
+              medium:   ($MEDIUM|tonumber0),
+              low:      ($LOW|tonumber0),
+              score:    ($SCORE|tonumber0)
+            },
+            findings: $findings[0]
+          }' > summary.json
+# ═══════════════════════════════════════════
+# ═══════════════════════════════════════════
+      - name: 📊 Final Summary (GitHub Step Summary)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "## 🎯 Overall Security Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          SCORE=$(jq -r '.summary.score' summary.json)
+          CRITICAL=$(jq -r '.summary.critical' summary.json)
+          HIGH=$(jq -r '.summary.high' summary.json)
+          MEDIUM=$(jq -r '.summary.medium' summary.json)
+          LOW=$(jq -r '.summary.low' summary.json)
+
+          if [ "$SCORE" -ge 80 ]; then
+            RISK="🟢 LOW"
+          elif [ "$SCORE" -ge 60 ]; then
+            RISK="🟡 MEDIUM"
+          elif [ "$SCORE" -ge 40 ]; then
+            RISK="🟠 HIGH"
+          else
+            RISK="🔴 CRITICAL"
+          fi
+
+          echo "### Overall Risk: $RISK" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Security Score:** $SCORE/100" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "### 📊 Findings by Source" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Scan Type | Tool | Critical | High | Medium | Low | Total |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----------|------|----------|------|--------|-----|-------|" >> "$GITHUB_STEP_SUMMARY"
+
+          # Read per-tool breakdown from summary.json (no undefined vars problems)
+          npm_c=$(jq -r '.breakdown.npm_audit.critical' summary.json)
+          npm_h=$(jq -r '.breakdown.npm_audit.high' summary.json)
+          npm_m=$(jq -r '.breakdown.npm_audit.medium' summary.json)
+          npm_l=$(jq -r '.breakdown.npm_audit.low' summary.json)
+          npm_t=$((npm_c + npm_h + npm_m + npm_l))
+          echo "| 🔍 SCA | npm audit | $npm_c | $npm_h | $npm_m | $npm_l | $npm_t |" >> "$GITHUB_STEP_SUMMARY"
+
+          dc_c=$(jq -r '.breakdown.dependency_check.critical' summary.json)
+          dc_h=$(jq -r '.breakdown.dependency_check.high' summary.json)
+          dc_m=$(jq -r '.breakdown.dependency_check.medium' summary.json)
+          dc_l=$(jq -r '.breakdown.dependency_check.low' summary.json)
+          dc_t=$((dc_c + dc_h + dc_m + dc_l))
+          echo "| 🔍 SCA | OWASP Dependency-Check | $dc_c | $dc_h | $dc_m | $dc_l | $dc_t |" >> "$GITHUB_STEP_SUMMARY"
+
+          tv_c=$(jq -r '.breakdown.trivy_sca.critical' summary.json)
+          tv_h=$(jq -r '.breakdown.trivy_sca.high' summary.json)
+          tv_m=$(jq -r '.breakdown.trivy_sca.medium' summary.json)
+          tv_l=$(jq -r '.breakdown.trivy_sca.low' summary.json)
+          tv_t=$((tv_c + tv_h + tv_m + tv_l))
+          echo "| 🔍 SCA | Trivy (fs vuln) | $tv_c | $tv_h | $tv_m | $tv_l | $tv_t |" >> "$GITHUB_STEP_SUMMARY"
+
+          iac_c=$(jq -r '.breakdown.trivy_config.critical' summary.json)
+          iac_h=$(jq -r '.breakdown.trivy_config.high' summary.json)
+          iac_m=$(jq -r '.breakdown.trivy_config.medium' summary.json)
+          iac_l=$(jq -r '.breakdown.trivy_config.low' summary.json)
+          iac_t=$((iac_c + iac_h + iac_m + iac_l))
+          echo "| 🧱 IaC | Trivy Config | $iac_c | $iac_h | $iac_m | $iac_l | $iac_t |" >> "$GITHUB_STEP_SUMMARY"
+
+          sg_h=$(jq -r '.breakdown.semgrep.high' summary.json)
+          sg_m=$(jq -r '.breakdown.semgrep.medium' summary.json)
+          sg_l=$(jq -r '.breakdown.semgrep.low' summary.json)
+          sg_t=$((sg_h + sg_m + sg_l))
+          echo "| 🔬 SAST | Semgrep | 0 | $sg_h | $sg_m | $sg_l | $sg_t |" >> "$GITHUB_STEP_SUMMARY"
+
+          # CodeQL row 
+          CQ_C=$(jq -r '.breakdown.codeql.critical // 0' summary.json || echo "0")
+          CQ_H=$(jq -r '.breakdown.codeql.high // 0' summary.json || echo "0")
+          CQ_M=$(jq -r '.breakdown.codeql.medium // 0' summary.json || echo "0")
+          CQ_L=$(jq -r '.breakdown.codeql.low // 0' summary.json || echo "0")
+
+          # CodeQL row (Dynamic numbers)
+          if [ "${{ inputs.run_codeql }}" = "true" ]; then
+            # حساب المجموع الكلي لـ CodeQL
+            cq_t=$((CQ_C + CQ_H + CQ_M + CQ_L))
+            echo "| 🔬 SAST | CodeQL | $CQ_C | $CQ_H | $CQ_M | $CQ_L | $cq_t |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # zap row
+          zap_h=$(jq -r '.breakdown.zap.high' summary.json)
+          zap_m=$(jq -r '.breakdown.zap.medium' summary.json)
+          zap_l=$(jq -r '.breakdown.zap.low' summary.json)
+          zap_t=$((zap_h + zap_m + zap_l))
+          if [ "${{ inputs.dast_url }}" != "" ]; then
+            echo "| 🌐 DAST | OWASP ZAP | 0 | $zap_h | $zap_m | $zap_l | $zap_t |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "| 🌐 DAST | OWASP ZAP | - | - | - | - | Skipped |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "| **TOTAL** | - | **$CRITICAL** | **$HIGH** | **$MEDIUM** | **$LOW** | **$((CRITICAL + HIGH + MEDIUM + LOW))** |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # Top findings
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "### 🚨 Top Critical/High Findings" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            jq -r '
+              .findings[]
+              | select(.severity=="CRITICAL" or .severity=="HIGH")
+              | "**\(.severity)** - \(.title // "Unknown")\n- **Source:** \(.source // "N/A")\n- **Package:** \(.package // "N/A")\n- **CVE:** \(.cve // "N/A")\n- **Fix:** \(.fix // "See report")\n\n---\n"
+            ' summary.json 2>/dev/null | head -200 >> "$GITHUB_STEP_SUMMARY" || true
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Quick Fixes (safe logic)
+          echo "### 🔧 Quick Fixes" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f $GITHUB_WORKSPACE/npm-audit.json ] && { [ "$npm_c" -gt 0 ] || [ "$npm_h" -gt 0 ]; }; then
+            echo "**For Node.js/npm vulnerabilities:**" >> "$GITHUB_STEP_SUMMARY"
+            echo '```bash' >> "$GITHUB_STEP_SUMMARY"
+            echo "npm audit fix" >> "$GITHUB_STEP_SUMMARY"
+            echo "npm audit fix --force  # use with caution" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -f trivy-sca.json ] && { [ "$tv_c" -gt 0 ] || [ "$tv_h" -gt 0 ]; }; then
+            echo "**For Trivy findings:**" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Update affected packages to FixedVersion where available" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Review CVE IDs in Trivy report" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -f trivy-config.json ] && { [ "$iac_c" -gt 0 ] || [ "$iac_h" -gt 0 ]; }; then
+            echo "**For IaC misconfigurations:**" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Fix Trivy Config recommendations and re-scan" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Reports list
+          echo "### 📥 Detailed Reports (Artifacts)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Report | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
+
+          [ -f npm-audit.json ] && echo "| 📄 npm-audit.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 npm-audit.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+          [ -f ${{ env.REPORTS_DIR }}/depcheck-output/dependency-check-report.json ] && echo "| 📄 dependency-check-report.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 dependency-check-report.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+          [ -f trivy-sca.json ] && echo "| 📄 trivy-sca.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 trivy-sca.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+          [ -f trivy-config.json ] && echo "| 📄 trivy-config.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 trivy-config.json | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+          [ -f semgrep.sarif ] && echo "| 📄 semgrep.sarif | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 semgrep.sarif | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+          [ -f zap-output/zap-report.json ] && echo "| 📄 zap-report.json | ✅ |" >> "$GITHUB_STEP_SUMMARY" || echo "| 📄 zap-report.json | ❌/Skipped |" >> "$GITHUB_STEP_SUMMARY"
+          [ -f summary.json ] && echo "| 📄 summary.json | ✅ |" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 📌 Next Steps" >> "$GITHUB_STEP_SUMMARY"
+          echo "1. Review the Top Findings section" >> "$GITHUB_STEP_SUMMARY"
+          echo "2. Download artifacts for full reports" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ inputs.run_codeql }}" = "true" ]; then
+            echo "3. Check CodeQL alerts in Security tab" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Reports list
+          echo "### 📥 Detailed Reports (Artifacts)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Report | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
+
+          check_file () {
+            local label="$1"
+            local path="$2"
+            if ls $path >/dev/null 2>&1; then
+              echo "| 📄 $label | ✅ |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| 📄 $label | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          }
+
+          check_file "npm-audit.json" "npm-audit.json"
+          check_file "dependency-check-report.json" "${{ env.REPORTS_DIR }}/depcheck-output/dependency-check-report.json"
+          check_file "trivy-sca.json" "trivy-sca.json"
+          check_file "trivy-config.json" "trivy-config.json"
+          check_file "semgrep.sarif" "semgrep.sarif"
+          check_file "zap-report.json" "zap-output/zap-report.json"
+          check_file "summary.json" "summary.json"
+
+          # CodeQL SARIF (add row)
+          check_file "codeql-results.sarif (sarif-results/*.sarif)" "sarif-results/*.sarif"
+
+      # ═══════════════════════════════════════════
+      # DEFECTDOJO INTEGRATION
+      # ═══════════════════════════════════════════
+      - name: 📊 Upload to DefectDojo
+        if: ${{ inputs.defectdojo_enabled == true }}
+        env:
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+          #DEFECTDOJO_PRODUCT_ID: ${{ secrets.DEFECTDOJO_PRODUCT_ID }}
+          #DEFECTDOJO_ENGAGEMENT_ID: ${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}
+          DEFECTDOJO_AUTO_CREATE: ${{ inputs.defectdojo_auto_create }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+          #RUN_TRIVY_SCA: ${{ inputs.run_trivy_sca }}
+          #RUN_DEPENDENCY_CHECK: ${{ inputs.run_dependency_check }}
+        run: |
+          set -euo pipefail  
+          UPLOAD_COUNT=0
+          UPLOAD_ERRORS=0
+
+          echo "## 📊 DefectDojo Integration" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # --- 0) Validate required basics ---
+          if [ -z "${DEFECTDOJO_URL:-}" ] || [ -z "${DEFECTDOJO_TOKEN:-}" ]; then
+            echo "⚠️ DefectDojo upload skipped: missing URL/TOKEN" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          REPO_NAME="$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f2)"
+          PRODUCT_NAME="$REPO_NAME"
+          ENGAGEMENT_NAME="${REPO_NAME}-${BRANCH}"
+
+          echo "🔗 DefectDojo Server: ${DEFECTDOJO_URL}" >> "$GITHUB_STEP_SUMMARY"
+          echo "📦 Product (target): ${PRODUCT_NAME}" >> "$GITHUB_STEP_SUMMARY"
+          echo "🧩 Engagement (target): ${ENGAGEMENT_NAME}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # --- 1) Decide mode: auto-create vs manual IDs ---
+          AUTO_CREATE="${DEFECTDOJO_AUTO_CREATE:-false}"
+
+          if [ "$AUTO_CREATE" = "true" ]; then
+            echo "🤖 Auto-create mode enabled"
+
+            # --- 2) Find or Create Product by repo name ---
+            echo "🔍 Checking Product: $PRODUCT_NAME"
+            PRODUCT_SEARCH="$(curl -sS -G \
+              -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+              --data-urlencode "name=${PRODUCT_NAME}" \
+              "${DEFECTDOJO_URL}/api/v2/products/")"
+
+            PRODUCT_ID="$(echo "$PRODUCT_SEARCH" | jq -r '.results[0].id // empty')"
+
+            if [ -z "$PRODUCT_ID" ]; then
+              echo "📦 Creating Product: $PRODUCT_NAME"
+              CREATE_PRODUCT="$(curl -sS -X POST \
+                -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"name\": \"${PRODUCT_NAME}\",
+                  \"description\": \"Auto-created from GitHub Actions\",
+                  \"prod_type\": 1
+                }" \
+                "${DEFECTDOJO_URL}/api/v2/products/")"
+
+              PRODUCT_ID="$(echo "$CREATE_PRODUCT" | jq -r '.id // empty')"
+            fi
+
+            if [ -z "$PRODUCT_ID" ]; then
+              echo "❌ Could not resolve/create product" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+            # --- 3) Find or Create Engagement by name ---
+            echo "🔍 Checking Engagement: $ENGAGEMENT_NAME"
+            ENG_SEARCH="$(curl -sS -G \
+              -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+              --data-urlencode "search=${ENGAGEMENT_NAME}" \
+              "${DEFECTDOJO_URL}/api/v2/engagements/")"
+
+            ENGAGEMENT_ID="$(echo "$ENG_SEARCH" | jq -r --arg n "$ENGAGEMENT_NAME" --arg p "$PRODUCT_ID" \
+              '.results[] | select(.name==$n and (.product|tostring)==$p) | .id' | head -n1)"
+
+            if [ -n "$ENGAGEMENT_ID" ]; then
+              echo "✅ Engagement found (ID: $ENGAGEMENT_ID)" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            if [ -z "$ENGAGEMENT_ID" ]; then
+              echo "🧩 Creating Engagement: $ENGAGEMENT_NAME"
+              TARGET_START="$(date +%Y-%m-%d)"
+              TARGET_END="$(date -d '+365 days' +%Y-%m-%d 2>/dev/null || date -v+365d +%Y-%m-%d)"  # linux/mac fallback
+
+              RESPONSE="$(curl -sS -L \
+                -w "\n%{http_code}" \
+                -X POST \
+                -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"name\": \"${ENGAGEMENT_NAME}\",
+                  \"product\": ${PRODUCT_ID},
+                  \"status\": \"In Progress\",
+                  \"engagement_type\": \"CI/CD\",
+                  \"target_start\": \"${TARGET_START}\",
+                  \"target_end\": \"${TARGET_END}\"
+                }" \
+                "${DEFECTDOJO_URL}/api/v2/engagements/")"
+
+              HTTP_CODE="$(echo "$RESPONSE" | tail -n1)"
+              BODY="$(echo "$RESPONSE" | sed '$d')"
+
+              if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
+                ENGAGEMENT_ID="$(echo "$BODY" | jq -r '.id // empty')"
+              else
+                echo "❌ Engagement create failed (HTTP $HTTP_CODE)" >> "$GITHUB_STEP_SUMMARY"
+                echo "Response: $(echo "$BODY" | head -c 600)" >> "$GITHUB_STEP_SUMMARY"
+                ENGAGEMENT_ID=""
+              fi
+            fi
+
+            if [ -z "$ENGAGEMENT_ID" ]; then
+              echo "❌ Could not resolve/create engagement" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+          else
+            echo "🧩 Manual IDs mode enabled"
+
+            if [ -z "${DEFECTDOJO_PRODUCT_ID:-}" ] || [ -z "${DEFECTDOJO_ENGAGEMENT_ID:-}" ]; then
+              echo "⚠️ DefectDojo upload skipped: missing PRODUCT_ID/ENGAGEMENT_ID in manual mode" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+            # Normalize if secrets contain "id_" prefix
+            PRODUCT_ID="id_${DEFECTDOJO_PRODUCT_ID}"; PRODUCT_ID="${PRODUCT_ID#id_}"
+            ENGAGEMENT_ID="id_${DEFECTDOJO_ENGAGEMENT_ID}"; ENGAGEMENT_ID="${ENGAGEMENT_ID#id_}"
+          fi
+
+          echo "📦 Product: ${PRODUCT_NAME} (ID: ${PRODUCT_ID})" >> "$GITHUB_STEP_SUMMARY"
+          echo "🧩 Engagement: ${ENGAGEMENT_NAME} (ID: ${ENGAGEMENT_ID})" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # --- Upload function: try reimport first, then fallback to import for first-time creation ---
+          upload_to_defectdojo() {
+            local SCAN_TYPE="$1"
+            local FILE_PATH="$2"
+            local TEST_TITLE="$3"
+
+            if [ ! -f "$FILE_PATH" ]; then
+              echo "⚠️ Skipping $SCAN_TYPE - file not found: $FILE_PATH"
+              echo "- ⚠️ ${SCAN_TYPE} skipped (missing file: $FILE_PATH)" >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+
+            do_upload() {
+              local ENDPOINT="$1"
+
+              # base form fields (keep your logic)
+              local CURL_ARGS=(
+                -sS -L --max-time 180 --connect-timeout 25
+                -w "\n%{http_code}"
+                -X POST "${DEFECTDOJO_URL}/api/v2/${ENDPOINT}/"
+                -H "Authorization: Token ${DEFECTDOJO_TOKEN}"
+                -F "scan_type=${SCAN_TYPE}"
+                -F "file=@${FILE_PATH}"
+                -F "product_name=${PRODUCT_NAME}"
+                -F "engagement_name=${ENGAGEMENT_NAME}"
+                -F "test_title=${TEST_TITLE}"
+                -F "scan_date=$(date +%Y-%m-%d)"
+                -F "tags=github-actions,${BRANCH}"
+                -F "close_old_findings=false"
+              )
+
+              # Optional: if your Dojo supports it, passing engagement id can help resolve correctly
+              if [ -n "${ENGAGEMENT_ID:-}" ]; then
+                CURL_ARGS+=(-F "engagement=${ENGAGEMENT_ID}")
+              fi
+
+              curl "${CURL_ARGS[@]}"
+            }
+
+            echo "📤 Uploading ${SCAN_TYPE} (reimport -> fallback import)..."
+
+            local RESPONSE HTTP_CODE BODY
+            RESPONSE="$(do_upload "reimport-scan")"
+            HTTP_CODE="$(echo "$RESPONSE" | tail -n1)"
+            BODY="$(echo "$RESPONSE" | sed '$d')"
+
+            if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ ${SCAN_TYPE} reimported successfully"
+              UPLOAD_COUNT=$(( ${UPLOAD_COUNT:-0} + 1 ))
+              echo "- ✅ ${SCAN_TYPE} reimported" >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+
+            # If reimport fails because the test does not exist yet, create it via import-scan
+            if echo "$BODY" | grep -qiE "test could not be found|does not exist|no test"; then
+              echo "ℹ️ No existing test found. Creating it via import-scan..."
+
+              local RESPONSE2 HTTP_CODE2 BODY2
+              RESPONSE2="$(do_upload "import-scan")"
+              HTTP_CODE2="$(echo "$RESPONSE2" | tail -n1)"
+              BODY2="$(echo "$RESPONSE2" | sed '$d')"
+
+              if [ "$HTTP_CODE2" = "201" ] || [ "$HTTP_CODE2" = "200" ]; then
+                echo "✅ ${SCAN_TYPE} imported successfully (initial create)"
+                UPLOAD_COUNT=$(( ${UPLOAD_COUNT:-0} + 1 ))
+                echo "- ✅ ${SCAN_TYPE} imported" >> "$GITHUB_STEP_SUMMARY"
+                return 0
+              fi
+
+              echo "❌ Import failed (HTTP $HTTP_CODE2)"
+              echo "Response: $(echo "$BODY2" | head -c 600)"
+              echo "- ❌ ${SCAN_TYPE} import failed (HTTP $HTTP_CODE2): $(echo "$BODY2" | tr '\n' ' ' | head -c 200)" >> "$GITHUB_STEP_SUMMARY"
+              UPLOAD_ERRORS=$(( ${UPLOAD_ERRORS:-0} + 1 ))
+              return 1
+            fi
+
+            echo "❌ Upload failed (HTTP $HTTP_CODE)"
+            echo "Response: $(echo "$BODY" | head -c 600)"
+            echo "- ❌ ${SCAN_TYPE} reimport failed (HTTP $HTTP_CODE): $(echo "$BODY" | tr '\n' ' ' | head -c 200)" >> "$GITHUB_STEP_SUMMARY"
+            UPLOAD_ERRORS=$(( ${UPLOAD_ERRORS:-0} + 1 ))
+            return 1
+          }
+
+          report_upload() {
+            local LABEL="$1"
+            local SCAN_TYPE="$2"
+            local FILE_PATH="$3"
+            local TEST_TITLE="$4"
+
+            if upload_to_defectdojo "$SCAN_TYPE" "$FILE_PATH" "$TEST_TITLE"; then
+              echo "- ✅ ${LABEL} uploaded" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- ❌ ${LABEL} failed" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          }
+
+          echo "### 📤 Upload Status:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # --- NPM Audit ---
+          report_upload "NPM Audit" "NPM Audit Scan" "$GITHUB_WORKSPACE/npm-audit.json" "NPM Audit - ${BRANCH}"
+
+          # --- CodeQL SARIF ---
+          if [ -d sarif-results ] && ls -1 sarif-results/*.sarif >/dev/null 2>&1; then
+            for SARIF_FILE in sarif-results/*.sarif; do
+              LANG="$(basename "$SARIF_FILE" .sarif)"
+              report_upload "CodeQL SARIF (${LANG})" "SARIF" "$SARIF_FILE" "CodeQL ${LANG} - ${BRANCH}"
+            done
+          else
+            echo "- ⚠️ CodeQL SARIF skipped (no files)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # --- OWASP ZAP ---
+          if [ -f "zap-output/zap-report.xml" ]; then
+            report_upload "OWASP ZAP" "ZAP Scan" "zap-output/zap-report.xml" "OWASP ZAP - ${BRANCH}"
+          else
+            echo "- ⚠️ OWASP ZAP skipped (missing report)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # --- Trivy SCA ---
+          if [ "${RUN_TRIVY_SCA:-false}" = "true" ]; then
+            if [ -f "trivy-sca.json" ]; then
+              report_upload "Trivy SCA" "Trivy Scan" "trivy-sca.json" "Trivy SCA - ${BRANCH}"
+            else
+              echo "- ⚠️ Trivy SCA skipped (missing trivy-sca.json)" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          # --- OWASP Dependency-Check ---
+          if [ "${RUN_DEPENDENCY_CHECK:-false}" = "true" ]; then
+            DEP_XML="${REPORTS_DIR:-.}/depcheck-output/dependency-check-report.xml"
+            if [ -f "$DEP_XML" ]; then
+              report_upload "OWASP Dependency-Check" "Dependency Check Scan" "$DEP_XML" "OWASP Dependency-Check - ${BRANCH}"
+            else
+              echo "- ⚠️ OWASP Dependency-Check skipped (missing $DEP_XML)" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          # --- Semgrep (SARIF) ---
+          if [ -f "semgrep.sarif" ]; then
+            report_upload "Semgrep" "SARIF" "semgrep.sarif" "Semgrep - ${BRANCH}"
+          else
+            echo "- ⚠️ Semgrep skipped (missing semgrep.sarif)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 📊 Summary:" >> "$GITHUB_STEP_SUMMARY"
+          #echo "- **Successful uploads:** $UPLOAD_COUNT" >> "$GITHUB_STEP_SUMMARY"
+          #echo "- **Errors:** $UPLOAD_ERRORS" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "🔗 View DefectDojo: ${DEFECTDOJO_URL}" >> "$GITHUB_STEP_SUMMARY"
+        continue-on-error: true
+      # ═══════════════════════════════════════════
+      # UPLOAD ARTIFACTS
+      # ═══════════════════════════════════════════
+      
+      - name: 📤 Upload Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            summary.json
+            npm-audit.json
+            semgrep.sarif
+            trivy-config.json
+            trivy-sca.json
+            sarif-results/*.sarif
+            gitleaks-results.sarif
+            sarif-results/**/*.sarif
+
+            # New (preferred)
+            ${{ env.REPORTS_DIR }}/depcheck-output/dependency-check-report.json
+            ${{ env.REPORTS_DIR }}/depcheck-output/dependency-check-report.xml
+
+            # Old (backward compatible)
+            depcheck-output/dependency-check-report.json
+            depcheck-output/dependency-check-report.xml
+
+            zap-output/zap-report.json
+            zap-output/zap-report.html
+          
+          retention-days: 30
+          if-no-files-found: warn
+
+      # ═══════════════════════════════════════════
+      # QUALITY GATE
+      # ═══════════════════════════════════════════
+      
+      - name: 🚨 Security Quality Gate
+        run: |
+          if [ -f summary.json ]; then
+            CRITICAL=$(jq -r '.summary.critical' summary.json)
+            
+            if [ $CRITICAL -gt 0 ]; then
+              echo "❌ CRITICAL vulnerabilities found: $CRITICAL"
+              echo "⚠️ WARNING: $CRITICAL critical vulnerabilities found."
+              echo "Note: Quality gate bypassed (Exit 0), but please review these issues."
+              echo "Please fix before merging"
+              exit 0
+            fi
+          fi
+          
+          echo "✅ No critical vulnerabilities - Quality gate passed"

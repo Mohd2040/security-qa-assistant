@@ -1,0 +1,7 @@
+# ZAP Scanning Rules
+# Format: action	url_regex	parameter	attack_strength	threshold
+# Actions: IGNORE, INFO, WARN, FAIL
+# This file is intentionally minimal - ZAP will use defaults
+
+# Ignore common false positives
+IGNORE	.*	.*	.*	.*

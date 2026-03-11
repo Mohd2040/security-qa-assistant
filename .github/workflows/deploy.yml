@@ -2,7 +2,10 @@ name: Build and Push Docker Image
 
 on:
   #push:
+#devops3
+  #  branches: [ "devops3", "main" ]
     #branches: [ "devops3", "main" ]
+#master
   workflow_dispatch:
 
 env:

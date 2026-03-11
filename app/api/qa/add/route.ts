@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     const status: QaStatus = normalizeStatus(body.status);
     const owner_group: OwnerGroup = normalizeOwner(body.owner_group);
 
-    const qaDoc: QaEntry & Record<string, any> = {
+    const qaDoc: QaEntry = {
       // الأسئلة
       question_text: String(body.question_text).trim(),
       question_text_en:

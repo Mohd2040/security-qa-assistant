@@ -1,0 +1,67 @@
+name: Security Vulnerability Test
+
+on:
+  push:
+    branches: [ "devops3" ]
+  #pull_request:
+  #  branches: [ "devops3" ]
+  #schedule:
+    # Run every Monday at 2 AM UTC for periodic assessment
+    #- cron: '0 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      runner_labels:
+        required: false
+        type: string
+        default: '["self-hosted", "ubuntudevops"]'
+        #default: '["ubuntu-latest"]'
+      dast_url:
+        description: 'Target URL for DAST scan (optional)'
+        required: false
+        type: string
+        #default: ''
+        default: 'https://security-qa-assistant.onrender.com/'
+      dast_login_url:
+        description: 'Login page URL for authenticated scanning'
+        required: false
+        type: string
+        default: 'https://security-qa-assistant.onrender.com/login'
+      dast_success_indicator:
+        description: 'URL pattern or text indicating successful login'
+        required: false
+        type: string
+        default: 'https://security-qa-assistant.onrender.com/admin'
+      dast_username_field:
+        description: 'Username field name in login form'
+        required: false
+        type: string
+        default: ''
+      dast_password_field:
+        description: 'Password field name in login form'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  call-security-scan:
+    name: Run Security Scan
+    uses: Mohd2040/vulnerability-test-tools/.github/workflows/reusable-security.yml@main
+    with:
+      runner_labels: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_labels || '["ubuntudevops"]' }}
+      project_type: 'auto'
+      run_trivy_sca: 'auto'
+      run_Semgrep_sca: 'auto'
+      run_codeql: 'true'
+      run_npm_audit: 'false'
+      defectdojo_enabled: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+      defectdojo_auto_create: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+      #dast_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_url || 'https://security-qa-assistant.onrender.com/' }}
+      #dast_login_url: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_login_url || 'https://security-qa-assistant.onrender.com/login' }}
+      #dast_success_indicator: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dast_success_indicator || 'https://security-qa-assistant.onrender.com/admin' }}
+    secrets: inherit
+    
